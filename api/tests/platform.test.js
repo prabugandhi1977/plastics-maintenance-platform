@@ -170,3 +170,38 @@ test('company and plant settings, admin password reset and session sign-out',asy
   assert.equal((await call('/users/u-euro/password','POST',{newPassword:'Euro-Temp-Pass-005'},tokens.atlasAdmin)).status,403);
   assert.ok(one("SELECT 1 FROM audit_events WHERE action='user.password_reset' AND entity_id='u-acme-maint'"));
 });
+
+test('sign-in: per-account pause with warnings, padded passwords, demo flag, admin bootstrap and recovery',async()=>{
+  const { spawnSync }=await import('node:child_process');
+  const { hashPassword }=await import('../security.js');
+  assert.deepEqual((await call('/config')).data,{demoAccounts:true});
+  assert.equal((await call('/users','POST',{companyId:'c-acme',name:'Typo Prone',email:'typo@acme.test',role:'maintenance',password:'Correct-Pass-777'},tokens.acme)).status,201);
+  const wrong=()=>login('typo@acme.test','not-the-password');
+  assert.equal((await wrong()).data.error,'Email or password is incorrect.');
+  await wrong();
+  assert.match((await wrong()).data.error,/2 attempts left/);
+  assert.match((await wrong()).data.error,/1 attempt left/);
+  assert.match((await wrong()).data.error,/now paused for 15 minutes/);
+  const paused=await login('typo@acme.test','Correct-Pass-777');
+  assert.equal(paused.status,429); assert.match(paused.data.error,/Try again in 15 minutes/);
+  assert.equal((await call('/users/'+one("SELECT id FROM users WHERE email='typo@acme.test'").id+'/password','POST',{newPassword:'Fresh-Temp-Pass-888'},tokens.acme)).status,200);
+  assert.equal((await login('typo@acme.test','Fresh-Temp-Pass-888')).status,200);
+  assert.equal((await login('  TYPO@Acme.test ','Fresh-Temp-Pass-888')).status,200);
+  assert.equal((await login('typo@acme.test','  Fresh-Temp-Pass-888  ')).status,200);
+  db.prepare("UPDATE users SET password_hash=? WHERE email='typo@acme.test'").run(hashPassword(' pasted with spaces '));
+  assert.equal((await login('typo@acme.test',' pasted with spaces ')).status,200);
+  assert.equal((await call('/auth/login','POST',{email:'typo@acme.test',password:''})).status,400);
+
+  const bootstrap=env=>spawnSync(process.execPath,['api/bootstrap-admin.js'],{env:{...process.env,...env},encoding:'utf8'});
+  const created=bootstrap({MOULDCARE_ADMIN_EMAIL:'Owner@Example.com',MOULDCARE_ADMIN_PASSWORD:'  Owner-Start-Pass-01 \n'});
+  assert.equal(created.status,0,created.stderr); assert.match(created.stdout,/Created platform admin owner@example.com/);
+  const owner=await login('owner@example.com','Owner-Start-Pass-01'); assert.equal(owner.status,200); assert.equal(owner.data.user.mustChangePassword,true);
+  assert.match(bootstrap({MOULDCARE_ADMIN_EMAIL:'owner@example.com',MOULDCARE_ADMIN_PASSWORD:'Something-Else-02'}).stdout,/already exists/);
+  assert.equal((await login('owner@example.com','Something-Else-02')).status,401);
+  const recovered=bootstrap({MOULDCARE_ADMIN_EMAIL:'owner@example.com',MOULDCARE_ADMIN_PASSWORD:'Recovered-Pass-03',MOULDCARE_ADMIN_RESET_PASSWORD:'true'});
+  assert.equal(recovered.status,0,recovered.stderr); assert.match(recovered.stdout,/Reset password for platform admin/);
+  assert.equal((await call('/me','GET',null,owner.data.token)).status,401);
+  assert.equal((await login('owner@example.com','Recovered-Pass-03')).status,200);
+  const refused=bootstrap({MOULDCARE_ADMIN_EMAIL:'nova@demo.test',MOULDCARE_ADMIN_PASSWORD:'Hijack-Attempt-04',MOULDCARE_ADMIN_RESET_PASSWORD:'true'});
+  assert.notEqual(refused.status,0); assert.match(refused.stderr,/not a platform admin/);
+});

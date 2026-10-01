@@ -28,7 +28,9 @@ Decide the **email and password for your admin account**. The password needs at 
 8. **Open your site.** The web address is at the top of the service page, something like `https://plastics-maintenance-platform.onrender.com`.
    - Web workspace: `https://…onrender.com/`
    - Field app for phones: `https://…onrender.com/mobile/` (open it on a phone and use **Add to Home screen**)
-9. **Sign in** with your admin email and password, then go to **Account** and change the password.
+9. **Sign in** with your admin email and password. You are taken to **Account** to choose your own password.
+   - Tick **Keep me signed in on this device** to stay signed in after closing the browser.
+   - Otherwise you stay signed in until you close the tab, and refreshing the page keeps you signed in either way.
 10. **Optional tidy-up.** In Render, go to **Environment** and delete `MOULDCARE_ADMIN_PASSWORD`, so the starting password isn't kept there. Your account stays as it is.
 
 ## After it's live
@@ -44,5 +46,7 @@ Decide the **email and password for your admin account**. The password needs at 
 | --- | --- |
 | Logs say `MOULDCARE_SECRET must be at least 32 characters` | In **Environment**, make sure `MOULDCARE_SECRET` exists. It should be generated automatically; if it's missing, add a long random value. |
 | Logs say `MOULDCARE_ADMIN_PASSWORD must have at least 12 characters` | Set a longer password in **Environment**; Render redeploys automatically. |
-| "Invalid credentials" when signing in | Check the email matches `MOULDCARE_ADMIN_EMAIL` exactly. After five wrong tries, sign-in for that email is blocked for 15 minutes. |
+| "Email or password is incorrect" | Check the email matches `MOULDCARE_ADMIN_EMAIL` (capitals and spaces don't matter). The message warns when 2 tries are left. |
+| "Too many wrong passwords for this account" | Sign-in for that email is paused for 15 minutes after 5 wrong passwords. Wait, or ask an admin to use **Reset password**, which lifts the pause immediately. |
+| Forgot the only admin password | In Render, open **Environment**. Set `MOULDCARE_ADMIN_PASSWORD` to a new temporary password, and add `MOULDCARE_ADMIN_RESET_PASSWORD` = `true`, then save. Render restarts the service, and the logs show `Reset password for platform admin`. Sign in with that password, choose your own, then **delete** `MOULDCARE_ADMIN_RESET_PASSWORD` and save again. |
 | The site shows an error page right after deploying | Wait until the status is **Live**; the first start takes a minute. |

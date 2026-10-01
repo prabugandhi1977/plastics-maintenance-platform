@@ -16,14 +16,51 @@ const assetName=id=>{ const e=(state.data.equipment||[]).find(x=>x.id===id); ret
 const assigneeName=tk=>tk.assigned_provider_id?((state.data.providers||[]).find(p=>p.id===tk.assigned_provider_id)?.name||label('status','assigned')):tk.assigned_user_id?((state.data.users||[]).find(u=>u.id===tk.assigned_user_id)?.name||label('status','assigned')):t('label.unassigned');
 const TRANSITIONS={assigned:['accepted','declined','escalated'],accepted:['in_progress','escalated'],in_progress:['escalated','completed'],escalated:['in_progress','completed']};
 
-const api=async(path,method='GET',body)=>{const r=await fetch('/api'+path,{method,headers:{'content-type':'application/json',...(state.token?{authorization:`Bearer ${state.token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(r.status===401&&state.token){state.token=null;state.user=null;}if(!r.ok)throw Error(data.error||`HTTP ${r.status}`);return data;};
+const api=async(path,method='GET',body)=>{const r=await fetch('/api'+path,{method,headers:{'content-type':'application/json',...(state.token?{authorization:`Bearer ${state.token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(r.status===401&&state.token){state.token=null;state.user=null;clearSession();if(path!=='/me'&&path!=='/me/password')state.error='Your session has ended. Please sign in again.';}if(!r.ok)throw Error(data.error||`HTTP ${r.status}`);return data;};
 function message(text,isError=false){state.notice=isError?'':text;state.error=isError?text:'';render();}
 const fail=e=>message(e.message,true);
 async function load(){const paths=['dashboard','companies','plants','equipment','tickets','contracts','parts','providers','users',...(manager()?['audit']:[]),...(deviceAdmin()?['devices']:[]),...(is('platform_admin')?['integrations/status']:[])];const out=await Promise.all(paths.map(async p=>[p==='integrations/status'?'integrations':p,await api('/'+p).catch(()=>[])]));state.data=Object.fromEntries(out);render();}
 function table(headers,rows){return `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.join(''):`<tr><td colspan="${headers.length}" class="empty">${esc(t('msg.noRecords'))}</td></tr>`}</tbody></table></div>`;}
 const tile=(text,value,tone='')=>`<div class="card ${tone}"><small>${esc(text)}</small><strong>${value}</strong></div>`;
 
-function loginView(){$('#app').innerHTML=`<div class="login"><div class="brand" style="color:#12323d">Mould<span>Care</span></div><h1>Service operations</h1><p class="muted">Sign in to the local demo.</p><form id="login"><label>${t('label.email')}</label><input name="email" type="email" required value="acme@demo.test"><label>${t('label.password')}</label><input name="password" type="password" required value="DemoPass123!"><button>${t('action.signIn')}</button></form><p class="muted">Try admin@, dispatch@, engineer@, acme@, maint@, nova@, atlas-admin@, atlas@ or euro@demo.test. All use DemoPass123!</p>${state.error?`<p class="notice error">${esc(state.error)}</p>`:''}</div>`;$('#login').onsubmit=async e=>{e.preventDefault();try{const r=await api('/auth/login','POST',Object.fromEntries(new FormData(e.target)));state.token=r.token;state.user=r.user;setLocale(r.user.preferences.locale);state.error='';if(r.user.mustChangePassword){state.page='account';state.notice=t('msg.mustChange')}await load();}catch(err){message(err.message,true)}};}
+// Sign-in session: kept for this browser tab (sessionStorage), or on this device when "Keep me signed in" is ticked
+// (localStorage). Tokens expire after 8 hours and are cleared on sign-out or when the server rejects them.
+const SESSION_KEY='pmp_session', EMAIL_KEY='pmp_last_email', REMEMBER_KEY='pmp_remember';
+const storage={get:(area,key)=>{try{return window[area].getItem(key)}catch{return null}},set:(area,key,value)=>{try{window[area].setItem(key,value)}catch{}},remove:(area,key)=>{try{window[area].removeItem(key)}catch{}}};
+function clearSession(){storage.remove('localStorage',SESSION_KEY);storage.remove('sessionStorage',SESSION_KEY);}
+function saveSession(token,remember=storage.get('localStorage',SESSION_KEY)!=null){clearSession();storage.set(remember?'localStorage':'sessionStorage',SESSION_KEY,token);}
+const storedSession=()=>storage.get('sessionStorage',SESSION_KEY)||storage.get('localStorage',SESSION_KEY);
+const DEMO_EMAILS=['admin@demo.test','dispatch@demo.test','engineer@demo.test','acme@demo.test','maint@demo.test','nova@demo.test','atlas-admin@demo.test','atlas@demo.test','euro@demo.test'];
+function loginView(){
+  const lastEmail=state.loginEmail??storage.get('localStorage',EMAIL_KEY)??'', remember=storage.get('localStorage',REMEMBER_KEY)==='1';
+  const demo=state.demoAccounts?`<div class="demo-accounts"><p class="muted">Demo accounts on this copy (password <code>DemoPass123!</code>). Click one to fill in:</p>${DEMO_EMAILS.map(e=>`<button type="button" class="secondary demo-fill" data-email="${e}">${e.replace('@demo.test','')}</button>`).join('')}</div>`:'';
+  $('#app').innerHTML=`<div class="login"><div class="brand" style="color:#12323d">Mould<span>Care</span></div><h1>Service operations</h1><p class="muted">Sign in with the email and password your administrator gave you.</p><form id="login" novalidate><label for="login-email">${t('label.email')}</label><input id="login-email" name="email" type="email" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email" value="${esc(lastEmail)}"><label for="login-password">${t('label.password')}</label><div class="pw-row"><input id="login-password" name="password" type="password" required autocomplete="current-password"><button type="button" class="secondary" id="toggle-pw" aria-label="Show password">Show</button></div><label class="remember"><input type="checkbox" name="remember" ${remember?'checked':''}> Keep me signed in on this device</label><button id="login-submit">${t('action.signIn')}</button></form>${state.error?`<p class="notice error" role="alert">${esc(state.error)}</p>`:''}${demo}</div>`;
+  const form=$('#login'), emailEl=$('#login-email'), pw=$('#login-password'), submitBtn=$('#login-submit');
+  (lastEmail?pw:emailEl).focus();
+  $('#toggle-pw').onclick=()=>{const show=pw.type==='password';pw.type=show?'text':'password';$('#toggle-pw').textContent=show?'Hide':'Show';pw.focus();};
+  document.querySelectorAll('.demo-fill').forEach(b=>b.onclick=()=>{emailEl.value=b.dataset.email;pw.value='DemoPass123!';submitBtn.focus();});
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const f=new FormData(form), email=String(f.get('email')||'').trim(), password=String(f.get('password')||''), keep=f.get('remember')==='on';
+    state.loginEmail=email;
+    if(!email||!password){state.error=!email?'Enter your email address.':'Enter your password.';return loginView();}
+    submitBtn.disabled=true;submitBtn.textContent='Signing in…';
+    try{
+      const r=await api('/auth/login','POST',{email,password});
+      storage.set('localStorage',EMAIL_KEY,email);storage.set('localStorage',REMEMBER_KEY,keep?'1':'0');
+      saveSession(r.token,keep);state.loginEmail=undefined;state.token=r.token;state.user=r.user;setLocale(r.user.preferences.locale);state.error='';
+      if(r.user.mustChangePassword){state.page='account';state.notice=t('msg.mustChange')}
+      await load();
+    }catch(err){state.error=err.message==='Failed to fetch'?'Cannot reach the server. Check your connection and try again.':err.message;loginView();}
+  };
+}
+// Start: resume a saved session if the server still accepts it, otherwise show sign-in.
+async function boot(){
+  const token=storedSession();
+  if(token){state.token=token;try{const me=await api('/me');state.user=me;setLocale(me.preferences.locale);if(me.mustChangePassword){state.page='account';state.notice=t('msg.mustChange')}return await load();}catch{state.token=null;state.user=null;clearSession();state.error='';}}
+  try{state.demoAccounts=(await api('/config')).demoAccounts}catch{state.demoAccounts=false}
+  render();
+}
 function layout(content){
   const nav=['dashboard','tickets','equipment','contracts','parts','organisation','providers','integrations','audit','account'].filter(p=>({organisation:manager()||is('provider_admin'),providers:internal()||provider(),integrations:deviceAdmin(),audit:manager()})[p]??true);
   $('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand">Mould<span>Care</span></div>${nav.map(p=>`<button class="nav ${state.page===p&&!state.detail?'active':''}" data-nav="${p}">${esc(t('nav.'+p))}</button>`).join('')}<div class="profile"><b>${esc(state.user.name)}</b><br>${esc(label('role',state.user.role))}<br><label class="lang">${t('label.language')} <select id="locale">${Object.entries(LOCALES).map(([k,v])=>`<option value="${k}" ${prefs().locale===k?'selected':''}>${v}</option>`).join('')}</select></label><a class="click" data-action="logout">${t('action.signOut')}</a></div></aside><main class="main"><div class="top"><div><h1>${esc(state.detail?'':t('nav.'+state.page))}</h1><div class="muted">${t('app.tagline')}</div></div><div class="muted">${formatDate(new Date().toISOString(),prefs().timezone)} · ${esc(prefs().timezone)}</div></div>${state.error?`<div class="notice error">${esc(state.error)}</div>`:''}${state.notice?`<div class="notice">${esc(state.notice)}</div>`:''}${content}</main></div>`;
@@ -97,7 +134,7 @@ const later=(promise,text)=>promise.then(()=>refresh(text)).catch(fail);
 async function action(name,id){
   state.error='';state.notice='';
   const d=state.data, tk=state.detail?.value;
-  if(name==='logout'){state.token=null;state.user=null;state.detail=null;state.page='dashboard';return render()}
+  if(name==='logout'){state.token=null;state.user=null;state.detail=null;state.page='dashboard';clearSession();return boot()}
   if(name==='back'){state.detail=null;return render()}
   if(name==='ticket'||name==='equipment')return api(`/${name==='ticket'?'tickets':'equipment'}/${id}`).then(v=>{state.detail={type:name,value:v};render();window.scrollTo(0,0)}).catch(fail);
   if(name==='done'||name==='undo')return later(api('/checklist/'+id,'PATCH',{done:name==='done'}),t('msg.saved'));
@@ -160,7 +197,7 @@ async function submit(ev){
     else if(kind.startsWith('fulfil:')){path=`/parts/${id}/fulfilment`;body={status:kind.slice(7),reference:v.reference}}
     else if(kind==='attachment'){const file=f.get('file');if(file.size>5*1024*1024)throw Error('File exceeds 5 MB');path='/attachments';body={entityType:state.detail.type,entityId:tid,kind:v.kind,filename:file.name,mime:file.type,base64:await fileBase64(file)}}
     else if(kind==='device'){path='/devices';body={externalDeviceId:v.externalDeviceId,equipmentId:tid,staleAfterMinutes:Number(v.staleAfterMinutes)}}
-    else if(kind==='password'){const r=await api('/me/password','POST',v);state.token=r.token;state.user=r.user;formEl.reset();return message(t('msg.passwordChanged'))}
+    else if(kind==='password'){const r=await api('/me/password','POST',v);saveSession(r.token);state.token=r.token;state.user=r.user;formEl.reset();return message(t('msg.passwordChanged'))}
     else if(kind==='editCompany'){path='/companies/'+id;method='PATCH';body={...v,currency:v.currency.toUpperCase()}}
     else if(kind==='editPlant'){path='/plants/'+id;method='PATCH';body={...v,country:v.country.toUpperCase()}}
     else if(kind==='resetPassword'){path=`/users/${id}/password`;done=t('msg.passwordReset')}
@@ -168,4 +205,4 @@ async function submit(ev){
   }catch(e){message(e.message,true)}
 }
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-download]');if(!a)return;e.preventDefault();try{const r=await fetch(a.href,{headers:{authorization:`Bearer ${state.token}`}});if(!r.ok)throw Error('Unable to download');const url=URL.createObjectURL(await r.blob()),link=document.createElement('a');link.href=url;link.download=a.textContent;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(err){message(err.message,true)}});
-render();
+boot();
