@@ -76,7 +76,7 @@ export function createServer() {
 
 if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   const port=Number(process.env.PORT||3100);
-  createServer().listen(port,()=>console.log(`MouldCare demo: http://localhost:${port}`));
+  createServer().listen(port,()=>console.log(`MouldCare listening on port ${port}`));
   const every=Number(process.env.IOT_SYNC_INTERVAL_SECONDS||0);
   if (every>0) { const adapter=createAdapter(process.env.IOT_SYNC_ADAPTER||'mock'), tick=()=>runSync(adapter).then(r=>console.log(`IoT sync ${r.status}: ${r.accepted} accepted, ${r.duplicates} duplicate, ${r.rejected} rejected${r.error?' - '+r.error:''}`)).catch(e=>console.error('IoT sync skipped:',e.message)); tick(); setInterval(tick,Math.max(every,15)*1000).unref(); }
 }

@@ -90,6 +90,8 @@ What happens on start, and how to configure it:
 - **Secret:** the container runs with `NODE_ENV=production`, so it refuses to start without a `MOULDCARE_SECRET` of at least 32 characters.
 - **Data:** stays in the `platform-data` volume across restarts and rebuilds. Back the volume up regularly.
 
+**To put it online, follow [docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md).** It walks through Render step by step, using the ready-made `render.yaml` in this repository.
+
 **Any cloud host that runs a Docker image works**, such as Azure Container Apps, AWS, Render, Railway or Fly.io. Build from this folder's `Dockerfile` and:
 
 - mount persistent storage at `/data`

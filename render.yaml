@@ -1,0 +1,31 @@
+# Render Blueprint: one web service built from the Dockerfile, with a persistent disk for the database and uploads.
+# Render generates the secrets; you enter the first admin's email and password when creating the Blueprint.
+# Region is fixed at creation; singapore is closest to India (alternatives: frankfurt, oregon, ohio, virginia).
+services:
+  - type: web
+    name: plastics-maintenance-platform
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: platform-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: MOULDCARE_SECRET
+        generateValue: true
+      - key: MOULDCARE_INTEGRATION_KEY
+        generateValue: true
+      - key: MOULDCARE_ADMIN_EMAIL
+        sync: false
+      - key: MOULDCARE_ADMIN_PASSWORD
+        sync: false
+      - key: MOULDCARE_SEED_DEMO
+        value: "false"
+      - key: IOT_SYNC_ADAPTER
+        value: mock
+      - key: IOT_SYNC_INTERVAL_SECONDS
+        value: "0"
