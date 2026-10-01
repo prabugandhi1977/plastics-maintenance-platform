@@ -1,0 +1,20 @@
+# Local or single-server deployment. Settings come from a .env file next to this one (copy .env.example).
+services:
+  platform:
+    build: .
+    image: plastics-maintenance-platform
+    ports:
+      - "${HOST_PORT:-3100}:3100"
+    environment:
+      MOULDCARE_SECRET: ${MOULDCARE_SECRET:?Set MOULDCARE_SECRET (32+ random characters) in .env}
+      MOULDCARE_INTEGRATION_KEY: ${MOULDCARE_INTEGRATION_KEY:-}
+      MOULDCARE_SEED_DEMO: ${MOULDCARE_SEED_DEMO:-false}
+      MOULDCARE_ADMIN_EMAIL: ${MOULDCARE_ADMIN_EMAIL:-}
+      MOULDCARE_ADMIN_PASSWORD: ${MOULDCARE_ADMIN_PASSWORD:-}
+      IOT_SYNC_ADAPTER: ${IOT_SYNC_ADAPTER:-mock}
+      IOT_SYNC_INTERVAL_SECONDS: ${IOT_SYNC_INTERVAL_SECONDS:-0}
+    volumes:
+      - platform-data:/data
+    restart: unless-stopped
+volumes:
+  platform-data:

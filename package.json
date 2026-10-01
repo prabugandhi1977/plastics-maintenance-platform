@@ -1,0 +1,13 @@
+{
+  "name": "mouldcare-mvp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node api/server.js",
+    "seed": "node api/seed.js",
+    "icons": "node scripts/make-icons.js",
+    "test": "node --test api/tests/*.test.js",
+    "iot:sync": "node api/iot-sync.js"
+  },
+  "engines": { "node": ">=22.13" }
+}
