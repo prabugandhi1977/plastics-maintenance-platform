@@ -6,7 +6,8 @@ import { audit, byId, canService, getEquipment, getTicket, isAssignee, isDispatc
 import { created } from '../http.js';
 import { storeFile } from '../files.js';
 import { coverageFor, responseTarget } from './contracts.js';
-import { HttpError, bad, choice, deny, integer, missing, required } from '../validate.js';
+import { HttpError, bad, choice, date, deny, integer, missing, required } from '../validate.js';
+import { FAILURE_CATEGORIES, MACHINE_STATES, FAILURE_MODES, ROOT_CAUSES, ACTIONS } from '../catalog.js';
 
 const TRANSITIONS={assigned:['accepted','declined','escalated'],accepted:['in_progress','escalated'],in_progress:['escalated','completed'],escalated:['in_progress','completed']};
 const note=(body,max=2000)=>typeof body.note==='string'?body.note.trim().slice(0,max):'';
@@ -14,7 +15,7 @@ const note=(body,max=2000)=>typeof body.note==='string'?body.note.trim().slice(0
 export function ticketDetail(u,key) {
   const t=getTicket(u,key), coverage=coverageFor(t);
   return {...t,
-    asset:one('SELECT id,machine_type,make,model,serial_number,location,qr_code FROM equipment WHERE id=?',t.equipment_id),
+    asset:one('SELECT id,machine_type,make,model,serial_number,location,qr_code,asset_tag,criticality FROM equipment WHERE id=?',t.equipment_id),
     plant:one('SELECT id,name,country,service_area,timezone FROM plants WHERE id=?',t.plant_id),
     coverage,...responseTarget(t,coverage),
     events:all('SELECT e.*,u.name actor_name FROM ticket_events e JOIN users u ON u.id=e.actor_id WHERE e.ticket_id=? ORDER BY e.created_at',key),
@@ -56,8 +57,17 @@ function serviceAction(u,t,body) {
     ticketEvent(t.id,u,'declined',note(body),stamp); audit(u,'ticket.decline','ticket',t.id,t.company_id);
     return {id:t.id,status:'open',declined:true};
   }
-  if (status==='completed' && !one('SELECT 1 FROM work_logs WHERE ticket_id=?',t.id)) bad('A work log is required before completion');
-  run("UPDATE tickets SET status=?,first_response_at=COALESCE(first_response_at,?),completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END,downtime_minutes=? WHERE id=?",status,status==='accepted'?stamp:null,status,stamp,body.downtimeMinutes==null?t.downtime_minutes:integer(body.downtimeMinutes,'downtimeMinutes',0,525600),t.id);
+  // Close-out (ISO 14224): what failed, why, and what was done are mandatory to complete a breakdown.
+  let closeOut={failure_mode:t.failure_mode,root_cause:t.root_cause,action_taken:t.action_taken}, downtime=body.downtimeMinutes==null||body.downtimeMinutes===''?t.downtime_minutes:integer(Number(body.downtimeMinutes),'downtimeMinutes',0,525600);
+  if (status==='completed') {
+    if (!one('SELECT 1 FROM work_logs WHERE ticket_id=?',t.id)) bad('A work log is required before completion');
+    const gaps=[...(!body.failureMode?['failure mode']:[]),...(!body.rootCause?['root cause']:[]),...(!body.actionTaken?['action taken']:[])];
+    if (gaps.length) bad(`To complete a breakdown, record the ${gaps.join(', ')}`);
+    closeOut={failure_mode:choice(body.failureMode,'failureMode',FAILURE_MODES),root_cause:choice(body.rootCause,'rootCause',ROOT_CAUSES),action_taken:choice(body.actionTaken,'actionTaken',ACTIONS)};
+    // A stopped machine with no downtime entered: downtime runs from when the failure started until now.
+    if (body.downtimeMinutes==null&&!t.downtime_minutes&&t.machine_state==='stopped'&&t.occurred_at) downtime=Math.max(0,Math.round((Date.parse(stamp)-Date.parse(t.occurred_at))/60000));
+  }
+  run("UPDATE tickets SET status=?,first_response_at=COALESCE(first_response_at,?),completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END,downtime_minutes=?,failure_mode=?,root_cause=?,action_taken=? WHERE id=?",status,status==='accepted'?stamp:null,status,stamp,downtime,closeOut.failure_mode,closeOut.root_cause,closeOut.action_taken,t.id);
   if (status==='accepted') applyChecklistTemplate(u,t);
   ticketEvent(t.id,u,status,note(body),stamp); audit(u,'ticket.status','ticket',t.id,t.company_id,{status});
   return ticketDetail(u,t.id);
@@ -74,8 +84,20 @@ export function register(r) {
   r.get('/tickets',({u})=>visibleTickets(u));
   r.post('/tickets',({u,body})=>{
     const e=getEquipment(u,body.equipmentId); if (!isCustomer(u)&&!isInternal(u)) deny();
-    const key=id(); run('INSERT INTO tickets (id,company_id,plant_id,equipment_id,title,priority,symptoms,error_codes,production_impact,status,created_by,created_at,downtime_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',key,e.company_id,e.plant_id,e.id,required(body.title,'title',160),choice(body.priority,'priority',['low','medium','high','critical']),required(body.symptoms,'symptoms',3000),String(body.errorCodes||'').slice(0,500),required(body.productionImpact,'productionImpact',1000),'open',u.id,now(),0);
-    audit(u,'ticket.create','ticket',key,e.company_id); return created(ticketDetail(u,key));
+    if (e.status==='decommissioned') bad('This asset is decommissioned; reactivate it before raising a breakdown');
+    // Breakdown report (ISO 14224): category, machine state, safety and when the failure started are mandatory.
+    if (typeof body.safetyIssue!=='boolean') bad('safetyIssue must be answered (true or false)');
+    const zone=one('SELECT timezone FROM plants WHERE id=?',e.plant_id).timezone, stamp=now(), occurredAt=date(body.occurredAt,'occurredAt',zone);
+    if (occurredAt>new Date(Date.now()+5*60000).toISOString()) bad('Failure start cannot be in the future');
+    if (occurredAt<new Date(Date.now()-90*86400000).toISOString()) bad('Failure start must be within the last 90 days');
+    let priority=choice(body.priority,'priority',['low','medium','high','critical']);
+    // A safety issue is always handled as critical.
+    if (body.safetyIssue) priority='critical';
+    const key=id(); run('INSERT INTO tickets (id,company_id,plant_id,equipment_id,title,priority,symptoms,error_codes,production_impact,status,created_by,created_at,downtime_minutes,failure_category,machine_state,safety_issue,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      key,e.company_id,e.plant_id,e.id,required(body.title,'title',160),priority,required(body.symptoms,'symptoms',3000),String(body.errorCodes||'').slice(0,500),required(body.productionImpact,'productionImpact',1000),'open',u.id,stamp,0,
+      choice(body.failureCategory,'failureCategory',FAILURE_CATEGORIES),choice(body.machineState,'machineState',MACHINE_STATES),body.safetyIssue?1:0,occurredAt);
+    if (body.safetyIssue) ticketEvent(key,u,'safety','Safety issue reported: priority set to critical',stamp);
+    audit(u,'ticket.create','ticket',key,e.company_id,{priority,safetyIssue:body.safetyIssue}); return created(ticketDetail(u,key));
   });
   r.get('/tickets/:id',({u,params})=>ticketDetail(u,params.id));
   r.get('/tickets/:id/candidates',({u,params})=>{ if (!isDispatch(u)) deny(); return candidatesFor(getTicket(u,params.id)); });

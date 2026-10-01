@@ -18,9 +18,10 @@ import * as contracts from './routes/contracts.js';
 import * as tickets from './routes/tickets.js';
 import * as parts from './routes/parts.js';
 import * as dashboard from './routes/dashboard.js';
+import * as settings from './routes/settings.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard]) area.register(router);
+for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};

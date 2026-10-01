@@ -10,6 +10,7 @@ process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 await import('../seed.js');
 const { createServer }=await import('../server.js');
 const { db, one, all }=await import('../db.js');
+const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
@@ -18,7 +19,7 @@ const login=async(email,password='DemoPass123!')=>call('/auth/login','POST',{ema
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',engineer:'engineer@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',atlasAdmin:'atlas-admin@demo.test',atlas:'atlas@demo.test',euro:'euro@demo.test'})) tokens[key]=(await login(email)).data.token;
 const PNG=Buffer.from('89504e470d0a1a0a0000000d49484452','hex').toString('base64');
-const raise=async(token=tokens.acme,equipmentId='eq-a')=>(await call('/tickets','POST',{equipmentId,title:'Screw slips',priority:'high',symptoms:'Recovery time doubled',errorCodes:'E-311',productionImpact:'Cycle time +20%'},token)).data.id;
+const raise=async(token=tokens.acme,equipmentId='eq-a')=>(await call('/tickets','POST',ticketBody(equipmentId),token)).data.id;
 
 test('security: throttled login, security headers, deactivation, password change, preferences',async()=>{
   for (let i=0;i<5;i++) assert.equal((await login('maint@demo.test','wrong-password-123')).status,401);
@@ -88,7 +89,7 @@ test('on-site signature sign-off by the assigned provider',async()=>{
   for (const status of ['accepted','in_progress']) await call(`/tickets/${tid}/status`,'POST',{status},tokens.atlas);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee',signatureBase64:PNG},tokens.atlas)).status,400);
   await call(`/tickets/${tid}/work-logs`,'POST',{description:'Replaced check ring',minutes:90},tokens.atlas);
-  await call(`/tickets/${tid}/status`,'POST',{status:'completed'},tokens.atlas);
+  await call(`/tickets/${tid}/status`,'POST',{status:'completed',...closeOut},tokens.atlas);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee',signatureBase64:Buffer.from('not an image').toString('base64')},tokens.atlas)).status,400);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee',signatureBase64:PNG},tokens.euro)).status,403);
   const signed=await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee Maintenance',signatureBase64:PNG},tokens.atlas,{'x-client-action-id':crypto.randomUUID()});

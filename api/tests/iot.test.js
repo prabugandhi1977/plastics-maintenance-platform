@@ -14,6 +14,7 @@ const { db, one }=await import('../db.js');
 const { normalizeRecord }=await import('../iot/contract.js');
 const { runSync }=await import('../iot/sync.js');
 const { createMockAdapter }=await import('../iot/adapters/mock.js');
+const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
@@ -98,18 +99,18 @@ test('telemetry and device mappings respect tenant and assignment boundaries',as
 });
 
 test('plant-local visit times, quote lifecycle and upload signatures',async()=>{
-  const contract=await call('/contracts','POST',{companyId:'c-acme',title:'TZ check',startsAt:'2026-01-01',renewsAt:'2027-01-01',commitments:'Visit',exclusions:'None',equipmentIds:['eq-a'],visits:[{equipmentId:'eq-a',dueAt:'2026-11-15T08:00'}]},tokens.acme);
+  const contract=await call('/contracts','POST',contractBody('c-acme',['eq-a'],{title:'TZ check',visits:[{equipmentId:'eq-a',dueAt:'2026-11-15T08:00'}]}),tokens.acme);
   assert.equal(contract.status,201);
   assert.equal(one('SELECT due_at FROM visits WHERE contract_id=?',contract.data.id).due_at,'2026-11-15T14:00:00.000Z');
-  assert.equal((await call('/contracts','POST',{companyId:'c-acme',title:'Bad',startsAt:'2026-01-01T00:00:00',renewsAt:'2027-01-01',commitments:'V',exclusions:'N',equipmentIds:['eq-a']},tokens.acme)).status,400);
-  const part=await call('/tickets/ticket-a/parts','POST',{item:'Check valve',quantity:1},tokens.acme);
-  const q1=await call(`/parts/${part.data.id}/quote`,'POST',{amountMinor:1000,currency:'USD',leadDays:2},tokens.dispatch);
-  const q2=await call(`/parts/${part.data.id}/quote`,'POST',{amountMinor:900,currency:'USD',leadDays:2},tokens.dispatch);
+  assert.equal((await call('/contracts','POST',contractBody('c-acme',['eq-a'],{startsAt:'2026-01-01T00:00:00'}),tokens.acme)).status,400);
+  const part=await call('/tickets/ticket-a/parts','POST',partBody({item:'Check valve'}),tokens.acme);
+  const q1=await call(`/parts/${part.data.id}/quote`,'POST',quoteBody({amountMinor:1000,leadDays:2}),tokens.dispatch);
+  const q2=await call(`/parts/${part.data.id}/quote`,'POST',quoteBody({amountMinor:900,leadDays:2}),tokens.dispatch);
   assert.equal(one('SELECT status FROM quotations WHERE id=?',q1.data.id).status,'superseded');
   assert.equal((await call(`/quotes/${q1.data.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,400);
   assert.equal((await call(`/quotes/${q2.data.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,200);
   assert.equal((await call(`/parts/${part.data.id}/fulfil`,'POST',{},tokens.dispatch)).status,200);
-  assert.equal((await call(`/parts/${part.data.id}/quote`,'POST',{amountMinor:1,currency:'USD',leadDays:1},tokens.dispatch)).status,400);
+  assert.equal((await call(`/parts/${part.data.id}/quote`,'POST',quoteBody({amountMinor:1,leadDays:1}),tokens.dispatch)).status,400);
   assert.equal(one('SELECT status FROM parts_requests WHERE id=?',part.data.id).status,'fulfilled');
   const wav=Buffer.concat([Buffer.from('RIFF'),Buffer.alloc(4),Buffer.from('WAVEfmt ')]).toString('base64');
   assert.equal((await call('/attachments','POST',{entityType:'ticket',entityId:'ticket-a',kind:'photo',filename:'x.webp',mime:'image/webp',base64:wav},tokens.acme)).status,400);

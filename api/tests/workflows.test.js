@@ -11,6 +11,7 @@ process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 await import('../seed.js');
 const { createServer }=await import('../server.js');
 const { db }=await import('../db.js');
+const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
@@ -42,16 +43,16 @@ test('serves web and installable mobile shell',async()=>{
   const icon=await fetch(base+'/mobile/icon-192.png');assert.equal(icon.status,200);assert.equal(icon.headers.get('content-type'),'image/png');
 });
 test('tenant setup and cross-tenant reference validation',async()=>{
-  const company=await call('/companies','POST',{name:'Test Composites',timezone:'Asia/Kolkata',currency:'INR',units:'metric',locale:'en'},tokens.admin);assert.equal(company.status,201);
-  const plant=await call('/plants','POST',{companyId:company.data.id,name:'Pune',country:'IN',serviceArea:'IN-W',timezone:'Asia/Kolkata'},tokens.admin);assert.equal(plant.status,201);
-  const asset=await call('/equipment','POST',{plantId:plant.data.id,machineType:'blow',make:'Demo',model:'B1',serialNumber:'BLOW-1',location:'Bay 1'},tokens.admin);assert.equal(asset.status,201);assert.match(asset.data.qr_code,/^MC:[a-f0-9]{12}$/);
-  assert.equal((await call('/equipment','POST',{plantId:plant.data.id,machineType:'blow',make:'Demo',model:'B2',serialNumber:'BLOW-2',location:'Bay 2'},tokens.acme)).status,403);
-  assert.equal((await call('/contracts','POST',{companyId:'c-acme',title:'Bad',startsAt:'2026-01-01',renewsAt:'2027-01-01',commitments:'Visit',exclusions:'None',equipmentIds:[asset.data.id],visits:[]},tokens.acme)).status,400);
+  const company=await call('/companies','POST',companyBody(),tokens.admin);assert.equal(company.status,201);
+  const plant=await call('/plants','POST',plantBody(company.data.id),tokens.admin);assert.equal(plant.status,201);
+  const asset=await call('/equipment','POST',equipmentBody(plant.data.id),tokens.admin);assert.equal(asset.status,201);assert.match(asset.data.qr_code,/^MC:[a-f0-9]{12}$/);
+  assert.equal((await call('/equipment','POST',equipmentBody(plant.data.id),tokens.acme)).status,403);
+  assert.equal((await call('/contracts','POST',contractBody('c-acme',[asset.data.id]),tokens.acme)).status,400);
   assert.equal((await call('/visits/visit-a','PATCH',{status:'completed',notes:'Inspection done'},tokens.nova)).status,403);
   assert.equal((await call('/visits/visit-a','PATCH',{status:'completed',notes:'Inspection done'},tokens.acme)).status,200);
 });
 test('assignment, offline replay, service, parts, sign-off and audit',async()=>{
-  const created=await call('/tickets','POST',{equipmentId:'eq-a',title:'Repeated pressure alarm',priority:'high',symptoms:'Pressure oscillates',errorCodes:'E-204',productionImpact:'Line stopped'},tokens.acme);assert.equal(created.status,201);const tid=created.data.id;
+  const created=await call('/tickets','POST',ticketBody('eq-a',{title:'Repeated pressure alarm',symptoms:'Pressure oscillates',errorCodes:'E-204',productionImpact:'Line stopped'}),tokens.acme);assert.equal(created.status,201);const tid=created.data.id;
   assert.equal((await call(`/tickets/${tid}/assign`,'POST',{assigneeType:'provider',assigneeId:'p-euro'},tokens.dispatch)).status,400);
   assert.equal((await call(`/tickets/${tid}/assign`,'POST',{assigneeType:'provider',assigneeId:'p-atlas'},tokens.dispatch)).status,200);
   assert.equal((await call(`/tickets/${tid}`,'GET',null,tokens.euro)).status,403);
@@ -63,11 +64,11 @@ test('assignment, offline replay, service, parts, sign-off and audit',async()=>{
   assert.equal((await call(`/tickets/${tid}/status`,'POST',{status:'in_progress'},tokens.atlas)).status,200);
   assert.equal((await call(`/tickets/${tid}/checklist`,'POST',{item:'Inspect hydraulic line',done:true,note:'Leak found'},tokens.atlas)).status,201);
   assert.equal((await call(`/tickets/${tid}/work-logs`,'POST',{description:'Replaced seal and tested',minutes:75,partsUsed:'Seal kit'},tokens.atlas)).status,201);
-  assert.equal((await call(`/tickets/${tid}/status`,'POST',{status:'completed',downtimeMinutes:180},tokens.atlas)).status,200);
+  assert.equal((await call(`/tickets/${tid}/status`,'POST',{status:'completed',downtimeMinutes:180,...closeOut},tokens.atlas)).status,200);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Sam Acme'},tokens.nova)).status,403);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Sam Acme'},tokens.acme)).status,201);
-  const part=await call(`/tickets/${tid}/parts`,'POST',{item:'Seal kit',quantity:1},tokens.atlas);assert.equal(part.status,201);
-  const quote=await call(`/parts/${part.data.id}/quote`,'POST',{amountMinor:12500,currency:'USD',leadDays:3},tokens.dispatch);assert.equal(quote.status,201);
+  const part=await call(`/tickets/${tid}/parts`,'POST',partBody(),tokens.atlas);assert.equal(part.status,201);
+  const quote=await call(`/parts/${part.data.id}/quote`,'POST',quoteBody(),tokens.dispatch);assert.equal(quote.status,201);
   assert.equal((await call(`/quotes/${quote.data.id}/decision`,'POST',{decision:'approved'},tokens.nova)).status,403);
   assert.equal((await call(`/quotes/${quote.data.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,200);
   assert.equal((await call(`/parts/${part.data.id}/fulfil`,'POST',{},tokens.dispatch)).status,200);

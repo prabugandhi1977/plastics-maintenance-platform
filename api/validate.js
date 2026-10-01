@@ -26,3 +26,8 @@ export function currency(v) { if (typeof v!=='string'||!/^[A-Z]{3}$/.test(v)) ba
 export function timezone(v) { required(v,'timezone',80); try { new Intl.DateTimeFormat('en',{timeZone:v}); } catch { bad('Unknown IANA timezone'); } return v; }
 export function email(v) { const value=required(v,'email',200).toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) bad('Invalid email'); return value; }
 export function stringArray(v,name,options) { array(v,name); if (v.length>50||v.some(x=>typeof x!=='string'||!x.trim()||x.length>80||(options&&!options.includes(x)))) bad(`${name} contains invalid values`); return [...new Set(v.map(x=>x.trim()))]; }
+// International phone format as people type it: optional +, digits, spaces, brackets, dashes (6-20 characters).
+export function phone(v,name='phone') { const value=required(v,name,30); if (!/^\+?[0-9][0-9 ()-]{5,19}$/.test(value)) bad(`${name} must be a phone number, e.g. +49 221 555 0100`); return value; }
+export function country(v,name='country') { const c=typeof v==='string'?v.trim().toUpperCase():''; if (!/^[A-Z]{2}$/.test(c)) bad(`${name} must be an ISO 3166 two-letter code, e.g. IN, DE, US`); return c; }
+// A date that may be left empty (null); when given it must be a valid date.
+export const optionalDate=(v,name)=>v==null||v===''?null:date(v,name);

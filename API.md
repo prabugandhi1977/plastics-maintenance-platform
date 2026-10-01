@@ -47,7 +47,8 @@ Data scoping and auditing:
 | `POST` | `/users/:id/password` | Admin reset to a temporary password `{newPassword}`: signs the user out everywhere, clears sign-in lockouts, requires a new password at next sign-in. Same permissions as managing the user; not for your own account |
 | `PATCH` | `/companies/:id` | Platform admin or the company's customer admin: name, time zone, currency, units, language. Applies from now on; existing quotes keep their currency |
 | `PATCH` | `/plants/:id` | Same permissions: name, address, country, service area code, time zone. A new service area affects future assignments only |
-| `PATCH` | `/providers/:id/approval` | Approve or suspend a provider |
+| `PATCH` | `/providers/:id` | Platform admin: edit contacts, insurance expiry, certifications, service areas, skills |
+| `PATCH` | `/providers/:id/approval` | Approve or suspend a provider (approval needs contacts and valid insurance) |
 | `GET, PATCH` | `/equipment/:id` | Asset detail with files, telemetry and recent tickets. PATCH edits make, model, serial or location, or moves the asset between the company's plants |
 | `GET` | `/equipment/lookup?qr=MC:...` | Resolve a QR label within visible work |
 | `GET` | `/equipment/:id/readings?limit=100&before=<ISO>` | Freshness, last value per metric, active alarms, reading history |
@@ -77,6 +78,12 @@ Data scoping and auditing:
 | `POST` | `/attachments` | Upload a PDF or image as base64, max 5 MB (works offline) |
 | `GET` | `/attachments/:id` | Download a file the caller is allowed to see |
 | `GET` | `/audit` | Recent audit trail |
+| `GET` | `/catalog` | Master-data catalogue: machine parameter sets and ISO 14224 code lists |
+| `GET, POST` | `/service-areas` | Managed service-area list (create: platform admin) |
+| `PATCH` | `/service-areas/:code` | Rename a service area (the code stays fixed) |
+| `GET, PATCH` | `/settings/response-targets` | Default response hours by priority (read: internal staff; change: platform admin) |
+| `GET` | `/settings/checklists` | Standard checklist per machine type |
+| `PATCH` | `/settings/checklists/:type` | Platform admin: replace a machine type's checklist `{items:[...]}` |
 
 `GET /dashboard` returns:
 
@@ -142,6 +149,50 @@ POST /contracts
 POST /parts/{id}/fulfilment
 {"status":"shipped","reference":"UPS 1Z999AA10123456784"}
 ```
+
+## Mandatory master data
+
+Each record type has a mandatory set of parameters, based on industry practice:
+- **ISO 14224** (collecting equipment reliability and maintenance data) for failure reporting and close-out.
+- **EN 13306 / EN 15341** (maintenance terms and key performance indicators) for KPI definitions.
+- **Machine-builder data sheets** for machine parameters.
+
+The catalogue in `api/catalog.js` is the single source: the API validates against it, and `GET /catalog` gives the same lists and parameter sets to both apps, so they build their forms from it.
+
+Records created before a field became mandatory are still accepted. They come back with a `missing` list and are flagged "Incomplete" in the apps, so they can be completed rather than blocking work.
+
+| Record | Mandatory (in addition to existing fields) |
+| --- | --- |
+| Company | `country` (ISO 3166 two-letter code), `contactName`, `contactEmail`, `contactPhone` (international format). Optional: `taxId` |
+| Plant | `address`, `serviceArea` (from the managed list), `operatingPattern` (`24x7`, `24x5`, `16x5` or `8x5`) |
+| User | Field engineers (`engineer`, `provider_engineer`): `phone`, at least one service area, at least one machine skill. Optional for all: `jobTitle` |
+| Provider | `country`, `contactName`, `contactEmail`, `contactPhone`, service areas, skills. **Approval** also needs `insuranceExpiry` in the future. Optional: `certifications` |
+| Equipment | `assetTag` (unique per company), `criticality` (`A` = production-critical or safety-relevant, `B` = important with a workaround, `C` = low impact), `yearBuilt`, `status` (`in_service`, `standby`, `out_of_service` or `decommissioned`), and the **type parameter set** below. Optional: `commissionedAt`, `warrantyUntil` |
+| Breakdown ticket | `failureCategory`, `machineState` (`stopped`, `reduced_output`, `quality_issue` or `running`), `safetyIssue` (true/false; true forces priority `critical`), and `occurredAt` (local plant time accepted, within the last 90 days, not in the future) |
+| Ticket completion | Close-out: `failureMode`, `rootCause`, `actionTaken`. If the machine was stopped and no downtime was entered, downtime is calculated from `occurredAt` |
+| Contract | `contractNumber` (unique per company), `coverageHours` (`8x5`, `12x5`, `16x6` or `24x7`), `responseHours`, `visitsPerYear`, `noticeDays`. Optional: `restoreHours` (not shorter than the response target) |
+| Spare part | `partNumber`, `unit` (`pcs`, `set`, `m`, `kg` or `l`), `urgency` (`normal`, `urgent` or `breakdown`). Optional: `manufacturer` |
+| Quote | `validUntil` (today to one year ahead). An expired quote cannot be approved |
+| Fulfilment | A reference is required for `ordered` (purchase order number) and `shipped` (tracking number or delivery note) |
+
+**Machine parameter sets.** These are sent as `specs`, in metric units. Fields marked \* are mandatory.
+
+| Type | Parameters |
+| --- | --- |
+| Injection moulding | clamp force (kN)\*, shot volume (cm³)\*, screw diameter (mm)\*, drive type (hydraulic / electric / hybrid)\*, control system |
+| Blow moulding | process (EBM / IBM / ISBM)\*, cavities\*, max container volume (L)\*, clamp force (kN) |
+| Extrusion | line type\*, screw configuration (single / twin)\*, screw diameter (mm)\*, L/D ratio\*, rated output (kg/h)\* |
+| Mould | mould number\*, cavities\*, hot runner (yes / no)\*, hot runner zones, current shot count\*, preventive maintenance interval (shots)\*, steel grade |
+| Auxiliary | equipment type (dryer, chiller, TCU, loader, granulator, robot, conveyor, dosing / blender, other)\*, capacity, the machine it serves (same company) |
+
+**Response targets.** A ticket uses its covering contract's response target. Without a contract, it uses the platform default for its priority, which a platform admin sets in Settings (by default: critical 4 h, high 8 h, medium 24 h, low 72 h). Ticket detail returns `responseHours`, `responseSource` (`contract` or `default`), `responseDueAt` and `responseBreached`. When the contract sets a restore target, it also returns `restoreDueAt` and `restoreBreached`.
+
+**KPIs** (`GET /dashboard` → `kpi`, last 90 days):
+- **MTTR:** mean time from failure start to completion.
+- **MTBF:** (asset-hours − downtime) ÷ breakdowns.
+- **Availability:** 1 − downtime ÷ asset-hours.
+
+All three use calendar hours. The dashboard also returns `weekly`, breakdowns per week for the last 12 weeks, and `incompleteAssets`.
 
 ## Offline actions
 

@@ -59,6 +59,8 @@ The seed sets up two customers and two approved providers:
 
 ## Demo path
 
+Every record has mandatory, industry-standard data (see *Mandatory master data* in `API.md`). Forms mark required fields with *, show units, and explain what is missing before anything is sent. Older records missing mandatory data are flagged **Incomplete** rather than rejected.
+
 1. **Raise a ticket.** Sign in as Acme. The overview shows repeat faults, downtime and response targets. Inspect equipment and its QR label, then raise a breakdown ticket.
 2. **Assign it.** Sign in as the dispatcher and open the ticket. It shows contract coverage and the response deadline. Choose **Assign**: the form lists eligible engineers and providers, and explains why EuroTech is not eligible.
 3. **Do the job on the phone.** Open `/mobile/` as Atlas or the engineer and accept the job; the standard injection moulding checklist appears. Tap items to tick them, log work, and attach a photo.
@@ -109,7 +111,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 17 tests in three files. Each file uses its own temporary database and tests with two customers and two providers.
+There are 27 tests in four files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -126,6 +128,13 @@ There are 17 tests in three files. Each file uses its own temporary database and
 - batch uploads, quality flags, and alarm raise and clear
 - device-mapping permissions, and telemetry isolation between tenants and providers
 - plant-local visit times, quote replacement, and upload file-type checks
+
+**`masterdata.test.js`**
+- the catalogue and every mandatory parameter set, including machine-type parameters, value ranges and duplicate asset tags
+- ISO 14224 breakdown reporting and close-out; safety issues forced to critical; automatic downtime
+- contract, spare-part, quote-validity and purchase-order rules
+- service areas, field-engineer contacts, and provider approval needing valid insurance
+- default response targets, editable standard checklists, and the MTTR/MTBF/availability KPIs
 
 **`platform.test.js`**
 - login lockout and security headers
@@ -146,7 +155,8 @@ There are 17 tests in three files. Each file uses its own temporary database and
 api/server.js        HTTP entry: static files with security headers, router, offline replay, IoT poller
 api/http.js          Router, JSON replies, body parsing
 api/access.js        Tenant-scoped lookups and permission helpers shared by all routes
-api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard
+api/catalog.js       Master-data catalogue: mandatory parameter sets and ISO 14224 code lists
+api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard, settings
 api/files.js         Private file storage with file-type checks
 api/security.js      Passwords, signed access tokens, role checks
 api/validate.js      Input validation, time-zone conversion
@@ -155,6 +165,8 @@ api/migrations/      Versioned SQL migrations (001 base, 002 IoT, 003 workflow c
 api/tests/           API workflow, IoT and platform tests
 web/                 Desktop web workspace
 web/mobile/          Installable field app with offline queue and signature capture
+web/ui.js            Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
+web/charts.js        Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
 web/shared/          Translations and formatting, signature pad (used by both clients)
 API.md               Endpoints, workflow rules, IoT interface
 docs/ROADMAP.md      Production hardening and later phases (IoT alerts, video, AI, predictive, AR)
