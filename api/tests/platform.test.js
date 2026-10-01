@@ -36,7 +36,10 @@ test('security: throttled login, security headers, deactivation, password change
   assert.equal((await call('/users/u-acme-maint','PATCH',{active:true},tokens.acme)).status,200);
   assert.equal((await call('/me/password','POST',{currentPassword:'nope-nope-nope',newPassword:'AnotherPass456!'},tokens.nova)).status,403);
   assert.equal((await call('/me/password','POST',{currentPassword:'DemoPass123!',newPassword:'short'},tokens.nova)).status,400);
-  assert.equal((await call('/me/password','POST',{currentPassword:'DemoPass123!',newPassword:'AnotherPass456!'},tokens.nova)).status,200);
+  const changed=await call('/me/password','POST',{currentPassword:'DemoPass123!',newPassword:'AnotherPass456!'},tokens.nova);
+  assert.equal(changed.status,200); assert.ok(changed.data.token);
+  assert.equal((await call('/me','GET',null,tokens.nova)).status,401);
+  tokens.nova=changed.data.token;
   assert.equal((await login('nova@demo.test','AnotherPass456!')).status,200);
   const me=await call('/me','GET',null,tokens.nova); assert.deepEqual(me.data.preferences,{locale:'de',timezone:'Europe/Berlin',currency:'EUR',units:'metric'});
   assert.equal((await call('/me','PATCH',{locale:'en'},tokens.nova)).data.preferences.locale,'en');
@@ -131,4 +134,39 @@ test('parts fulfilment stages and dashboard metrics stay tenant-scoped',async()=
   assert.deepEqual(nova.upcomingRenewals.map(c=>c.id),['contract-n']);
   const atlas=(await call('/dashboard','GET',null,tokens.atlas)).data; assert.deepEqual([atlas.upcomingMaintenance,atlas.upcomingRenewals],[[],[]]);
   assert.ok(all("SELECT 1 FROM audit_events WHERE action IN ('parts.ordered','parts.shipped','parts.fulfilled')").length===3);
+});
+
+test('company and plant settings, admin password reset and session sign-out',async()=>{
+  const edited=await call('/companies/c-acme','PATCH',{timezone:'America/New_York',units:'imperial'},tokens.acme);
+  assert.equal(edited.status,200); assert.deepEqual([edited.data.timezone,edited.data.units,edited.data.currency],['America/New_York','imperial','USD']);
+  assert.equal((await call('/me','GET',null,tokens.acme)).data.preferences.timezone,'America/New_York');
+  assert.equal((await call('/companies/c-acme','PATCH',{timezone:'Mars/Olympus'},tokens.acme)).status,400);
+  assert.equal((await call('/companies/c-acme','PATCH',{currency:'usd'},tokens.acme)).status,400);
+  assert.equal((await call('/companies/c-acme','PATCH',{locale:'xx'},tokens.acme)).status,400);
+  assert.equal((await call('/companies/c-acme','PATCH',{name:'Hijacked'},tokens.nova)).status,403);
+  assert.equal((await call('/companies/c-acme','PATCH',{name:'Hijacked'},tokens.maint)).status,403);
+  assert.equal((await call('/companies/c-nova','PATCH',{currency:'CHF'},tokens.admin)).data.currency,'CHF');
+  assert.equal((await call('/plants/plant-a','PATCH',{serviceArea:'US-MW',name:'Chicago Plant 1'},tokens.acme)).data.name,'Chicago Plant 1');
+  assert.equal((await call('/plants/plant-a','PATCH',{country:'USA'},tokens.acme)).status,400);
+  assert.equal((await call('/plants/plant-n','PATCH',{name:'Hijacked'},tokens.acme)).status,403);
+  assert.ok(one("SELECT 1 FROM audit_events WHERE action='plant.update' AND company_id='c-acme'"));
+
+  const created=await call('/users','POST',{companyId:'c-acme',name:'New Planner',email:'planner@acme.test',role:'plant_manager',password:'Temporary-Pass-001'},tokens.acme);
+  assert.equal(created.status,201);
+  const first=await login('planner@acme.test','Temporary-Pass-001'); assert.equal(first.data.user.mustChangePassword,true);
+  const own=await call('/me/password','POST',{currentPassword:'Temporary-Pass-001',newPassword:'Planner-Own-Pass-002'},first.data.token);
+  assert.equal(own.data.user.mustChangePassword,false);
+
+  const maintSession=tokens.maint;
+  assert.equal((await call('/users/u-acme-maint/password','POST',{newPassword:'short'},tokens.acme)).status,400);
+  assert.equal((await call('/users/u-nova/password','POST',{newPassword:'Reset-By-Wrong-Admin'},tokens.acme)).status,403);
+  assert.equal((await call('/users/u-acme/password','POST',{newPassword:'Reset-My-Own-Pass'},tokens.acme)).status,400);
+  assert.equal((await call('/users/u-acme/password','POST',{newPassword:'Reset-Temp-Pass-003'},tokens.maint)).status,403);
+  assert.equal((await call('/users/u-acme-maint/password','POST',{newPassword:'Reset-Temp-Pass-003'},tokens.acme)).status,200);
+  assert.equal((await call('/tickets','GET',null,maintSession)).status,401);
+  assert.equal((await login('maint@demo.test')).status,401);
+  const reset=await login('maint@demo.test','Reset-Temp-Pass-003'); assert.equal(reset.status,200); assert.equal(reset.data.user.mustChangePassword,true);
+  assert.equal((await call('/users/u-atlas/password','POST',{newPassword:'Atlas-Temp-Pass-004'},tokens.atlasAdmin)).status,200);
+  assert.equal((await call('/users/u-euro/password','POST',{newPassword:'Euro-Temp-Pass-005'},tokens.atlasAdmin)).status,403);
+  assert.ok(one("SELECT 1 FROM audit_events WHERE action='user.password_reset' AND entity_id='u-acme-maint'"));
 });

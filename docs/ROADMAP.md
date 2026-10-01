@@ -21,7 +21,7 @@ The MVP covers the core service workflows. This document plans what comes next a
   - Set up nightly backups and run a restore test.
 - **Identity:**
   - Move to a managed identity provider (OIDC) with MFA for admin and dispatch roles.
-  - Use short-lived access tokens with refresh and server-side revocation. Today a password change does not end existing 8-hour sessions.
+  - Use short-lived access tokens with refresh. A password change or reset already signs a user out everywhere; add "sign out all devices" and session lists to the identity provider setup.
   - Move the login throttle to a shared store such as Redis.
 - **Files:** use private object storage with malware scanning, signed short-lived download URLs, and retention rules.
 - **Operations:**

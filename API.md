@@ -28,6 +28,8 @@ Data scoping and auditing:
 - IDs from another tenant inside a request are rejected.
 - Every change writes an audit event.
 - A deactivated user is refused on their next request, even with a token that hasn't expired.
+- Changing or resetting a password signs that user out on every device. Each token carries the user's session version, and the change increases it.
+- New accounts, admin password resets and the first admin from the environment are marked `mustChangePassword`. The web app sends those users to **Account** to choose their own password.
 
 **Sign-in protection.** After five failed sign-ins for the same email from the same address, that combination is locked for 15 minutes (HTTP 429 with `Retry-After`). An unknown email takes as long to reject as a wrong password. The failure counter is kept in memory on each server instance; use a shared store when running several instances.
 
@@ -38,10 +40,13 @@ Data scoping and auditing:
 | `GET` | `/health` | Liveness |
 | `POST` | `/auth/login` | Email and password → 8-hour signed token, plus profile and preferences |
 | `GET, PATCH` | `/me` | Profile with `preferences` (locale, timezone, currency, units). PATCH `{locale}` with `en` or `de` |
-| `POST` | `/me/password` | `{currentPassword, newPassword}`; at least 12 characters |
+| `POST` | `/me/password` | `{currentPassword, newPassword}`; at least 12 characters. Signs out other sessions and returns a fresh `token` for this one |
 | `GET` | `/dashboard` | Work and service metrics (see below) |
 | `GET, POST` | `/companies`, `/providers`, `/users`, `/plants`, `/equipment`, `/contracts`, `/tickets` | List visible records, or create one (role checks apply) |
 | `PATCH` | `/users/:id` | Activate/deactivate, rename; service areas and skills for engineers |
+| `POST` | `/users/:id/password` | Admin reset to a temporary password `{newPassword}`: signs the user out everywhere, clears sign-in lockouts, requires a new password at next sign-in. Same permissions as managing the user; not for your own account |
+| `PATCH` | `/companies/:id` | Platform admin or the company's customer admin: name, time zone, currency, units, language. Applies from now on; existing quotes keep their currency |
+| `PATCH` | `/plants/:id` | Same permissions: name, address, country, service area code, time zone. A new service area affects future assignments only |
 | `PATCH` | `/providers/:id/approval` | Approve or suspend a provider |
 | `GET, PATCH` | `/equipment/:id` | Asset detail with files, telemetry and recent tickets. PATCH edits make, model, serial or location, or moves the asset between the company's plants |
 | `GET` | `/equipment/lookup?qr=MC:...` | Resolve a QR label within visible work |

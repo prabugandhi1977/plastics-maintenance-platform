@@ -4,11 +4,14 @@ import { hashPassword, canManageCompany, isCustomer, isInternal, isPlatform, isP
 import { audit, byId, scope } from '../access.js';
 import { created } from '../http.js';
 import { bad, deny, missing, required, choice, currency, timezone, email, stringArray } from '../validate.js';
-import { LOCALES } from './auth.js';
+import { LOCALES, clearFailures } from './auth.js';
 
 export const MACHINE_TYPES=['injection','blow','extrusion','mould','auxiliary'];
 const ROLES=['customer_admin','plant_manager','maintenance','dispatcher','engineer','provider_admin','provider_engineer'];
-const USER_COLUMNS='id,company_id,provider_id,name,email,role,active,service_areas,skills';
+const USER_COLUMNS='id,company_id,provider_id,name,email,role,active,service_areas,skills,must_change_password';
+const localeOf=v=>{ if (!LOCALES.includes(v)) bad(`locale must be one of: ${LOCALES.join(', ')}`); return v; };
+const countryOf=v=>{ const c=required(v,'country',2).toUpperCase(); if (!/^[A-Z]{2}$/.test(c)) bad('country must be an ISO 3166 alpha-2 code'); return c; };
+const keep=(body,key,current,check)=>body[key]==null?current:check(body[key]);
 // Who may manage an existing user: platform admins anyone; customer admins their plant managers and maintenance
 // staff; provider admins their own engineers. Nobody deactivates themselves.
 function canManageUser(u,target) {
@@ -22,9 +25,15 @@ export function register(r) {
   r.get('/companies',({u})=>isPlatform(u)||u.role==='dispatcher'?all('SELECT * FROM companies'):isCustomer(u)?[byId('companies',u.company_id)]:[]);
   r.post('/companies',({u,body})=>{
     if (!isPlatform(u)) deny();
-    const key=id(), locale=body.locale??'en'; if (!LOCALES.includes(locale)) bad(`locale must be one of: ${LOCALES.join(', ')}`);
+    const key=id(), locale=localeOf(body.locale??'en');
     run('INSERT INTO companies (id,name,timezone,currency,units,locale,created_at) VALUES (?,?,?,?,?,?,?)',key,required(body.name,'name',160),timezone(body.timezone),currency(body.currency),choice(body.units,'units',['metric','imperial']),locale,now());
     audit(u,'company.create','company',key,key); return created(byId('companies',key));
+  });
+  // Settings apply from now on: stored times stay UTC and existing quotes keep the currency they were issued in.
+  r.patch('/companies/:id',({u,body,params})=>{
+    const c=byId('companies',params.id); if (!c) missing(); if (!canManageCompany(u,c.id)) deny();
+    run('UPDATE companies SET name=?,timezone=?,currency=?,units=?,locale=? WHERE id=?',keep(body,'name',c.name,v=>required(v,'name',160)),keep(body,'timezone',c.timezone,timezone),keep(body,'currency',c.currency,currency),keep(body,'units',c.units,v=>choice(v,'units',['metric','imperial'])),keep(body,'locale',c.locale,localeOf),c.id);
+    audit(u,'company.update','company',c.id,c.id,{fields:Object.keys(body)}); return byId('companies',c.id);
   });
 
   r.get('/providers',({u})=>isInternal(u)?all('SELECT id,name,approved,service_areas,skills FROM providers'):isProvider(u)?[one('SELECT id,name,approved,service_areas,skills FROM providers WHERE id=?',u.provider_id)]:[]);
@@ -47,7 +56,8 @@ export function register(r) {
     if (role.startsWith('provider_')?!providerId||companyId:role==='dispatcher'||role==='engineer'?companyId||providerId:!companyId||providerId) bad('Role and organisation do not match');
     const key=id(),address=email(body.email),password=required(body.password,'password',200); if (password.length<12) bad('Password must have at least 12 characters');
     const areas=stringArray(body.serviceAreas||[],'serviceAreas'),skills=stringArray(body.skills||[],'skills',MACHINE_TYPES);
-    run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,companyId,providerId,required(body.name,'name',160),address,hashPassword(password),role,1,JSON.stringify(areas),JSON.stringify(skills),now());
+    // New accounts get a temporary password and are asked to choose their own at first sign-in.
+    run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',key,companyId,providerId,required(body.name,'name',160),address,hashPassword(password),role,1,JSON.stringify(areas),JSON.stringify(skills),now());
     audit(u,'user.create','user',key,companyId); return created({id:key,email:address,role});
   });
   r.patch('/users/:id',({u,body,params})=>{
@@ -61,13 +71,29 @@ export function register(r) {
     audit(u,'user.update','user',target.id,target.company_id,{active:!!active});
     return one(`SELECT ${USER_COLUMNS} FROM users WHERE id=?`,target.id);
   });
+  // Admin reset to a new temporary password: signs the user out everywhere, clears sign-in lockouts, and asks them to
+  // choose their own password at next sign-in. Own password changes go through POST /me/password.
+  r.post('/users/:id/password',({u,body,params})=>{
+    const target=byId('users',params.id); if (!target) missing();
+    if (target.id===u.id) bad('Use Account → Change password for your own account');
+    if (!canManageUser(u,target)) deny();
+    const password=required(body.newPassword,'newPassword',200); if (password.length<12) bad('Password must have at least 12 characters');
+    run('UPDATE users SET password_hash=?,must_change_password=1,session_version=session_version+1 WHERE id=?',hashPassword(password),target.id);
+    clearFailures(target.email);
+    audit(u,'user.password_reset','user',target.id,target.company_id); return {ok:true};
+  });
 
   r.get('/plants',({u})=>scope(u,'plants'));
   r.post('/plants',({u,body})=>{
     const companyId=required(body.companyId,'companyId'); if (!canManageCompany(u,companyId)) deny(); if (!byId('companies',companyId)) bad('Unknown company');
-    const country=required(body.country,'country',2).toUpperCase(); if (!/^[A-Z]{2}$/.test(country)) bad('country must be an ISO 3166 alpha-2 code');
-    const key=id(); run('INSERT INTO plants (id,company_id,name,address,country,service_area,timezone,created_at) VALUES (?,?,?,?,?,?,?,?)',key,companyId,required(body.name,'name',160),String(body.address||'').slice(0,300),country,required(body.serviceArea,'serviceArea',80),timezone(body.timezone),now());
+    const country=countryOf(body.country), key=id(); run('INSERT INTO plants (id,company_id,name,address,country,service_area,timezone,created_at) VALUES (?,?,?,?,?,?,?,?)',key,companyId,required(body.name,'name',160),String(body.address||'').slice(0,300),country,required(body.serviceArea,'serviceArea',80),timezone(body.timezone),now());
     audit(u,'plant.create','plant',key,companyId); return created(byId('plants',key));
+  });
+  // A changed service area affects which engineers and providers are eligible for future assignments only.
+  r.patch('/plants/:id',({u,body,params})=>{
+    const p=byId('plants',params.id); if (!p) missing(); if (!canManageCompany(u,p.company_id)) deny();
+    run('UPDATE plants SET name=?,address=?,country=?,service_area=?,timezone=? WHERE id=?',keep(body,'name',p.name,v=>required(v,'name',160)),body.address==null?p.address:String(body.address).slice(0,300),keep(body,'country',p.country,countryOf),keep(body,'serviceArea',p.service_area,v=>required(v,'serviceArea',80)),keep(body,'timezone',p.timezone,timezone),p.id);
+    audit(u,'plant.update','plant',p.id,p.company_id,{fields:Object.keys(body)}); return byId('plants',p.id);
   });
 
   r.get('/audit',({u})=>{

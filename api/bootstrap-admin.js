@@ -9,5 +9,5 @@ if (!email) process.exit(0);
 if (one('SELECT 1 FROM users WHERE email=?',email)) { console.log(`Platform admin ${email} already exists`); process.exit(0); }
 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('MOULDCARE_ADMIN_EMAIL is not a valid email address');
 if (password.length<12) throw new Error('MOULDCARE_ADMIN_PASSWORD must have at least 12 characters');
-run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',id(),null,null,'Platform Admin',email,hashPassword(password),'platform_admin',1,'[]','[]',now());
+run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',id(),null,null,'Platform Admin',email,hashPassword(password),'platform_admin',1,'[]','[]',now());
 console.log(`Created platform admin ${email}. Change the password after first sign-in.`);

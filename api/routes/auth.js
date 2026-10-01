@@ -13,6 +13,8 @@ function throttle(key) {
   if (f && Date.now()-f.first>WINDOW_MS) failures.delete(key);
   else if (f && f.count>=MAX_FAILURES) throw Object.assign(new HttpError(429,'Too many failed sign-in attempts. Try again in 15 minutes.'),{headers:{'retry-after':String(Math.ceil((f.first+WINDOW_MS-Date.now())/1000))}});
 }
+// After an admin resets a password, the user should not stay locked out by earlier failed attempts.
+export function clearFailures(address) { for (const key of failures.keys()) if (key.startsWith(`${address}|`)) failures.delete(key); }
 function fail(key) {
   if (failures.size>10000) for (const [k,f] of failures) if (Date.now()-f.first>WINDOW_MS) failures.delete(k);
   const f=failures.get(key); failures.set(key,f?{...f,count:f.count+1}:{first:Date.now(),count:1});
@@ -22,7 +24,7 @@ export function preferences(u) {
   const c=u.company_id?byId('companies',u.company_id):null;
   return {locale:u.locale||c?.locale||'en',timezone:c?.timezone||'UTC',currency:c?.currency||'USD',units:c?.units||'metric'};
 }
-const profile=u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,preferences:preferences(u)});
+const profile=u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,preferences:preferences(u)});
 
 export function register(r) {
   r.get('/health',()=>({ok:true,time:now()}),{public:true});
@@ -44,8 +46,10 @@ export function register(r) {
     const current=one('SELECT password_hash FROM users WHERE id=?',u.id), next=required(body.newPassword,'newPassword',200);
     if (!verifyPassword(required(body.currentPassword,'currentPassword',200),current.password_hash)) throw new HttpError(403,'Current password is incorrect');
     if (next.length<12) bad('Password must have at least 12 characters');
-    run('UPDATE users SET password_hash=? WHERE id=?',hashPassword(next),u.id);
+    // Signs out all other sessions; the caller gets a fresh token so this one continues.
+    run('UPDATE users SET password_hash=?,must_change_password=0,session_version=session_version+1 WHERE id=?',hashPassword(next),u.id);
     audit(u,'user.password_change','user',u.id,isCustomer(u)?u.company_id:null);
-    return {ok:true};
+    const updated=one('SELECT * FROM users WHERE id=?',u.id);
+    return {ok:true,token:tokenFor(updated),user:profile(updated)};
   });
 }
