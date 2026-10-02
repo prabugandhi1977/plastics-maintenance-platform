@@ -45,7 +45,8 @@ function requireIntegrationKey(req) {
   const expected=process.env.MOULDCARE_INTEGRATION_KEY, actual=req.headers['x-integration-key'];
   if (!expected||typeof actual!=='string'||Buffer.byteLength(expected)!==Buffer.byteLength(actual)||!timingSafeEqual(Buffer.from(expected),Buffer.from(actual))) throw new HttpError(401,'Integration key required');
 }
-const alertScope=u=>isDispatch(u)?['1=1',[]]:isCustomer(u)?['company_id=?',[u.company_id]]:['0=1',[]];
+// prefix: the table alias when the query joins (e.g. 'a.'); '1=1' and '0=1' take none.
+const alertScope=(u,prefix='')=>isDispatch(u)?['1=1',[]]:isCustomer(u)?[`${prefix}company_id=?`,[u.company_id]]:['0=1',[]];
 
 export function register(r) {
   // Live floor: every production machine's state now and its OEE for the current shift.
@@ -132,8 +133,8 @@ export function register(r) {
   });
 
   // Alerts from all monitoring modules.
-  r.get('/alerts',({u,query})=>{ const [where,args]=alertScope(u), status=query.get('status')||'active'; choice(status,'status',['active','all']);
-    return all(`SELECT a.*,e.asset_tag,e.make,e.model FROM alerts a LEFT JOIN equipment e ON e.id=a.equipment_id WHERE a.${where} ${status==='active'?"AND a.status<>'resolved'":''} ORDER BY a.created_at DESC LIMIT 300`,...args); });
+  r.get('/alerts',({u,query})=>{ const [where,args]=alertScope(u,'a.'), status=query.get('status')||'active'; choice(status,'status',['active','all']);
+    return all(`SELECT a.*,e.asset_tag,e.make,e.model FROM alerts a LEFT JOIN equipment e ON e.id=a.equipment_id WHERE ${where} ${status==='active'?"AND a.status<>'resolved'":''} ORDER BY a.created_at DESC LIMIT 300`,...args); });
   r.get('/alerts/summary',({u})=>{ const [where,args]=alertScope(u); return Object.fromEntries(['critical','warning','info'].map(s=>[s,one(`SELECT count(*) n FROM alerts WHERE ${where} AND status='open' AND severity=?`,...args,s).n])); });
   const alertFor=(u,key)=>{ const a=byId('alerts',key); if (!a) missing(); if (!(isDispatch(u)||(isCustomer(u)&&u.company_id===a.company_id))) deny(); return a; };
   r.post('/alerts/:id/acknowledge',({u,params})=>{ const a=alertFor(u,params.id); if (a.status!=='open') bad(`This alert is already ${a.status}`); run("UPDATE alerts SET status='acknowledged',acknowledged_by=?,acknowledged_at=? WHERE id=?",u.id,now(),a.id); audit(u,'alert.acknowledge','alert',a.id,a.company_id); return byId('alerts',a.id); });

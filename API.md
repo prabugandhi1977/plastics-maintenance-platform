@@ -112,7 +112,7 @@ Data scoping and auditing:
 - Escalating or declining requires a note.
 
 **Scan at the machine (QR label or RFID tag)**
-- Every machine has a QR label (`qr_code`, `MC:…`, fixed). It can also carry an RFID/NFC tag (`rfidTag` on create or PATCH; `null` removes it). Tag UIDs are stored as upper-case letters and digits, so `04:a2:3b…` and `04A23B…` match, and are unique across the platform.
+- Every machine has a QR label. Leave `qrCode` empty on create and the platform makes one (`MC:…`) with a printable label, or send the code of a label the machine already has (3-200 characters, no spaces, unique; PATCH `qrCode` replaces a label). It can also carry an RFID/NFC tag (`rfidTag` on create or PATCH; `null` removes it). Tag UIDs are stored as upper-case letters and digits, so `04:a2:3b…` and `04A23B…` match, and are unique across the platform.
 - **Raising:** send `scanCode` with the scanned QR payload or tag UID. It must belong to `equipmentId`; `equipmentId` may be left out, and the scan then identifies the machine. Tickets raised from an alert (`alertId`) need no scan.
 - **Closing:** `status: completed` needs `scanCode` for the ticket's machine.
 - **Without a scan:** with the policy at `required`, only a dispatcher or platform admin can proceed, and only with `scanOverrideReason`. With `optional`, anyone can.

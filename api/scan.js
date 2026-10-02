@@ -17,6 +17,13 @@ export function rfidTag(v) {
   return tag;
 }
 
+// A QR label code: the platform's own (MC:…) or the code on labels a plant already uses (plain text or a URL).
+export function qrLabel(v) {
+  const code=String(v??'').trim();
+  if (code.length<3||code.length>200||!/^[\x21-\x7E]+$/.test(code)) bad('QR code must be 3-200 characters without spaces (letters, digits and symbols as printed in the code)');
+  return code;
+}
+
 // Resolves a scanned code to its equipment: an exact QR payload first, then an RFID tag. Returns undefined when unknown.
 export function resolveScan(code) {
   const raw=String(code??'').trim(); if (!raw||raw.length>200) return undefined;

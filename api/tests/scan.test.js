@@ -110,3 +110,20 @@ test('equipment carries an optional, platform-unique RFID tag that can be replac
   const raised=await call('/tickets','POST',{...noScan(created.data.id),scanCode:created.data.qr_code},tokens.acme);
   assert.equal(raised.status,201); assert.equal(raised.data.raised_via,'qr');
 });
+
+test('a machine can use a QR label it already has, and the label can be replaced',async()=>{
+  const own=await call('/equipment','POST',equipmentBody('plant-a','blow',{qrCode:'https://labels.acme.example/asset/BM-77'}),tokens.acme);
+  assert.equal(own.status,201); assert.equal(own.data.qr_code,'https://labels.acme.example/asset/BM-77');
+  assert.equal((await call(`/equipment/lookup?code=${encodeURIComponent('https://labels.acme.example/asset/BM-77')}`,'GET',null,tokens.acme)).data.id,own.data.id);
+  assert.match(error(await call('/equipment','POST',equipmentBody('plant-a','blow',{qrCode:'MC:eq-a'}),tokens.acme)),/already on another machine/);
+  assert.match(error(await call('/equipment','POST',equipmentBody('plant-a','blow',{qrCode:'has space'}),tokens.acme)),/QR code must be/);
+  // Empty creates the platform's own code; an edit with an empty code keeps the label.
+  assert.match((await call('/equipment','POST',equipmentBody('plant-a','blow',{qrCode:''}),tokens.acme)).data.qr_code,/^MC:[0-9a-f]{12}$/);
+  assert.equal((await call(`/equipment/${own.data.id}`,'PATCH',{qrCode:''},tokens.acme)).data.qr_code,'https://labels.acme.example/asset/BM-77');
+  assert.equal((await call(`/equipment/${own.data.id}`,'PATCH',{qrCode:'ACME-BM-77-NEW'},tokens.acme)).data.qr_code,'ACME-BM-77-NEW');
+  assert.match(error(await call(`/equipment/${own.data.id}`,'PATCH',{qrCode:'MC:eq-b'},tokens.acme)),/already on another machine/);
+});
+
+test('the alerts list works for platform staff as well as customers',async()=>{
+  for (const who of ['admin','dispatch','acme']) assert.equal((await call('/alerts','GET',null,tokens[who])).status,200,who);
+});
