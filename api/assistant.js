@@ -22,6 +22,10 @@ const INSTRUCTIONS=`You help maintenance technicians diagnose and repair breakdo
 
 Safety comes first. These machines store energy in hydraulic accumulators, pneumatics and springs, run barrels, nozzles, dies and hot runners at 200-300 °C, and have high-voltage heater circuits. Before any step that puts hands inside guards or opens a hydraulic, pneumatic or electrical circuit, tell the technician to apply lock-out/tag-out, discharge accumulators and stored pressure, and let heated zones cool or wear heat protection. Never suggest bypassing guards, interlocks or safety circuits, even temporarily. If the ticket reports a safety issue, start with securing the machine and the area.
 
+Photos of the breakdown may be attached: the machine, the failed part, leaks, burn marks, cracks, wear, the controller screen with its alarm. Say what you see that matters for the diagnosis and how it changes the likely causes, read any alarm text or values shown, and say when a photo is unclear and what to photograph instead.
+
+When asked what to do next, give the single most useful next action first, with why it is the best next step given what has already been checked, then the following one or two actions depending on its result.
+
 Ground your advice in the data provided: the machine make, model and parameters, error codes, alarms and readings, the work already done on this ticket, earlier repairs on this company's machines, and the manufacturer's manuals when attached. Say which source a point comes from (for example "manual, hydraulic pressure section" or "repair of 12 Sep on this machine"). When the data does not settle a question, say so and list the most likely causes in order, each with a quick check, rather than presenting one guess as the answer. Recommend the machine builder's service when a fix needs OEM software, warranty work or specialist calibration.
 
 Write for someone standing at the machine with a phone: short numbered steps, one action per step, and the reading or observation that confirms each step. Keep answers brief unless asked for detail. Reply in the language the technician writes in.`;
@@ -57,6 +61,7 @@ export function ticketContext(t) {
     `Open alerts: ${alerts.map(a=>`${a.severity} ${a.title}${a.detail?` (${a.detail})`:''}`).join('; ')||'none'}`,
     `Checklist: ${checklist.map(c=>`[${c.done?'x':' '}] ${c.item}${c.note?` (${c.note})`:''}`).join('; ')||'not started'}`,
     `Work done on this ticket: ${work.map(w=>`${w.created_at} ${w.name}: ${w.description} (${w.minutes} min${w.parts_used?`, parts ${w.parts_used}`:''})`).join('; ')||'none yet'}`,
+    `Photos on the ticket: ${one(`SELECT count(*) n FROM attachments WHERE company_id=? AND kind IN ('photo','evidence') AND mime LIKE 'image/%' AND ((entity_type='ticket' AND entity_id=?) OR (entity_type='work_log' AND entity_id IN (SELECT id FROM work_logs WHERE ticket_id=?)))`,t.company_id,t.id,t.id).n} (the newest are attached as images)`,
     `Parts requested: ${parts.map(p=>`${p.item} ${p.part_number} ×${p.quantity} ${p.unit} (${p.status})`).join('; ')||'none'}`,
     `Earlier repairs (${history.length}): ${history.map(h=>`[${h.same?'this machine':'same model'}, ${h.completed_at?.slice(0,10)}] "${h.title}" — symptoms: ${h.symptoms}; codes: ${val(h.error_codes)}; failure mode: ${human(h.failure_mode)}; root cause: ${human(h.root_cause)}; action: ${human(h.action_taken)}; work: ${val(h.work)}`).join(' || ')||'none recorded'}`,
   ].join('\n');
@@ -69,13 +74,26 @@ export function manualBlocks(equipmentId) {
   return docs.map((a,i)=>({type:'document',title:a.filename,source:{type:'base64',media_type:'application/pdf',data:readStoredFile(a).toString('base64')},...(i===docs.length-1?{cache_control:{type:'ephemeral'}}:{})}));
 }
 
+// Photos on the ticket (the report, work logs and questions), newest last, as image blocks with a caption each.
+const IMAGE_TYPES=['image/jpeg','image/png','image/webp'];
+export function photoBlocks(t,limit=6) {
+  const rows=all(`SELECT a.*,u.name uploader FROM attachments a JOIN users u ON u.id=a.uploaded_by
+    WHERE a.company_id=? AND a.kind IN ('photo','evidence') AND a.mime IN (${IMAGE_TYPES.map(()=>'?').join(',')})
+      AND ((a.entity_type='ticket' AND a.entity_id=?) OR (a.entity_type='work_log' AND a.entity_id IN (SELECT id FROM work_logs WHERE ticket_id=?)))
+    ORDER BY a.created_at DESC LIMIT ?`,t.company_id,...IMAGE_TYPES,t.id,t.id,limit).reverse();
+  return rows.flatMap((a,i)=>[{type:'text',text:`Photo ${i+1} of ${rows.length}: "${a.filename}", added by ${a.uploader} at ${a.created_at}${a.entity_type==='work_log'?' with a work log':''}.`},
+    {type:'image',source:{type:'base64',media_type:a.mime,data:readStoredFile(a).toString('base64')}}]);
+}
+
 const textOf=r=>r.content.filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
 const REFUSED='The assistant could not answer this request. Rephrase the question, or contact your supervisor or the machine builder.';
 
 // One reply in the ticket's conversation. history: earlier {role, content} turns, oldest first, alternating.
-export async function askAssistant({history,question,context,manuals=[]}) {
-  const turns=[...history,{role:'user',content:question}].map(x=>({role:x.role,content:x.content}));
-  if (manuals.length) turns[0]={role:'user',content:[...manuals,{type:'text',text:turns[0].content}]};
+// photos: the ticket's current photos; they go with the new question, so earlier turns stay as they were (and cached).
+export async function askAssistant({history,question,context,manuals=[],photos=[]}) {
+  const turns=[...history,{role:'user',content:question}].map(x=>({role:x.role,content:[{type:'text',text:x.content}]}));
+  turns.at(-1).content.unshift(...photos);
+  turns[0].content.unshift(...manuals);
   // The ticket record changes as work goes on, so it goes last as a system message: the cached prefix (instructions,
   // manuals, earlier turns) stays the same from one question to the next.
   const messages=[...turns,{role:'system',content:`Current ticket record, refreshed for this reply:\n${context}`}];
@@ -94,7 +112,7 @@ const clean=g=>({summary:clip(g.summary,600),hazards:(g.hazards||[]).slice(0,8).
   steps:(g.steps||[]).slice(0,15).map(s=>({title:clip(s.title,80),instruction:clip(s.instruction,500),check:clip(s.check,240)})).filter(s=>s.title&&s.instruction)});
 
 // A step-by-step repair guide for the ticket, as structured JSON.
-export async function writeGuide({context,manuals=[],conversation=[]}) {
+export async function writeGuide({context,manuals=[],photos=[],conversation=[]}) {
   const chat=conversation.slice(-12).map(x=>`${x.role==='user'?'Technician':'Assistant'}: ${x.content}`).join('\n\n');
   const request=`Write the step-by-step repair guide for this breakdown.
 
@@ -104,7 +122,7 @@ The guide is shown one step at a time on a phone and in a VR headset at the mach
   const r=await ai().beta.messages.create({...FALLBACK,model:AI_MODEL,max_tokens:16000,thinking:{type:'adaptive'},
     output_config:{effort:'medium',format:{type:'json_schema',schema:GUIDE_SCHEMA}},
     system:[{type:'text',text:INSTRUCTIONS,cache_control:{type:'ephemeral'}}],
-    messages:[{role:'user',content:[...manuals,{type:'text',text:request}]}]});
+    messages:[{role:'user',content:[...manuals,...photos,{type:'text',text:request}]}]});
   if (r.stop_reason==='refusal') throw new Error('The assistant declined to write a guide for this ticket');
   if (r.stop_reason==='max_tokens') throw new Error('The guide was too long; try again');
   let parsed; try { parsed=JSON.parse(textOf(r)); } catch { throw new Error('The assistant returned an unreadable guide; try again'); }

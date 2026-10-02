@@ -95,3 +95,29 @@ test('repair guide: standard without AI, structured AI guide when set up',async(
   assert.equal((await call('/tickets/ticket-a/guide','POST',{},tokens.engineer)).status,502);
   assert.deepEqual((await call('/tickets/ticket-a/guide','GET',null,tokens.acme)).data.guide,guide);
 });
+
+test('breakdown photos go to the assistant: ticket photos, and a photo sent with a question',async()=>{
+  setAiClient({beta:{messages:{create:async body=>{requests.push(body);return {stop_reason:'end_turn',content:[{type:'text',text:'I see oil on the cylinder: check the rod seal next.'}]};}}}});
+  // A photo added to the ticket (as when raising it) reaches the assistant with its caption.
+  assert.equal((await call('/attachments','POST',{entityType:'ticket',entityId:'ticket-n',kind:'photo',filename:'leak.png',mime:'image/png',base64:PNG},tokens.nova)).status,201);
+  await call('/tickets/ticket-n/assistant','POST',{message:'What should I do next?'},tokens.nova);
+  let last=requests.at(-1).messages.at(-2);
+  assert.equal(last.role,'user'); assert.deepEqual(last.content.map(b=>b.type),['text','image','text']);
+  assert.match(last.content[0].text,/Photo 1 of 1: "leak.png", added by Nora Nova/); assert.equal(last.content[1].source.media_type,'image/png');
+  assert.equal(last.content.at(-1).text,'What should I do next?');
+  assert.match(requests.at(-1).system[0].text,/single most useful next action/);
+  // Earlier turns go back as text only, so the conversation prefix does not change.
+  const photoOnly=await call('/tickets/ticket-n/assistant','POST',{photo:{filename:'panel.png',mime:'image/png',base64:PNG}},tokens.nova);
+  assert.equal(photoOnly.status,200);
+  const asked=photoOnly.data.messages.at(-2); assert.match(asked.content,/What do you see in this photo/); assert.ok(asked.attachment_id);
+  last=requests.at(-1).messages;
+  assert.deepEqual(last[0].content.map(b=>b.type),['text']); assert.equal(last.at(-2).content.filter(b=>b.type==='image').length,2);
+  // The photo is kept on the ticket for everyone; a non-image is refused.
+  assert.ok((await call('/tickets/ticket-n','GET',null,tokens.nova)).data.attachments.some(a=>a.id===asked.attachment_id));
+  assert.equal((await call('/tickets/ticket-n/assistant','POST',{photo:{filename:'x.pdf',mime:'application/pdf',base64:PDF}},tokens.nova)).status,400);
+  // The repair guide is written with the photos too.
+  reply=()=>({stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({summary:'s',hazards:[],ppe:[],steps:[{title:'t',instruction:'i',check:'c'}]})}]});
+  setAiClient({beta:{messages:{create:async body=>{requests.push(body);return reply(body);}}}});
+  await call('/tickets/ticket-n/guide','POST',{},tokens.nova);
+  assert.equal(requests.at(-1).messages[0].content.filter(b=>b.type==='image').length,2);
+});

@@ -1,6 +1,6 @@
 // App-shell cache for the field app. API calls are never cached here: the app keeps its own per-user work cache and
 // offline queue, so a stale API response can never be mistaken for live data.
-const CACHE='mouldcare-field-v9',SHELL=['/mobile/','/mobile/index.html','/mobile/app.js','/mobile/style.css','/mobile/icon-192.png','/mobile/icon-512.png','/mobile/manifest.webmanifest','/shared/i18n.js','/shared/signature.js','/shared/scan.js','/shared/media.js'];
+const CACHE='mouldcare-field-v10',SHELL=['/mobile/','/mobile/index.html','/mobile/app.js','/mobile/style.css','/mobile/icon-192.png','/mobile/icon-512.png','/mobile/manifest.webmanifest','/shared/i18n.js','/shared/signature.js','/shared/scan.js','/shared/media.js'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 // Network first for the shell so updates arrive when online; the cache answers when the network does not.
