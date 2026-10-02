@@ -4,7 +4,8 @@ FROM node:22-alpine
 RUN apk add --no-cache su-exec
 WORKDIR /app
 ENV NODE_ENV=production PORT=3100 MOULDCARE_DATA_DIR=/data
-COPY package.json ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 COPY api ./api
 COPY web ./web
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

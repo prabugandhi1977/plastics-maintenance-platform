@@ -28,7 +28,7 @@ function unscanned(u,body,stage) {
 export function ticketDetail(u,key) {
   const t=getTicket(u,key), coverage=coverageFor(t);
   return {...t,
-    asset:one('SELECT id,machine_type,make,model,serial_number,location,qr_code,rfid_tag,asset_tag,criticality FROM equipment WHERE id=?',t.equipment_id),
+    asset:one('SELECT id,machine_type,make,model,serial_number,location,qr_code,rfid_tag,asset_tag,criticality,image_attachment_id FROM equipment WHERE id=?',t.equipment_id),
     plant:one('SELECT id,name,country,service_area,timezone FROM plants WHERE id=?',t.plant_id),
     coverage,...responseTarget(t,coverage),
     events:all('SELECT e.*,u.name actor_name FROM ticket_events e JOIN users u ON u.id=e.actor_id WHERE e.ticket_id=? ORDER BY e.created_at',key),

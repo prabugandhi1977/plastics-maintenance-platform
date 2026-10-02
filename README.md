@@ -77,6 +77,13 @@ Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos onl
 
 An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `node api/seed.js` runs. A database without the stage 1 demo products is left unchanged.
 
+## Breakdown assistant (AI) and VR guide
+
+- **Equipment pictures:** every machine can have a photo (upload it on the equipment page, or when adding equipment). It appears in the equipment list, on tickets, in the field app and in the VR guide. Machines without one show an icon for their type.
+- **Breakdown assistant:** each ticket has an AI chat that knows the machine, the breakdown report, live alarms, the work done, earlier repairs on the company's machines and any PDF manuals uploaded to the asset. It puts safety first and says where its advice comes from. To switch it on, set `ANTHROPIC_API_KEY` (an Anthropic API key from console.anthropic.com) on the server; on Render, add it under **Environment**.
+- **Repair guide:** each ticket shows a step-by-step guide with hazards, PPE and a check for every step. With the assistant switched on, **Write with AI** builds it from the ticket, the manuals and the conversation; otherwise the standard guide is built from the machine type's checklist and the machine's last repair.
+- **VR guide for critical breakdowns:** on a critical ticket, **Open VR guide** shows the machine, the current step and the hazards around you. On a VR headset (for example Meta Quest, opening the platform in its browser) choose **Enter VR** and use the controllers to go Back and Next; on a phone or PC it opens full screen and you drag to look around.
+
 ## Demo path
 
 Every record has mandatory, industry-standard data (see *Mandatory master data* in `API.md`). Forms mark required fields with *, show units, and explain what is missing before anything is sent. Older records missing mandatory data are flagged **Incomplete** rather than rejected.

@@ -67,6 +67,27 @@ export function register(r) {
     audit(u,'equipment.update','equipment',e.id,e.company_id,{fields:Object.keys(body)}); return present(byId('equipment',e.id));
   });
 
+  // The equipment picture: shown on the asset, its tickets, the field app and the VR guide. Anyone who can see the
+  // asset, or holds a ticket on it, can view it; the people who can edit the asset can change it.
+  r.post('/equipment/:id/image',({u,body,params})=>{
+    const e=getEquipment(u,params.id); if (!canManageCompany(u,e.company_id)&&!isDispatch(u)) deny();
+    choice(body.mime,'mime',['image/jpeg','image/png','image/webp']);
+    const file=storeFile(u,{companyId:e.company_id,entityType:'equipment',entityId:e.id,kind:'image',filename:body.filename,mime:body.mime,base64:body.base64});
+    run('UPDATE equipment SET image_attachment_id=? WHERE id=?',file.id,e.id); audit(u,'equipment.image','equipment',e.id,e.company_id,{attachmentId:file.id});
+    return created(present(byId('equipment',e.id)));
+  });
+  r.delete('/equipment/:id/image',({u,params})=>{
+    const e=getEquipment(u,params.id); if (!canManageCompany(u,e.company_id)&&!isDispatch(u)) deny();
+    run('UPDATE equipment SET image_attachment_id=NULL WHERE id=?',e.id); audit(u,'equipment.image_remove','equipment',e.id,e.company_id);
+    return present(byId('equipment',e.id));
+  });
+  r.get('/equipment/:id/image',({u,params,res})=>{
+    const e=byId('equipment',params.id); if (!e) missing();
+    if (!canCompany(u,e.company_id)&&!visibleTickets(u).some(t=>t.equipment_id===e.id)) deny();
+    const a=e.image_attachment_id&&byId('attachments',e.image_attachment_id); if (!a) missing();
+    res.writeHead(200,{'content-type':a.mime,'content-disposition':'inline','x-content-type-options':'nosniff','cache-control':'private, max-age=300'}); res.end(readStoredFile(a));
+  });
+
   r.post('/attachments',({u,body})=>{
     const type=choice(body.entityType,'entityType',['equipment','ticket','work_log']), companyId=companyOfAttachmentTarget(u,type,body.entityId);
     const kind=choice(body.kind,'kind',['manual','photo','evidence']);

@@ -7,6 +7,7 @@ import { created } from '../http.js';
 import { bad, deny, missing, required, integer, array, choice } from '../validate.js';
 import { catalog, codes, CODE_LISTS, DEFAULT_RESPONSE_HOURS, MACHINE_TYPES } from '../catalog.js';
 import { scanPolicy } from '../scan.js';
+import { AI_MODEL, aiEnabled } from '../assistant.js';
 
 const PRIORITIES=['critical','high','medium','low'];
 export function defaultResponseHours() {
@@ -14,7 +15,7 @@ export function defaultResponseHours() {
 }
 
 export function register(r) {
-  r.get('/catalog',()=>({...catalog(),scanPolicy:scanPolicy()}));
+  r.get('/catalog',()=>({...catalog(),scanPolicy:scanPolicy(),ai:{enabled:aiEnabled(),model:aiEnabled()?AI_MODEL:null}}));
 
   r.get('/service-areas',()=>all('SELECT sa.code,sa.name,(SELECT count(*) FROM plants p WHERE p.service_area=sa.code) plants FROM service_areas sa ORDER BY sa.code'));
   r.post('/service-areas',({u,body})=>{

@@ -17,6 +17,7 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - platform-data:/data
     restart: unless-stopped
