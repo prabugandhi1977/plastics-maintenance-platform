@@ -71,7 +71,7 @@ The platform now monitors production as well as maintaining machines, under the 
 - **Traceability:** material lots → batches → output. Each batch records its lots, machine, mould, operator and process settings. A batch's *genealogy* also shows the stops, alerts, maintenance and camera rejects on its machine while it ran. Quarantining a lot puts exactly the batches that used it on hold.
 - **Safety:** events detected by cameras, wearables and sensors, and reported by people (also from the mobile app, offline). Each event is investigated and closed with a root cause and a corrective action. The page shows days without a lost-time injury and the near-miss count.
 - **Asset tracking:** moulds, tools, gauges and trolleys located by zone from BLE beacons or RFID tags. Alerts for a guarded asset in a restricted or outside zone, a tag not heard for too long, and a low tag battery. Each asset has a 48-hour location history.
-- **Shifts:** set under *Organisation → Plants → Shifts*.
+- **Shifts:** set under *Companies, plants & users → Plants → Edit shifts*.
 
 Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
@@ -101,8 +101,8 @@ Every record has mandatory, industry-standard data (see *Mandatory master data* 
 5. **Contracts.** Add a visit in plant-local time, or change the renewal date and response target.
 6. **Language and time zones.** Sign in as Nova to see the German interface and times in Cologne time (MESZ). Switch language from the sidebar; the choice is saved per user.
 7. **Isolation.** Sign in as Nova or EuroTech to confirm they cannot see Acme's records.
-8. **Users.** As Acme, deactivate and reactivate Lee Maintenance on the **Organisation** page. A deactivated user is signed out on their next request.
-9. **Machine data.** As admin, open **Equipment → Coperion ZSK 58**. Its data is stale, with a critical alarm. Then open **IoT integration** for sync runs and the quarantined records.
+8. **Users.** As Acme, deactivate and reactivate Lee Maintenance on the **Companies, plants & users** page. A deactivated user is signed out on their next request.
+9. **Machine data.** As admin, open **Equipment register → Coperion ZSK 58**. Its data is stale, with a critical alarm. Then open **Machine data (IoT)** for sync runs and the quarantined records.
 
 ## Deploy
 

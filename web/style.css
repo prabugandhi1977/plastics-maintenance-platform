@@ -33,11 +33,11 @@ textarea{min-height:78px;resize:vertical} input[type=checkbox],input[type=radio]
 fieldset.section{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px 16px;margin:0 0 14px} fieldset.section>legend{padding:0 6px;font-weight:700;font-size:14px}
 
 /* Shell */
-.shell{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
+.shell{display:grid;grid-template-columns:262px minmax(0,1fr);min-height:100vh}
 .side{background:var(--nav);color:#fff;padding:22px 14px;display:flex;flex-direction:column}
 .brand{font-size:24px;font-weight:800;letter-spacing:-.7px;margin:4px 8px 22px} .brand span{color:#65d7ca}
 .nav-group{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:#8fb0b4;margin:16px 10px 6px} .nav-sep{border-top:1px solid #2f5560;margin:14px 6px}
-.nav{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:transparent;border-radius:8px;color:#d6e8e9;margin:2px 0;padding:9px 10px;font-weight:600}
+.nav{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:transparent;border-radius:8px;color:#d6e8e9;margin:2px 0;padding:8px 10px;font-weight:600;font-size:14.5px;line-height:1.25}
 .nav.active,.nav:hover{background:var(--nav-hover);color:#fff} .nav.active{box-shadow:inset 3px 0 0 #65d7ca}
 .nav-icon{width:18px;height:18px;flex:none}
 .profile{margin-top:auto;padding:14px 8px 0;border-top:1px solid #44636b;font-size:13px;color:#d3e2e3}

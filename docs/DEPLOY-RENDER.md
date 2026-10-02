@@ -35,7 +35,7 @@ Decide the **email and password for your admin account**. The password needs at 
 
 ## After it's live
 
-- **Add real data.** As admin, go to **Organisation** and add customer companies, plants and users. Then add providers, equipment, and contracts.
+- **Add real data.** As admin, go to **Companies, plants & users** and add customer companies, plants and users. Then add service providers, equipment, and contracts.
 - **Updates are automatic.** Every change pushed to the repository's `main` branch is rebuilt and published automatically.
 - **Backups.** Render takes daily snapshots of the disk. To restore one, open the service, then **Disks**.
 - **Only one instance.** Keep the service on a single instance: the database file can't be shared between servers. Moving to PostgreSQL, described in `docs/ROADMAP.md`, removes this limit.
