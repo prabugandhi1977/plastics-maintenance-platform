@@ -22,7 +22,10 @@ const MP4=Buffer.concat([Buffer.from([0,0,0,24]),Buffer.from('ftypisom'),Buffer.
 const ago=s=>new Date(Date.now()-s*1000).toISOString();
 const edge=(path,body,key=ctx.key)=>call(path,body?'POST':'GET',body,null,key?{authorization:`Bearer ${key}`}:{});
 
-test('setup',async()=>{ for (const [k,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',engineer:'engineer@demo.test'})) tokens[k]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token; });
+test('setup',async()=>{
+  // Start from no vision data (the demo seed adds some).
+  db.exec("DELETE FROM vision_events; DELETE FROM vision_media; DELETE FROM vision_stats; DELETE FROM vision_zones; DELETE FROM vision_assignments; DELETE FROM vision_cameras; DELETE FROM vision_nodes; DELETE FROM vision_licences; UPDATE users SET vision_duties='[]'");
+  for (const [k,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',engineer:'engineer@demo.test'})) tokens[k]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token; });
 
 test('licences are set by the platform admin per company and module',async()=>{
   assert.equal((await call('/vision/licences/c-acme/ppe','PUT',{cameras:2},tokens.acme)).status,403);

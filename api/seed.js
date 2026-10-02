@@ -1,3 +1,4 @@
+import { seedVision } from './vision-demo.js';
 import { db, id, now, one, run } from './db.js';
 import { hashPassword } from './security.js';
 import { parametersFor } from './catalog.js';
@@ -69,6 +70,7 @@ function demoRfid() {
 }
 if (one('SELECT 1 FROM companies LIMIT 1')) {
   demoRfid();
+  if (seedVision()) console.log('Vision demo data added');
   if (one("SELECT 1 FROM companies WHERE id='c-acme'")&&one("SELECT 1 FROM products WHERE id='pr-cap'")&&!one('SELECT 1 FROM zones LIMIT 1')) { db.exec('BEGIN IMMEDIATE'); try { seedOperations(); db.exec('COMMIT'); console.log('Added traceability, safety and asset-tracking demo data'); } catch(e) { db.exec('ROLLBACK'); throw e; } }
   else console.log('Seed already present');
   process.exit(0);
@@ -123,6 +125,6 @@ try {
   run("UPDATE companies SET energy_price_per_kwh=0.12 WHERE id='c-acme'"); run("UPDATE companies SET energy_price_per_kwh=0.21 WHERE id='c-nova'");
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-a','demo-device-a','c-acme','eq-a',stamp);
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-n','demo-device-n','c-nova','eq-n',stamp);
-  seedOperations(); demoRfid();
+  seedOperations(); demoRfid(); seedVision();
   db.exec('COMMIT'); console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');
 } catch(e) { db.exec('ROLLBACK'); throw e; }

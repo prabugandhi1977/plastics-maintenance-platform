@@ -164,3 +164,58 @@ dialog.confirm .modal-body h2{margin:0 0 8px;font-size:18px}
 .quick-asks{margin-top:10px} .quick-asks .chip{font-size:12.5px}
 .chat-photo{display:block;max-width:220px;max-height:180px;border-radius:8px;margin:4px 0;object-fit:cover}
 .photo-pick{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap;background:var(--surface)}
+/* ---------- Vision AI ---------- */
+.section-title{font-size:16px;margin:18px 0 10px} .chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.btn-link{cursor:pointer;font-weight:650;color:var(--good);font-size:13.5px;white-space:nowrap}
+.code-block{background:#0f2731;color:#d8eeeb;border-radius:8px;padding:10px 12px;font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-all;max-height:420px;overflow:auto}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}
+dialog.modal.xwide{width:min(1180px,calc(100vw - 24px))}
+/* Camera frames with detection boxes and zones */
+.vframe{position:relative;aspect-ratio:16/9;background:#0e2630;border-radius:8px;overflow:hidden}
+.vframe img{width:100%;height:100%;object-fit:cover;display:block}
+.vframe-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#7fa2a6;font-size:12.5px}
+.vframe.large{aspect-ratio:16/9;margin-bottom:10px}
+.vzones{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.vzones polygon,.vzones line{vector-effect:non-scaling-stroke;stroke-width:2}
+.bbox{position:absolute;border:2px solid #ff5a4f;border-radius:3px;box-shadow:0 0 0 1px #0006}
+.bbox.ok{border-color:#3ddc97}
+.bbox em{position:absolute;left:-2px;top:-20px;background:#ff5a4f;color:#fff;font:600 11px/1 system-ui,sans-serif;font-style:normal;padding:3px 5px;border-radius:3px 3px 3px 0;white-space:nowrap}
+.bbox.ok em{background:#1f9d6a}
+.z-exclusion{fill:#d03b3b33;stroke:#ff6b5f} .z-tripwire{stroke:#ffb020;stroke-dasharray:6 4;fill:none} .z-allowed_motion{fill:#3ddc9722;stroke:#3ddc97;stroke-dasharray:4 3}
+.z-ppe_zone{fill:#fab21922;stroke:#fab219} .z-inspection_roi{fill:#4aa3ff22;stroke:#4aa3ff}
+.vtiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:16px}
+.vtile{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.vtile.alarm{border-color:#d03b3b;box-shadow:0 0 0 2px #d03b3b55}
+.vtile .vframe{border-radius:0}
+.vtile-body{padding:10px 12px;display:grid;gap:5px}
+.chip.mod-ppe{background:#fff4dc;border-color:#f1d28e} .chip.mod-fire_smoke{background:#fde7e4;border-color:#f0b4ab} .chip.mod-intrusion{background:#e8eefc;border-color:#b8c8f0} .chip.mod-quality{background:#e3f4ea;border-color:#a8dcbd}
+.chip.off{opacity:.55;text-decoration:line-through}
+button.chip{cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink);font-weight:600;padding:4px 10px} button.chip:hover{filter:brightness(.96)}
+/* Module routing */
+.module-palette{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0}
+.module-card{display:grid;gap:2px;min-width:180px;padding:10px 14px;border-radius:10px;border:1px solid var(--line-2);cursor:grab;user-select:none}
+.module-card b{font-size:14px} .module-card span{font-size:12px;color:var(--muted)}
+.module-card.mod-ppe{background:#fff8e8} .module-card.mod-fire_smoke{background:#fdeeec} .module-card.mod-intrusion{background:#eef2fd} .module-card.mod-quality{background:#ebf7f0}
+.module-card.off,.module-card:not([draggable]){cursor:not-allowed;opacity:.6}
+.drop-zone{border:1px dashed transparent;border-radius:8px;padding:2px;transition:background .15s}
+.drop-zone.over{border-color:var(--good);background:var(--good-wash)}
+/* Geofence editor */
+.geo{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}
+.geo-stage{position:relative;aspect-ratio:16/9;align-self:start} .geo-stage .vframe{position:absolute;inset:0;aspect-ratio:auto}
+#geo-svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+#geo-svg polygon,#geo-svg polyline,#geo-svg line{stroke-width:3;vector-effect:non-scaling-stroke}
+#geo-svg .draft{stroke:#fff;stroke-dasharray:none} #geo-svg polyline{fill:none}
+#geo-svg .handle{fill:#fff;stroke:#0e2630;stroke-width:2;cursor:grab}
+#geo-svg .geo-label{fill:#fff;font:600 22px system-ui,sans-serif;paint-order:stroke;stroke:#0008;stroke-width:4px}
+.geo-item{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)} .geo-item>div{flex:1} .geo-item.off{opacity:.55}
+.swatch{width:14px;height:14px;border-radius:3px;margin-top:3px;border:2px solid} .swatch.z-exclusion{background:#d03b3b55;border-color:#ff6b5f} .swatch.z-tripwire{border-color:#ffb020;border-style:dashed} .swatch.z-allowed_motion{background:#3ddc9744;border-color:#3ddc97} .swatch.z-ppe_zone{background:#fab21944;border-color:#fab219} .swatch.z-inspection_roi{background:#4aa3ff44;border-color:#4aa3ff}
+@media(max-width:900px){.geo{grid-template-columns:minmax(0,1fr)}}
+.vevent video{width:100%;border-radius:8px;background:#000;margin-bottom:10px}
+.kv th{text-align:left;color:var(--muted);font-weight:600;padding:5px 12px 5px 0;vertical-align:top;white-space:nowrap} .kv td{padding:5px 0}
+/* Live alarm banner */
+.vision-alarm{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147482000;display:flex;align-items:center;gap:12px;width:min(760px,calc(100vw - 24px));padding:12px 14px;border-radius:12px;color:#fff;box-shadow:0 10px 30px #0005;animation:va-pulse 1.4s ease-in-out infinite}
+.vision-alarm.critical{background:#b3261e} .vision-alarm.warning{background:#8d5a00;animation:none}
+.va-icon{font-size:26px} .va-text{flex:1;display:grid;gap:2px} .va-text span{font-size:13px;opacity:.9}
+.vision-alarm button{border:0;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer;background:#fff;color:#7d1a14} .vision-alarm .va-x{background:transparent;color:#fff;padding:6px}
+@keyframes va-pulse{50%{box-shadow:0 0 0 6px #ff5a4f66,0 10px 30px #0005}}
+@media (prefers-reduced-motion:reduce){.vision-alarm{animation:none}}
