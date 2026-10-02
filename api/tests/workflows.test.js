@@ -11,7 +11,7 @@ process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 await import('../seed.js');
 const { createServer }=await import('../server.js');
 const { db }=await import('../db.js');
-const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
+const { ticketBody, closeOut, atMachine, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
@@ -64,7 +64,7 @@ test('assignment, offline replay, service, parts, sign-off and audit',async()=>{
   assert.equal((await call(`/tickets/${tid}/status`,'POST',{status:'in_progress'},tokens.atlas)).status,200);
   assert.equal((await call(`/tickets/${tid}/checklist`,'POST',{item:'Inspect hydraulic line',done:true,note:'Leak found'},tokens.atlas)).status,201);
   assert.equal((await call(`/tickets/${tid}/work-logs`,'POST',{description:'Replaced seal and tested',minutes:75,partsUsed:'Seal kit'},tokens.atlas)).status,201);
-  assert.equal((await call(`/tickets/${tid}/status`,'POST',{status:'completed',downtimeMinutes:180,...closeOut},tokens.atlas)).status,200);
+  assert.equal((await call(`/tickets/${tid}/status`,'POST',{status:'completed',downtimeMinutes:180,...closeOut,...atMachine()},tokens.atlas)).status,200);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Sam Acme'},tokens.nova)).status,403);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Sam Acme'},tokens.acme)).status,201);
   const part=await call(`/tickets/${tid}/parts`,'POST',partBody(),tokens.atlas);assert.equal(part.status,201);

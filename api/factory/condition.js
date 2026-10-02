@@ -47,7 +47,7 @@ function autoTicket(e,alert,def,value,at) {
   const existing=one("SELECT t.id FROM tickets t JOIN alerts a ON a.ticket_id=t.id WHERE a.dedupe_key=? AND t.status<>'completed' LIMIT 1",alert.dedupe_key);
   const ticketId=existing?.id??id();
   if (!existing) {
-    run("INSERT INTO tickets (id,company_id,plant_id,equipment_id,title,priority,symptoms,error_codes,production_impact,status,created_by,created_at,downtime_minutes,failure_category,machine_state,safety_issue,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,'open','u-system',?,0,?,'running',0,?)",
+    run("INSERT INTO tickets (id,company_id,plant_id,equipment_id,title,priority,symptoms,error_codes,production_impact,status,created_by,created_at,downtime_minutes,failure_category,machine_state,safety_issue,occurred_at,raised_via) VALUES (?,?,?,?,?,?,?,?,?,'open','u-system',?,0,?,'running',0,?,'auto')",
       ticketId,e.company_id,e.plant_id,e.id,`Condition alarm: ${def.label} ${fmt(value,def.unit)}`.slice(0,160),'high',alert.detail,'','Machine still running. Repair before it fails to avoid unplanned downtime.',now(),def.category,at);
     run('INSERT INTO ticket_events (id,ticket_id,actor_id,event_type,detail,created_at) VALUES (?,?,?,?,?,?)',id(),ticketId,SYSTEM.id,'alert',`Raised automatically by condition monitoring: ${alert.title}`,now());
     run('INSERT INTO audit_events VALUES (?,?,?,?,?,?,?,?)',id(),SYSTEM.id,e.company_id,'ticket.auto_create','ticket',ticketId,JSON.stringify({alertId:alert.id}),now());

@@ -10,7 +10,7 @@ process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 await import('../seed.js');
 const { createServer }=await import('../server.js');
 const { db, one }=await import('../db.js');
-const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
+const { ticketBody, closeOut, atMachine, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
@@ -61,7 +61,7 @@ test('breakdown report and ISO 14224 close-out are mandatory; safety issues beco
   const noCloseOut=await call(`/tickets/${safety.id}/status`,'POST',{status:'completed'},tokens.engineer);
   assert.equal(noCloseOut.status,400); assert.match(error(noCloseOut),/record the failure mode, root cause, action taken/);
   assert.equal((await call(`/tickets/${safety.id}/status`,'POST',{status:'completed',...closeOut,rootCause:'bad_luck'},tokens.engineer)).status,400);
-  const done=(await call(`/tickets/${safety.id}/status`,'POST',{status:'completed',...closeOut},tokens.engineer)).data;
+  const done=(await call(`/tickets/${safety.id}/status`,'POST',{status:'completed',...closeOut,...atMachine()},tokens.engineer)).data;
   assert.deepEqual([done.failure_mode,done.root_cause,done.action_taken],['low_output','wear_and_ageing','replace']);
   assert.ok(done.downtime_minutes>=89&&done.downtime_minutes<=95,`auto downtime ${done.downtime_minutes}`);
 });

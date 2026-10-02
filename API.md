@@ -50,7 +50,7 @@ Data scoping and auditing:
 | `PATCH` | `/providers/:id` | Platform admin: edit contacts, insurance expiry, certifications, service areas, skills |
 | `PATCH` | `/providers/:id/approval` | Approve or suspend a provider (approval needs contacts and valid insurance) |
 | `GET, PATCH` | `/equipment/:id` | Asset detail with files, telemetry and recent tickets. PATCH edits make, model, serial or location, or moves the asset between the company's plants |
-| `GET` | `/equipment/lookup?qr=MC:...` | Resolve a QR label within visible work |
+| `GET` | `/equipment/lookup?code=...` | Resolve a scan (QR label payload or RFID tag UID/EPC; `?qr=` still works) to the machine, with `scannedVia`, `ticketIds` and `openTicketIds`. Within the company or visible work |
 | `GET` | `/equipment/:id/readings?limit=100&before=<ISO>` | Freshness, last value per metric, active alarms, reading history |
 | `GET` | `/equipment/:id/alarms?state=active\|all` | Alarm history (raised and cleared times) |
 | `GET, POST` | `/devices` | List or create device-to-asset mappings |
@@ -63,7 +63,8 @@ Data scoping and auditing:
 | `GET` | `/tickets/:id` | Ticket with contract coverage, response target, events, checklist, work, parts, sign-off and evidence |
 | `GET` | `/tickets/:id/candidates` | Dispatcher/admin: every engineer and provider, with eligibility reasons and open workload |
 | `POST` | `/tickets/:id/assign` | Assign an eligible engineer or approved provider |
-| `POST` | `/tickets/:id/status` | Accept, decline, start, escalate or complete (works offline) |
+| `POST` | `/tickets` | Raise a breakdown; needs a scan of the machine (see *Scan at the machine*). Works offline |
+| `POST` | `/tickets/:id/status` | Accept, decline, start, escalate or complete; completing needs a scan of the machine (works offline) |
 | `POST` | `/tickets/:id/checklist` | Add a checklist item (works offline) |
 | `PATCH, POST` | `/checklist/:id` | Tick, untick or annotate a checklist item (POST works offline) |
 | `POST` | `/tickets/:id/work-logs` | Log work time and parts used (works offline) |
@@ -81,6 +82,7 @@ Data scoping and auditing:
 | `GET` | `/catalog` | Master-data catalogue: machine parameter sets and ISO 14224 code lists |
 | `GET, POST` | `/service-areas` | Managed service-area list (create: platform admin) |
 | `PATCH` | `/service-areas/:code` | Rename a service area (the code stays fixed) |
+| `GET, PATCH` | `/settings/scan-policy` | `{raise, close}`, each `required` or `optional` (read: everyone, also in `/catalog` as `scanPolicy`; change: platform admin) |
 | `GET, PATCH` | `/settings/response-targets` | Default response hours by priority (read: internal staff; change: platform admin) |
 | `GET` | `/settings/checklists` | Standard checklist per machine type |
 | `PATCH` | `/settings/checklists/:type` | Platform admin: replace a machine type's checklist `{items:[...]}` |
@@ -103,6 +105,14 @@ Data scoping and auditing:
 - `escalated` can be reached from any active status, and returns to `in_progress`.
 - A ticket can't be completed without at least one work log.
 - Escalating or declining requires a note.
+
+**Scan at the machine (QR label or RFID tag)**
+- Every machine has a QR label (`qr_code`, `MC:…`, fixed). It can also carry an RFID/NFC tag (`rfidTag` on create or PATCH; `null` removes it). Tag UIDs are stored as upper-case letters and digits, so `04:a2:3b…` and `04A23B…` match, and are unique across the platform.
+- **Raising:** send `scanCode` with the scanned QR payload or tag UID. It must belong to `equipmentId`; `equipmentId` may be left out, and the scan then identifies the machine. Tickets raised from an alert (`alertId`) need no scan.
+- **Closing:** `status: completed` needs `scanCode` for the ticket's machine.
+- **Without a scan:** with the policy at `required`, only a dispatcher or platform admin can proceed, and only with `scanOverrideReason`. With `optional`, anyone can.
+- Each ticket records `raised_via` and `closed_via` (`qr`, `rfid`, `alert`, `auto`, `override` or `manual`), the scan times `raised_scan_at` and `closed_scan_at`, and any `scan_override_reason`. A `scan` event is added to the ticket's activity. Tickets from before this feature have `null`.
+- The field app checks a closing scan against the ticket's machine on the device, so it works offline; the server checks again when the action syncs. A breakdown reported offline is queued with just the scanned code.
 
 **Declining a ticket**
 - Only the assigned engineer or provider can decline, and only before accepting.
@@ -132,7 +142,10 @@ Examples:
 
 ```json
 POST /tickets
-{"equipmentId":"eq-a","title":"Pressure drops","priority":"high","symptoms":"Drops after warm-up","errorCodes":"E-204","productionImpact":"Line stopped"}
+{"scanCode":"E28011606000020840A1B204","title":"Pressure drops","priority":"high","symptoms":"Drops after warm-up","errorCodes":"E-204","productionImpact":"Line stopped","failureCategory":"hydraulic","machineState":"stopped","safetyIssue":false,"occurredAt":"2026-10-02T08:00"}
+
+POST /tickets/{id}/status
+{"status":"completed","failureMode":"external_leakage","rootCause":"wear_and_ageing","actionTaken":"replace","scanCode":"MC:eq-a"}
 
 POST /tickets/{id}/assign
 {"assigneeType":"provider","assigneeId":"p-atlas"}

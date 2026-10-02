@@ -5,7 +5,9 @@ const daysAhead=d=>new Date(Date.now()+d*86400000).toISOString().slice(0,10);
 let serial=0; const unique=prefix=>`${prefix}-${Date.now().toString(36)}-${++serial}`.toUpperCase();
 
 export const closeOut={failureMode:'low_output',rootCause:'wear_and_ageing',actionTaken:'replace'};
-export const ticketBody=(equipmentId,extra={})=>({equipmentId,title:'Screw slips',priority:'high',symptoms:'Recovery time doubled',errorCodes:'E-311',productionImpact:'Cycle time +20%',failureCategory:'mechanical',machineState:'reduced_output',safetyIssue:false,occurredAt:minutesAgo(30),...extra});
+// A scan of a seeded machine's QR label (seed labels are MC:<equipment id>), as made when standing at the machine.
+export const atMachine=(equipmentId='eq-a')=>({scanCode:`MC:${equipmentId}`});
+export const ticketBody=(equipmentId,extra={})=>({equipmentId,...(String(equipmentId).startsWith('eq-')?atMachine(equipmentId):{}),title:'Screw slips',priority:'high',symptoms:'Recovery time doubled',errorCodes:'E-311',productionImpact:'Cycle time +20%',failureCategory:'mechanical',machineState:'reduced_output',safetyIssue:false,occurredAt:minutesAgo(30),...extra});
 export const partBody=(extra={})=>({item:'Seal kit',quantity:1,partNumber:'SK-100',unit:'pcs',urgency:'urgent',manufacturer:'Arburg',...extra});
 export const quoteBody=(extra={})=>({amountMinor:12500,currency:'USD',leadDays:3,validUntil:daysAhead(30),...extra});
 export const contractBody=(companyId,equipmentIds,extra={})=>({companyId,title:'Annual care',contractNumber:unique('AMC'),startsAt:'2026-01-01',renewsAt:'2027-01-01',responseHours:8,coverageHours:'8x5',visitsPerYear:4,noticeDays:60,commitments:'Visit',exclusions:'None',equipmentIds,visits:[],...extra});

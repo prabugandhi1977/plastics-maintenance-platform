@@ -81,7 +81,9 @@ An existing demo database gets the stage 3–4 demo data (zones, tagged assets, 
 
 Every record has mandatory, industry-standard data (see *Mandatory master data* in `API.md`). Forms mark required fields with *, show units, and explain what is missing before anything is sent. Older records missing mandatory data are flagged **Incomplete** rather than rejected.
 
-1. **Raise a ticket.** Sign in as Acme. The overview shows repeat faults, downtime and response targets. Inspect equipment and its QR label, then raise a breakdown ticket.
+1. **Raise a ticket.** Sign in as Acme. The overview shows repeat faults, downtime and response targets. Inspect equipment and its QR label, then raise a breakdown ticket by scanning the machine: type `MC:eq-a` (the QR code of IMM-04) or its RFID tag `E28011606000020840A1B204` into the scan field and press Enter, as a USB or handheld scanner does. Supported browsers also show **Scan QR** (camera) and **Read RFID/NFC tag** (Android).
+   - Tickets are linked to the machine: raising one and closing one both need a scan of its QR label or RFID tag. Dispatchers can go ahead without a scan by giving a reason, which stays on the ticket. A platform admin can make either scan optional under **Settings → Scan at the machine**.
+   - In the field app, **Scan a machine** opens its open work, or lets customer staff report a breakdown on it, offline too.
 2. **Assign it.** Sign in as the dispatcher and open the ticket. It shows contract coverage and the response deadline. Choose **Assign**: the form lists eligible engineers and providers, and explains why EuroTech is not eligible.
 3. **Do the job on the phone.** Open `/mobile/` as Atlas or the engineer and accept the job; the standard injection moulding checklist appears. Tap items to tick them, log work, and attach a photo.
    - Switch the browser offline in DevTools and keep working. Changes show immediately with a "queued" count, and sync when you go back online.

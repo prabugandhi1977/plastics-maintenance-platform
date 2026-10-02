@@ -10,7 +10,7 @@ process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 await import('../seed.js');
 const { createServer }=await import('../server.js');
 const { db, one, all }=await import('../db.js');
-const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
+const { ticketBody, closeOut, atMachine, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
 after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
@@ -89,7 +89,7 @@ test('on-site signature sign-off by the assigned provider',async()=>{
   for (const status of ['accepted','in_progress']) await call(`/tickets/${tid}/status`,'POST',{status},tokens.atlas);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee',signatureBase64:PNG},tokens.atlas)).status,400);
   await call(`/tickets/${tid}/work-logs`,'POST',{description:'Replaced check ring',minutes:90},tokens.atlas);
-  await call(`/tickets/${tid}/status`,'POST',{status:'completed',...closeOut},tokens.atlas);
+  await call(`/tickets/${tid}/status`,'POST',{status:'completed',...closeOut,...atMachine()},tokens.atlas);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee',signatureBase64:Buffer.from('not an image').toString('base64')},tokens.atlas)).status,400);
   assert.equal((await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee',signatureBase64:PNG},tokens.euro)).status,403);
   const signed=await call(`/tickets/${tid}/signoff`,'POST',{signerName:'Lee Maintenance',signatureBase64:PNG},tokens.atlas,{'x-client-action-id':crypto.randomUUID()});

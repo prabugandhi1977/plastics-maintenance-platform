@@ -61,7 +61,14 @@ function seedOperations() {
   safety('c-nova','plant-n','z-n-lager',null,'unsafe_condition','warning','person','Regal im Lager beschädigt (Anfahrschaden)',6,'u-nova','open');
   run("UPDATE safety_events SET closed_by='u-nova' WHERE company_id='c-nova' AND closed_by IS NOT NULL");
 }
+// Demo RFID tags beside the QR labels (UHF EPC on the big machines, an NFC UID on the mould), so tickets can be raised
+// and closed by tag as well as by QR. Repeatable: only demo machines without a tag get one.
+function demoRfid() {
+  for (const [eq,tag] of [['eq-a','E28011606000020840A1B204'],['eq-b','04A23B5C6D7E80'],['eq-a2','E28011606000020840A1B205'],['eq-n','E28011606000020840B2C311']])
+    if (!one('SELECT 1 FROM equipment WHERE rfid_tag=?',tag)) run('UPDATE equipment SET rfid_tag=? WHERE id=? AND rfid_tag IS NULL',tag,eq);
+}
 if (one('SELECT 1 FROM companies LIMIT 1')) {
+  demoRfid();
   if (one("SELECT 1 FROM companies WHERE id='c-acme'")&&one("SELECT 1 FROM products WHERE id='pr-cap'")&&!one('SELECT 1 FROM zones LIMIT 1')) { db.exec('BEGIN IMMEDIATE'); try { seedOperations(); db.exec('COMMIT'); console.log('Added traceability, safety and asset-tracking demo data'); } catch(e) { db.exec('ROLLBACK'); throw e; } }
   else console.log('Seed already present');
   process.exit(0);
@@ -116,6 +123,6 @@ try {
   run("UPDATE companies SET energy_price_per_kwh=0.12 WHERE id='c-acme'"); run("UPDATE companies SET energy_price_per_kwh=0.21 WHERE id='c-nova'");
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-a','demo-device-a','c-acme','eq-a',stamp);
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-n','demo-device-n','c-nova','eq-n',stamp);
-  seedOperations();
+  seedOperations(); demoRfid();
   db.exec('COMMIT'); console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');
 } catch(e) { db.exec('ROLLBACK'); throw e; }

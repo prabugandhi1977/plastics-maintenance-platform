@@ -6,6 +6,7 @@ import { audit } from '../access.js';
 import { created } from '../http.js';
 import { bad, deny, missing, required, integer, array, choice } from '../validate.js';
 import { catalog, DEFAULT_RESPONSE_HOURS, MACHINE_TYPES } from '../catalog.js';
+import { scanPolicy } from '../scan.js';
 
 const PRIORITIES=['critical','high','medium','low'];
 export function defaultResponseHours() {
@@ -13,7 +14,7 @@ export function defaultResponseHours() {
 }
 
 export function register(r) {
-  r.get('/catalog',()=>catalog());
+  r.get('/catalog',()=>({...catalog(),scanPolicy:scanPolicy()}));
 
   r.get('/service-areas',()=>all('SELECT sa.code,sa.name,(SELECT count(*) FROM plants p WHERE p.service_area=sa.code) plants FROM service_areas sa ORDER BY sa.code'));
   r.post('/service-areas',({u,body})=>{
@@ -36,6 +37,15 @@ export function register(r) {
     if (!(value.critical<=value.high&&value.high<=value.medium&&value.medium<=value.low)) bad('Targets must not get shorter for lower priorities (critical ≤ high ≤ medium ≤ low)');
     run("INSERT INTO settings (key,value,updated_at) VALUES ('default_response_hours',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify(value),now());
     audit(u,'settings.response_targets','settings','default_response_hours',null,value); return value;
+  });
+
+  // Whether raising and closing a ticket need a scan of the machine's QR label or RFID tag.
+  r.get('/settings/scan-policy',()=>scanPolicy());
+  r.patch('/settings/scan-policy',({u,body})=>{
+    if (!isPlatform(u)) deny();
+    const current=scanPolicy(), value={raise:choice(body.raise??current.raise,'raise',['required','optional']),close:choice(body.close??current.close,'close',['required','optional'])};
+    run("INSERT INTO settings (key,value,updated_at) VALUES ('scan_policy',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify(value),now());
+    audit(u,'settings.scan_policy','settings','scan_policy',null,value); return value;
   });
 
   r.get('/settings/checklists',({u})=>{ if (!isInternal(u)) deny(); return Object.fromEntries(MACHINE_TYPES.map(t=>[t,all('SELECT item FROM checklist_templates WHERE machine_type=? ORDER BY position',t).map(x=>x.item)])); });
