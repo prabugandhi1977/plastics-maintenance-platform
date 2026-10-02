@@ -50,6 +50,7 @@ Data scoping and auditing:
 | `PATCH` | `/providers/:id` | Platform admin: edit contacts, insurance expiry, certifications, service areas, skills |
 | `PATCH` | `/providers/:id/approval` | Approve or suspend a provider (approval needs contacts and valid insurance) |
 | `GET, PATCH` | `/equipment/:id` | Asset detail with files, telemetry and recent tickets. PATCH edits make, model, serial or location, or moves the asset between the company's plants |
+| `GET, POST, DELETE` | `/equipment/:id/image` | The equipment picture. GET returns the image (company users, or anyone holding a ticket on the asset). POST `{filename, mime, base64}` (JPEG, PNG or WebP, max 5 MB) sets it; DELETE removes it. Asset and ticket records carry `image_attachment_id` |
 | `GET` | `/equipment/lookup?code=...` | Resolve a scan (QR label payload or RFID tag UID/EPC; `?qr=` still works) to the machine, with `scannedVia`, `ticketIds` and `openTicketIds`. Within the company or visible work |
 | `GET` | `/equipment/:id/readings?limit=100&before=<ISO>` | Freshness, last value per metric, active alarms, reading history |
 | `GET` | `/equipment/:id/alarms?state=active\|all` | Alarm history (raised and cleared times) |
@@ -64,6 +65,8 @@ Data scoping and auditing:
 | `GET` | `/tickets/:id/candidates` | Dispatcher/admin: every engineer and provider, with eligibility reasons and open workload |
 | `POST` | `/tickets/:id/assign` | Assign an eligible engineer or approved provider |
 | `POST` | `/tickets` | Raise a breakdown; needs a scan of the machine (see *Scan at the machine*). Works offline |
+| `GET, POST` | `/tickets/:id/assistant` | AI breakdown assistant (see *AI breakdown assistant and repair guide*). GET: `{enabled, model, canAsk, messages}`. POST `{message}` asks a question and returns the updated conversation |
+| `GET, POST` | `/tickets/:id/guide` | Step-by-step repair guide `{source: ai\|standard, guide: {summary, hazards, ppe, steps:[{title, instruction, check}]}}`. POST (re)writes it: with AI when set up, otherwise the standard guide |
 | `POST` | `/tickets/:id/status` | Accept, decline, start, escalate or complete; completing needs a scan of the machine (works offline) |
 | `POST` | `/tickets/:id/checklist` | Add a checklist item (works offline) |
 | `PATCH, POST` | `/checklist/:id` | Tick, untick or annotate a checklist item (POST works offline) |
@@ -115,6 +118,14 @@ Data scoping and auditing:
 - **Without a scan:** with the policy at `required`, only a dispatcher or platform admin can proceed, and only with `scanOverrideReason`. With `optional`, anyone can.
 - Each ticket records `raised_via` and `closed_via` (`qr`, `rfid`, `alert`, `auto`, `override` or `manual`), the scan times `raised_scan_at` and `closed_scan_at`, and any `scan_override_reason`. A `scan` event is added to the ticket's activity. Tickets from before this feature have `null`.
 - The field app checks a closing scan against the ticket's machine on the device, so it works offline; the server checks again when the action syncs. A breakdown reported offline is queued with just the scanned code.
+
+**AI breakdown assistant and repair guide**
+- Set `ANTHROPIC_API_KEY` on the server to switch it on (model `claude-opus-5-5`, override with `MOULDCARE_AI_MODEL`). Without a key the chat answers 503 and the guide is the standard one.
+- The assistant is given the ticket record (machine, parameters, report, error codes, live alarms and readings, open alerts, checklist, work and parts so far), earlier repairs on the same company's machines of the same make and model, and up to two PDF manuals uploaded to the asset. Nothing from other companies is sent.
+- Its instructions put safety first: lock-out/tag-out, stored hydraulic and pneumatic energy, hot zones, never bypassing guards or interlocks. Answers say which source they used.
+- The conversation is shared on the ticket and kept for the record. Customers and the people servicing the ticket can ask; anyone who can see the ticket can read it.
+- `POST /tickets/:id/guide` writes a structured guide (at most 12 steps, each with a check) from the ticket, the manuals and the conversation so far. Without AI it builds the standard guide: hazards and PPE for the machine type, making safe, the last repair on the machine, the standard checklist, restart and verification.
+- **VR guide:** for critical tickets the clients open the guide in an immersive view (WebXR: Enter VR on a headset such as Meta Quest; on a phone or PC it opens full screen, drag to look around). It shows the machine picture and report, the current step with its check, and the hazards and PPE.
 
 **Declining a ticket**
 - Only the assigned engineer or provider can decline, and only before accepting.

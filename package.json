@@ -9,5 +9,10 @@
     "test": "node --test api/tests/*.test.js",
     "iot:sync": "node api/iot-sync.js"
   },
-  "engines": { "node": ">=22.13" }
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0"
+  }
 }

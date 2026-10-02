@@ -32,6 +32,9 @@ services:
       # Simulated machine data is for demos only; keep it off where real customer data lives.
       - key: FACTORY_SIMULATOR
         value: "false"
+      # Breakdown assistant (AI): an Anthropic API key from console.anthropic.com. Leave empty to keep it off.
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: EMAIL_PROVIDER
         sync: false
       - key: EMAIL_API_KEY
