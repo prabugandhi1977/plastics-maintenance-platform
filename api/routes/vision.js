@@ -9,7 +9,7 @@ import { audit, byId, isDispatch } from '../access.js';
 import { HttpError, bad, choice, deny, missing, required } from '../validate.js';
 import { created } from '../http.js';
 import { resolveAlertKey } from '../factory/alerts.js';
-import { MODULES, MODULE_KEYS, PPE_GEAR, QUALITY_PRESETS, SOURCE_TYPES, ZONE_KINDS, bumpCamera, bumpNode, heartbeat, ingestBatch, licence, moduleConfig, newNodeKey,
+import { CAMERA_VENDORS, MODULES, MODULE_KEYS, PPE_GEAR, QUALITY_PRESETS, SOURCE_TYPES, ZONE_KINDS, bumpCamera, bumpNode, heartbeat, ingestBatch, licence, moduleConfig, newNodeKey,
   nodeConfig, nodeFromRequest, nodeStatus, readMedia, storeMedia, visionCatalog } from '../vision.js';
 
 const parse=(v,fallback)=>{ try { return JSON.parse(v); } catch { return fallback; } };
@@ -24,11 +24,11 @@ const getCamera=(u,key)=>{ const c=byId('vision_cameras',key); if (!c) missing()
 const getEvent=(u,key)=>{ const e=byId('vision_events',key); if (!e) missing(); view(u,e.company_id); return e; };
 const nodeOut=n=>({id:n.id,companyId:n.company_id,plantId:n.plant_id,name:n.name,hardware:n.hardware,maxStreams:n.max_streams,keyHint:n.key_hint,active:!!n.active,status:nodeStatus(n),
   lastSeenAt:n.last_seen_at,agentVersion:n.agent_version,metrics:parse(n.metrics,{}),configVersion:n.config_version,cameras:one('SELECT count(*) n FROM vision_cameras WHERE node_id=? AND active=1',n.id).n});
-const cameraOut=c=>({id:c.id,companyId:c.company_id,plantId:c.plant_id,nodeId:c.node_id,name:c.name,sourceType:c.source_type,sourceUrl:mask(c.source_url),location:c.location,zoneId:c.zone_id,
+const cameraOut=c=>({id:c.id,companyId:c.company_id,plantId:c.plant_id,nodeId:c.node_id,name:c.name,vendor:c.vendor,sourceType:c.source_type,sourceUrl:mask(c.source_url),location:c.location,zoneId:c.zone_id,
   equipmentId:c.equipment_id,fps:c.fps,snapshotMediaId:c.snapshot_media_id,status:c.status,lastSeenAt:c.last_seen_at,metrics:parse(c.metrics,{}),active:!!c.active,
   modules:all('SELECT module,enabled,config,updated_at FROM vision_assignments WHERE camera_id=? ORDER BY module',c.id).map(a=>({module:a.module,enabled:!!a.enabled,config:parse(a.config,{}),updatedAt:a.updated_at})),
   zones:one('SELECT count(*) n FROM vision_zones WHERE camera_id=? AND active=1',c.id).n});
-const zoneOut=z=>({id:z.id,cameraId:z.camera_id,name:z.name,kind:z.kind,points:parse(z.points,[]),severity:z.severity,classes:parse(z.classes,[]),active:!!z.active,updatedAt:z.updated_at});
+const zoneOut=z=>({id:z.id,cameraId:z.camera_id,name:z.name,kind:z.kind,surfaceClass:z.surface_class,points:parse(z.points,[]),severity:z.severity,classes:parse(z.classes,[]),active:!!z.active,updatedAt:z.updated_at});
 const eventOut=e=>({id:e.id,companyId:e.company_id,plantId:e.plant_id,cameraId:e.camera_id,cameraName:e.camera_name,location:e.location,nodeId:e.node_id,module:e.module,type:e.type,severity:e.severity,confidence:e.confidence,
   occurredAt:e.occurred_at,receivedAt:e.received_at,latencyMs:e.latency_ms,zoneId:e.zone_id,zoneName:e.zone_name,detail:parse(e.detail,{}),boxes:parse(e.boxes,[]),edgeActions:parse(e.edge_actions,{}),
   snapshotMediaId:e.snapshot_media_id,clipMediaId:e.clip_media_id,status:e.status,acknowledgedBy:e.ack_name??null,acknowledgedAt:e.acknowledged_at,resolvedBy:e.res_name??null,resolvedAt:e.resolved_at,
@@ -55,7 +55,8 @@ function cameraFields(u,body,existing) {
   const rawUrl=body.sourceUrl===undefined||String(body.sourceUrl).includes('****')?existing?.source_url??'':String(body.sourceUrl).trim().slice(0,500);
   if (!['csi','visionforge'].includes(sourceType)&&!rawUrl) bad('sourceUrl is required for this camera type (stream URL, snapshot URL, camera address or folder)');
   const fps=body.fps==null?existing?.fps??25:Number(body.fps); if (!Number.isInteger(fps)||fps<1||fps>120) bad('fps must be 1 to 120');
-  return {companyId:plant.company_id,plantId:plant.id,nodeId,zoneId,equipmentId,sourceType,sourceUrl:rawUrl,fps,name:body.name==null?existing?.name:required(body.name,'name',80),location:body.location==null?existing?.location??'':String(body.location).trim().slice(0,120)};
+  const vendor=body.vendor===undefined?existing?.vendor??'':body.vendor===''?'':choice(body.vendor,'vendor',CAMERA_VENDORS);
+  return {companyId:plant.company_id,plantId:plant.id,nodeId,zoneId,equipmentId,sourceType,sourceUrl:rawUrl,fps,vendor,name:body.name==null?existing?.name:required(body.name,'name',80),location:body.location==null?existing?.location??'':String(body.location).trim().slice(0,120)};
 }
 
 export function register(r) {
@@ -114,12 +115,12 @@ export function register(r) {
   r.get('/vision/cameras',({u})=>{ const [where,args]=scopeSql(u); return all(`SELECT * FROM vision_cameras WHERE ${where} ORDER BY name`,...args).map(cameraOut); });
   r.post('/vision/cameras',({u,body})=>{
     const f=cameraFields(u,body), key=id();
-    run('INSERT INTO vision_cameras (id,company_id,plant_id,node_id,name,source_type,source_url,location,zone_id,equipment_id,fps,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',key,f.companyId,f.plantId,f.nodeId,f.name,f.sourceType,f.sourceUrl,f.location,f.zoneId,f.equipmentId,f.fps,now());
+    run('INSERT INTO vision_cameras (id,company_id,plant_id,node_id,name,source_type,source_url,location,zone_id,equipment_id,fps,vendor,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',key,f.companyId,f.plantId,f.nodeId,f.name,f.sourceType,f.sourceUrl,f.location,f.zoneId,f.equipmentId,f.fps,f.vendor,now());
     bumpNode(f.nodeId); audit(u,'vision.camera.create','vision_camera',key,f.companyId); return created(cameraOut(byId('vision_cameras',key)));
   });
   r.patch('/vision/cameras/:id',({u,body,params})=>{
     const c=getCamera(u,params.id), f=cameraFields(u,body,c), active=body.active==null?c.active:body.active?1:0;
-    run('UPDATE vision_cameras SET plant_id=?,node_id=?,name=?,source_type=?,source_url=?,location=?,zone_id=?,equipment_id=?,fps=?,active=? WHERE id=?',f.plantId,f.nodeId,f.name,f.sourceType,f.sourceUrl,f.location,f.zoneId,f.equipmentId,f.fps,active,c.id);
+    run('UPDATE vision_cameras SET plant_id=?,node_id=?,name=?,source_type=?,source_url=?,location=?,zone_id=?,equipment_id=?,fps=?,vendor=?,active=? WHERE id=?',f.plantId,f.nodeId,f.name,f.sourceType,f.sourceUrl,f.location,f.zoneId,f.equipmentId,f.fps,f.vendor,active,c.id);
     bumpNode(c.node_id); bumpNode(f.nodeId); audit(u,'vision.camera.update','vision_camera',c.id,c.company_id,{fields:Object.keys(body)}); return cameraOut(byId('vision_cameras',c.id));
   });
   // Assign (or update) a module on a camera. Enabling takes a licence seat.
@@ -142,13 +143,15 @@ export function register(r) {
     const classes=body.classes==null?existing?.classes??'["person","vehicle"]':JSON.stringify([...new Set(Array.isArray(body.classes)?body.classes:[])].filter(x=>['person','vehicle'].includes(x)));
     if (classes==='[]') bad('classes must include person and/or vehicle');
     return {kind,name:body.name==null?existing?.name:required(body.name,'name',80),points:body.points==null?existing?.points:points(body.points,kind),
-      severity:body.severity==null?existing?.severity??'critical':choice(body.severity,'severity',['warning','critical']),classes,active:body.active==null?existing?.active??1:body.active?1:0}; };
+      severity:body.severity==null?existing?.severity??'critical':choice(body.severity,'severity',['warning','critical']),classes,active:body.active==null?existing?.active??1:body.active?1:0,
+      // Surface class A/B/C (VDA 16) applies to inspection areas: it picks the acceptance limit for defects inside.
+      surfaceClass:kind==='inspection_roi'?(body.surfaceClass==null?existing?.surface_class??'A':choice(body.surfaceClass,'surfaceClass',['A','B','C'])):null}; };
   r.post('/vision/cameras/:id/zones',({u,body,params})=>{ const c=getCamera(u,params.id); manage(u,c.company_id); const z=zoneBody(body); if (!z.points) bad('points are required'); const key=id(), at=now();
-    run('INSERT INTO vision_zones (id,camera_id,name,kind,points,severity,classes,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',key,c.id,z.name,z.kind,z.points,z.severity,z.classes,z.active,at,at);
+    run('INSERT INTO vision_zones (id,camera_id,name,kind,points,severity,classes,active,created_at,updated_at,surface_class) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,c.id,z.name,z.kind,z.points,z.severity,z.classes,z.active,at,at,z.surfaceClass);
     bumpNode(c.node_id); audit(u,'vision.zone.create','vision_camera',c.id,c.company_id,{zoneId:key,kind:z.kind}); return created(zoneOut(byId('vision_zones',key))); });
   r.patch('/vision/zones/:id',({u,body,params})=>{ const z0=byId('vision_zones',params.id); if (!z0) missing(); const c=getCamera(u,z0.camera_id); manage(u,c.company_id);
     if (body.kind&&body.kind!==z0.kind&&body.points==null) bad('Send the points again when changing the kind of a zone');
-    const z=zoneBody(body,z0); run('UPDATE vision_zones SET name=?,kind=?,points=?,severity=?,classes=?,active=?,updated_at=? WHERE id=?',z.name,z.kind,z.points,z.severity,z.classes,z.active,now(),z0.id);
+    const z=zoneBody(body,z0); run('UPDATE vision_zones SET name=?,kind=?,points=?,severity=?,classes=?,active=?,updated_at=?,surface_class=? WHERE id=?',z.name,z.kind,z.points,z.severity,z.classes,z.active,now(),z.surfaceClass,z0.id);
     bumpNode(c.node_id); audit(u,'vision.zone.update','vision_camera',c.id,c.company_id,{zoneId:z0.id}); return zoneOut(byId('vision_zones',z0.id)); });
   r.delete('/vision/zones/:id',({u,params})=>{ const z=byId('vision_zones',params.id); if (!z) missing(); const c=getCamera(u,z.camera_id); manage(u,c.company_id);
     // Zones referenced by incidents are deactivated rather than deleted, so the incident record stays complete.

@@ -7,7 +7,7 @@ import { columnChart, barChart, statTile } from './charts.js';
 import { authImageUrl, machineIcon } from './shared/media.js';
 
 export function createVision(ctx) {
-  const { state, api, render, fail, when, header, is, customer, admin } = ctx;
+  const { state, api, render, fail, when, header, is, customer, admin, raiseTicket } = ctx;
   const vc=()=>state.visionCat||{};
   const mod=m=>vc().modules?.[m]?.label||humanise(m);
   const canManage=companyId=>admin()||(is('customer_admin')&&state.user.companyId===companyId);
@@ -100,9 +100,13 @@ export function createVision(ctx) {
     const body=section('Camera',`${select('plantId','Plant',plants.map(p=>[p.id,p.name]),{value:c?.plantId||plants[0]?.id,required:true})}${field('name','Name',{value:c?.name,required:true,maxlength:80,help:'e.g. Gate 1 – press hall entrance'})}${field('location','Location',{value:c?.location,maxlength:120,help:'Door, line or area the camera watches'})}
       ${select('nodeId','Edge node',nodes.map(n=>[n.id,`${n.name} (${n.cameras}/${n.maxStreams} streams)`]),{value:c?.nodeId||'',placeholder:'— not yet —',help:'The GPU PC that analyses this camera (up to 16 streams each)'})}
       ${select('equipmentId','Machine watched',(state.data.equipment||[]).map(e=>[e.id,`${e.asset_tag||''} ${e.make} ${e.model}`]),{value:c?.equipmentId||'',placeholder:'— none —',help:'Links alerts and quality results to the machine'})}`)
-      +section('Video source',`${select('sourceType','Type',(vc().sourceTypes||[]).map(s=>[s,({rtsp:'RTSP stream (IP camera)','http-snapshot':'HTTP snapshot (Hikvision, Axis, Dahua…)','cognex-native':'Cognex In-Sight (Native Mode)',folder:'Folder / FTP drop (smart camera)',csi:'CSI camera on the edge node',visionforge:'VisionForge inspection station'})[s]]),{value:c?.sourceType||'rtsp',required:true})}
+      +section('Video source',`${select('vendor','Camera make',(vc().cameraVendors||[]).map(v=>[v,v]),{value:c?.vendor||'',placeholder:'— choose —',help:'Picks the right connection on the edge node'})}${select('sourceType','Connection',(vc().sourceTypes||[]).map(s=>[s,({rtsp:'RTSP video stream (Hikvision, Axis…)','http-snapshot':'HTTP snapshot (Hikvision ISAPI, Axis, Dahua)','cognex-native':'Cognex In-Sight Native Mode (trigger + image)',folder:'FTP / folder image output (Keyence CV-X, Hikrobot, Cognex FTP)',csi:'CSI camera on the edge node',visionforge:'VisionForge inspection station'})[s]]),{value:c?.sourceType||'rtsp',required:true})}<p class="muted wide mini" id="src-help"></p>
       ${field('sourceUrl','Address',{value:c?.sourceUrl,wide:true,maxlength:500,help:'e.g. rtsp://user:password@192.168.0.64:554/Streaming/Channels/101. Passwords are stored for the edge node only and shown masked.'})}${field('fps','Frame rate',{type:'number',value:c?.fps||25,min:1,max:120,unit:'fps',help:'Quality inspection on fast lines: 60'})}`);
-    openDialog(c?`Edit ${c.name}`:'Add camera',body,{onSubmit:async fd=>{ const v=Object.fromEntries(fd); v.fps=Number(v.fps);
+    const HELP={rtsp:'Hikvision: rtsp://user:password@192.168.0.64:554/Streaming/Channels/101 (main stream) or …/102 (sub stream).','http-snapshot':'Hikvision: http://192.168.0.64/ISAPI/Streaming/channels/101/picture (digest login: put user:password@ in the address).',
+      'cognex-native':'Cognex In-Sight: camera IP and port, e.g. admin:password@192.168.0.50:23. The job must accept software triggers and the camera be Online.',folder:'Keyence CV-X/XG or Hikrobot: the folder their FTP image output writes to on the edge PC, e.g. /data/ftp/keyence-line3. Results can also come over EtherNet/IP.',
+      csi:'No address needed.',visionforge:'No address needed: the station reports its results to the platform.'};
+    openDialog(c?`Edit ${c.name}`:'Add camera',body,{onOpen:d=>{ const t=d.querySelector('[name=sourceType]'), h=d.querySelector('#src-help'), v=d.querySelector('[name=vendor]'); const sync=()=>{ h.textContent=HELP[t.value]||''; }; t.onchange=sync; sync();
+      v.onchange=()=>{ const pick={Cognex:'cognex-native',Keyence:'folder',Hikrobot:'folder',Hikvision:'rtsp'}[v.value]; if (pick&&!c) { t.value=pick; sync(); } }; },onSubmit:async fd=>{ const v=Object.fromEntries(fd); v.fps=Number(v.fps);
       if (c) await api(`/vision/cameras/${c.id}`,'PATCH',v); else await api('/vision/cameras','POST',v); toast(c?'Camera saved':'Camera added'); state.vcams=undefined; render(); }});
   }
   // Settings of one module on one camera; also how a module is first added (from the drag-and-drop or the button).
@@ -111,6 +115,12 @@ export function createVision(ctx) {
     return `<fieldset class="fld wide output-set" data-output="${prefix}"><legend>${esc(label)}</legend><div class="form-grid">${select(`${prefix}.protocol`,'Interface',[['modbus_tcp','Modbus TCP coil'],['ethernet_ip','EtherNet/IP tag'],['gpio','Edge GPIO / relay pin'],['http','HTTP relay']],{value:p,placeholder:'— none —'})}
       ${f('host','PLC / relay IP',{help:'Modbus TCP and EtherNet/IP'})}${f('port','Port',{type:'number',help:'Modbus 502'})}${f('unitId','Unit ID',{type:'number'})}${f('coil','Coil',{type:'number'})}${f('tag','Tag',{help:'EtherNet/IP tag, e.g. Reject_Cmd'})}${f('value','Value',{type:'number'})}${f('pin','GPIO pin',{type:'number'})}${f('url','Relay URL',{wide:true})}${f('pulseMs','Pulse',{type:'number',unit:'ms'})}</div></fieldset>`;
   }
+  function inputFields(prefix,label,i){
+    const f=(k,t,opts={})=>field(`${prefix}.${k}`,t,{value:i?.[k]??'',...opts});
+    return `<fieldset class="fld wide output-set"><legend>${esc(label)}</legend><div class="form-grid">${select(`${prefix}.protocol`,'Interface',[['ethernet_ip','EtherNet/IP tag'],['modbus_tcp','Modbus TCP input']],{value:i?.protocol||'',placeholder:'— none —'})}
+      ${f('host','PLC IP')}${f('tag','Tag',{help:'EtherNet/IP, e.g. Cell3_PartPresent'})}${select(`${prefix}.kind`,'Modbus type',[['discrete_input','Discrete input'],['coil','Coil']],{value:i?.kind||'discrete_input'})}${f('address','Modbus address',{type:'number'})}${f('port','Port',{type:'number',help:'Modbus 502'})}${f('unitId','Unit ID',{type:'number'})}</div></fieldset>`;
+  }
+  const readInput=(fd,prefix)=>{ const p=fd.get(`${prefix}.protocol`); if (!p) return null; const o={protocol:p}; for (const k of ['host','tag','kind','address','port','unitId']) { const v=fd.get(`${prefix}.${k}`); if (v!==null&&v!=='') o[k]=['host','tag','kind'].includes(k)?v:Number(v); } return o; };
   const readOutput=(fd,prefix)=>{ const p=fd.get(`${prefix}.protocol`); if (!p) return null; const o={protocol:p}; for (const k of ['host','port','unitId','coil','tag','value','pin','url','pulseMs']) { const v=fd.get(`${prefix}.${k}`); if (v!==null&&v!=='') o[k]=['host','tag','url'].includes(k)?v:Number(v); } return o; };
   function moduleForm(cam,module){
     const a=cam.modules.find(m=>m.module===module), c=a?.config||vc().modules[module].defaults, manageable=canManage(cam.companyId);
@@ -119,28 +129,34 @@ export function createVision(ctx) {
     if (module==='fire_smoke') body=section('Fire and smoke',`${select('sensitivity','Sensitivity',(vc().sensitivity||[]).map(s=>[s,humanise(s)]),{value:c.sensitivity,required:true,help:'Conservative suits areas with steam, dust or welding'})}${field('confirmSeconds','Confirm over',{type:'number',value:c.confirmSeconds,min:0.2,max:1.8,step:0.1,unit:'s',help:'Temporal check that separates flames and smoke plumes from steam, dust and welding arcs; keeps the broadcast under 2 s'})}
       ${checkboxes('broadcast','Factory network',[['yes','Broadcast the alarm on the factory subnet (all screens, PA and fire panels listening)']],{values:c.broadcast?['yes']:[]})}${outputFields('sirenOutput','Siren / strobe',c.sirenOutput)}`);
     if (module==='intrusion') body=section('Restricted area',`${checkboxes('classes','Raise an intrusion for',[['person','People'],['vehicle','Vehicles (forklifts, trucks)']],{values:c.classes,required:true})}${field('dwellSeconds','Inside the zone for at least',{type:'number',value:c.dwellSeconds,min:0,max:30,step:0.1,unit:'s'})}${outputFields('sirenOutput','Siren / security light',c.sirenOutput)}<p class="muted wide">Draw the exclusion zones, tripwires and approved machine-motion areas with <b>Draw zones</b>. Movement inside approved machine-motion areas (conveyors, robot arms) is ignored.</p>`);
-    if (module==='quality') body=section('Quality inspection',`${select('preset','Inspection preset',Object.entries(vc().qualityPresets).map(([k,p])=>[k,p.label]),{value:c.preset,required:true,help:'Model and defect classes optimised for the product'})}${field('minDefectMm','Smallest defect',{type:'number',value:c.minDefectMm,min:0.05,max:50,step:0.05,unit:'mm'})}${field('mmPerPixel','Calibration',{type:'number',value:c.mmPerPixel??'',min:0.001,max:10,step:0.001,unit:'mm/pixel',help:'From the calibration target; needed to report defect sizes'})}${field('targetFps','Line speed',{type:'number',value:c.targetFps,min:1,max:120,unit:'fps'})}${outputFields('rejectOutput','Reject output (PLC, within 15 ms of the result)',c.rejectOutput)}`);
+    if (module==='quality') { const acc=c.acceptance||{A:0.5,B:1,C:2};
+      body=section('Product',`${select('preset','Inspection preset',Object.entries(vc().qualityPresets).map(([k,p])=>[k,p.label]),{value:c.preset,required:true,wide:true,help:'Model and defect classes for the product'})}<p class="muted wide mini" id="preset-defects"></p>${field('minDefectMm','Smallest defect to find',{type:'number',value:c.minDefectMm,min:0.05,max:50,step:0.05,unit:'mm'})}${field('mmPerPixel','Calibration',{type:'number',value:c.mmPerPixel??'',min:0.001,max:10,step:0.001,unit:'mm/pixel',help:'From the calibration target; needed for defect sizes'})}`)
+        +section('Acceptance by surface class (VDA 16)',`${field('acceptance.A','Class A – visible surfaces',{type:'number',value:acc.A,min:0.05,max:100,step:0.05,unit:'mm',help:'Reject defects at or above this size'})}${field('acceptance.B','Class B – partly visible',{type:'number',value:acc.B,min:0.05,max:100,step:0.05,unit:'mm'})}${field('acceptance.C','Class C – hidden surfaces',{type:'number',value:acc.C,min:0.05,max:100,step:0.05,unit:'mm'})}<p class="muted wide mini">Draw the class A/B/C areas as inspection areas with <b>Draw zones</b>. Defaults are a starting point: use the limits agreed with your customer (drawing or VDA 16 agreement).</p>`)
+        +section('Line timing and PLC',`${select('triggerMode','Trigger',[['plc','PLC part-present signal (one inspection per part)'],['camera','Camera hardware trigger'],['continuous','Continuous video']],{value:c.triggerMode,required:true})}${field('cycleTimeS','Machine cycle time',{type:'number',value:c.cycleTimeS,min:0.2,max:600,step:0.1,unit:'s',help:'Shortest cycle on this line'})}${field('resultBudgetMs','OK/NG result within',{type:'number',value:c.resultBudgetMs,min:20,max:10000,unit:'ms',help:'At most half the cycle time'})}${field('targetFps','Frame rate (continuous)',{type:'number',value:c.targetFps,min:1,max:120,unit:'fps'})}
+          ${inputFields('triggerInput','Part-present trigger (PLC → edge)',c.triggerInput)}${outputFields('okOutput','OK result (edge → PLC)',c.okOutput)}${outputFields('rejectOutput','NG / reject result (edge → PLC, fired first)',c.rejectOutput)}`); }
     const enabled=checkboxes('enabled','Status',[['yes','Running on this camera']],{values:a?.enabled===false?[]:['yes']});
     const d=openDialog(`${mod(module)} – ${cam.name}`,`${body}<div class="form-grid">${enabled}</div>${a&&manageable?`<p>${btn('Remove module from this camera','vRemoveModule','danger small',`${cam.id}|${module}`)}</p>`:''}`,{submitLabel:a?'Save':'Add module',onSubmit:manageable?async fd=>{
       const v=Object.fromEntries([...fd.entries()].filter(([k])=>!k.includes('.')&&!['requiredGear','classes','broadcast','enabled'].includes(k)));
       const config={...v};
-      for (const k of ['minConfidence','cooldownSeconds','confirmSeconds','dwellSeconds','minDefectMm','mmPerPixel','targetFps']) if (k in config) config[k]=config[k]===''?null:Number(config[k]);
+      for (const k of ['minConfidence','cooldownSeconds','confirmSeconds','dwellSeconds','minDefectMm','mmPerPixel','targetFps','cycleTimeS','resultBudgetMs']) if (k in config) config[k]=config[k]===''?null:Number(config[k]);
       if (module==='ppe') { config.requiredGear=fd.getAll('requiredGear'); config.beaconOutput=readOutput(fd,'beaconOutput'); }
       if (module==='fire_smoke') { config.broadcast=fd.getAll('broadcast').includes('yes'); config.sirenOutput=readOutput(fd,'sirenOutput'); }
       if (module==='intrusion') { config.classes=fd.getAll('classes'); config.sirenOutput=readOutput(fd,'sirenOutput'); }
-      if (module==='quality') config.rejectOutput=readOutput(fd,'rejectOutput');
+      if (module==='quality') { config.rejectOutput=readOutput(fd,'rejectOutput'); config.okOutput=readOutput(fd,'okOutput'); config.triggerInput=readInput(fd,'triggerInput'); config.acceptance={A:Number(fd.get('acceptance.A')),B:Number(fd.get('acceptance.B')),C:Number(fd.get('acceptance.C'))}; }
       await api(`/vision/cameras/${cam.id}/modules/${module}`,'PUT',{enabled:fd.getAll('enabled').includes('yes'),config}); toast(`${mod(module)} saved`); state.vcams=undefined; render(); }:undefined});
     d.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>vAction(b.dataset.action,b.dataset.id));
+    const presetSel=d.querySelector('[name=preset]'), list=d.querySelector('#preset-defects');
+    if (presetSel&&list) { const show=()=>{ list.textContent=`Defects found: ${(vc().qualityPresets[presetSel.value]?.defects||[]).map(x=>vc().defectInfo?.[x]?.[0]||humanise(x)).join(', ')}`; }; presetSel.onchange=show; show(); }
   }
 
   // ---------- Geofence editor ----------
   async function zonesDialog(camId){
     const cam=camById(camId)||(await api('/vision/cameras')).find(c=>c.id===camId), manageable=canManage(cam.companyId);
     let zones=await api(`/vision/cameras/${camId}/zones`), draft=null;
-    const KIND=vc().zoneKinds;
+    const KIND=vc().zoneKinds, onlyQuality=cam.modules.length&&cam.modules.every(m=>m.module==='quality'), defKind=onlyQuality?'inspection_roi':'exclusion';
     const d=openDialog(`Zones – ${cam.name}`,`<div class="geo">
       <div class="geo-stage" id="geo-stage">${frame({mediaId:cam.snapshotMediaId,cls:'geo-frame',alt:`${cam.name} view`})}<svg id="geo-svg" viewBox="0 0 1000 562" preserveAspectRatio="none" role="application" aria-label="Zone drawing area"></svg></div>
-      <div class="geo-side">${manageable?`<div class="form-grid">${field('gname','Zone name',{wide:true,maxlength:80,placeholder:'e.g. Press 3 safety cell'})}${select('gkind','Kind',Object.entries(KIND),{value:'exclusion',required:true,wide:true})}${select('gsev','Severity',[['critical','Critical – security / life safety'],['warning','Warning']],{value:'critical',wide:true})}${checkboxes('gclass','Detect',[['person','People'],['vehicle','Vehicles']],{values:['person','vehicle']})}</div>
+      <div class="geo-side">${manageable?`<div class="form-grid">${field('gname','Zone name',{wide:true,maxlength:80,placeholder:'e.g. Press 3 safety cell'})}${select('gkind','Kind',Object.entries(KIND),{value:defKind,required:true,wide:true})}${select('gsev','Severity',[['critical','Critical – security / life safety'],['warning','Warning']],{value:'critical',wide:true})}${select('gclassAB','Surface class (inspection areas)',[['A','A – visible surface'],['B','B – partly visible'],['C','C – hidden surface']],{value:'A',wide:true})}${checkboxes('gclass','Detect',[['person','People'],['vehicle','Vehicles']],{values:['person','vehicle']})}</div>
         <p class="muted mini" id="geo-help">Click on the image to place points; drag a point to move it. A tripwire takes two points.</p>
         <div class="row">${btn('Save zone','gSave','primary small')}${btn('Undo point','gUndo','secondary small')}${btn('Cancel','gCancel','secondary small')}</div>`:'<p class="muted">View only. A company administrator draws zones.</p>'}
         <h3>Zones</h3><div id="geo-list"></div>${cam.snapshotMediaId?'':'<p class="muted mini">No camera image yet: the edge node uploads one when it connects. You can still draw on the blank frame.</p>'}</div></div>`,{wide:true});
@@ -152,25 +168,31 @@ export function createVision(ctx) {
     const draw=()=>{
       svg.innerHTML=zones.filter(z=>z.active&&(!draft||z.id!==draft.id)).map(z=>`${shape(z,'saved')}<text x="${z.points[0][0]*W+6}" y="${z.points[0][1]*H-6}" class="geo-label">${esc(z.name)}</text>`).join('')
         +(draft?`${shape(draft,'draft')}${draft.points.map((p,i)=>`<circle class="handle" data-i="${i}" cx="${p[0]*W}" cy="${p[1]*H}" r="9"/>`).join('')}`:'');
-      d.querySelector('#geo-list').innerHTML=zones.length?zones.map(z=>`<div class="geo-item ${z.active?'':'off'}"><span class="swatch z-${z.kind}"></span><div><b>${esc(z.name)}</b><div class="muted mini">${esc(KIND[z.kind])}${z.kind==='exclusion'||z.kind==='tripwire'?` · ${esc(z.severity)} · ${z.classes.join(', ')}`:''}${z.active?'':' · inactive'}</div></div>${manageable&&z.active?`<span class="row">${btn('Edit','gEdit','secondary small',z.id)}${btn('Delete','gDelete','danger small',z.id)}</span>`:''}</div>`).join(''):'<p class="muted">No zones yet.</p>';
+      d.querySelector('#geo-list').innerHTML=zones.length?zones.map(z=>`<div class="geo-item ${z.active?'':'off'}"><span class="swatch z-${z.kind}"></span><div><b>${esc(z.name)}</b><div class="muted mini">${esc(KIND[z.kind])}${z.surfaceClass?` · class ${esc(z.surfaceClass)}`:''}${z.kind==='exclusion'||z.kind==='tripwire'?` · ${esc(z.severity)} · ${z.classes.join(', ')}`:''}${z.active?'':' · inactive'}</div></div>${manageable&&z.active?`<span class="row">${btn('Edit','gEdit','secondary small',z.id)}${btn('Delete','gDelete','danger small',z.id)}</span>`:''}</div>`).join(''):'<p class="muted">No zones yet.</p>';
       d.querySelectorAll('#geo-list [data-action]').forEach(b=>b.onclick=()=>geoAction(b.dataset.action,b.dataset.id));
     };
-    const form=()=>({name:d.querySelector('[name=gname]').value.trim(),kind:d.querySelector('[name=gkind]').value,severity:d.querySelector('[name=gsev]').value,classes:[...d.querySelectorAll('[name=gclass]:checked')].map(x=>x.value)});
+    const form=()=>{ const kind=d.querySelector('[name=gkind]').value; return {name:d.querySelector('[name=gname]').value.trim(),kind,severity:d.querySelector('[name=gsev]').value,classes:[...d.querySelectorAll('[name=gclass]:checked')].map(x=>x.value),...(kind==='inspection_roi'?{surfaceClass:d.querySelector('[name=gclassAB]').value}:{})}; };
     let dragging=null;
+    // Severity and people/vehicle classes apply to safety zones; the surface class only to inspection areas.
+    function fit(){ const k=d.querySelector('[name=gkind]')?.value, roi=k==='inspection_roi';
+      const show=(n,on)=>{ const el=d.querySelector(`[name=${n}]`)?.closest('.fld'); if (el) el.hidden=!on; };
+      show('gsev',!roi&&k!=='allowed_motion'); show('gclass',!roi&&k!=='ppe_zone'); show('gclassAB',roi); }
     if (manageable) {
+      fit();
       svg.addEventListener('pointerdown',e=>{ const h=e.target.closest('.handle'); if (h) { dragging=Number(h.dataset.i); svg.setPointerCapture(e.pointerId); e.preventDefault(); return; }
         const f=form(); draft??={kind:f.kind,points:[]}; draft.kind=f.kind;
         if (draft.kind==='tripwire'&&draft.points.length>=2) return toast('A tripwire has two points. Drag them, or Undo.','error');
         draft.points.push(pt(e)); draw(); });
       svg.addEventListener('pointermove',e=>{ if (dragging==null||!draft) return; draft.points[dragging]=pt(e); draw(); });
       svg.addEventListener('pointerup',()=>{ dragging=null; });
+      d.querySelector('[name=gkind]').addEventListener('change',fit);
       d.querySelector('[name=gkind]').onchange=e=>{ if (draft) { draft.kind=e.target.value; if (draft.kind==='tripwire') draft.points=draft.points.slice(0,2); draw(); } };
     }
     async function geoAction(name,id){
       try {
         if (name==='gUndo') { draft?.points.pop(); draw(); }
         if (name==='gCancel') { draft=null; draw(); }
-        if (name==='gEdit') { const z=zones.find(x=>x.id===id); draft={id:z.id,kind:z.kind,points:z.points.map(p=>[...p])}; d.querySelector('[name=gname]').value=z.name; d.querySelector('[name=gkind]').value=z.kind; d.querySelector('[name=gsev]').value=z.severity; d.querySelectorAll('[name=gclass]').forEach(x=>x.checked=z.classes.includes(x.value)); draw(); }
+        if (name==='gEdit') { const z=zones.find(x=>x.id===id); draft={id:z.id,kind:z.kind,points:z.points.map(p=>[...p])}; d.querySelector('[name=gname]').value=z.name; d.querySelector('[name=gkind]').value=z.kind; d.querySelector('[name=gsev]').value=z.severity; if (z.surfaceClass) d.querySelector('[name=gclassAB]').value=z.surfaceClass; d.querySelectorAll('[name=gclass]').forEach(x=>x.checked=z.classes.includes(x.value)); fit(); draw(); }
         if (name==='gDelete') { if (!await confirmAction('Delete this zone?','The edge node stops using it within a minute. Zones that recorded incidents are kept as inactive.',{confirmLabel:'Delete'})) return; await api(`/vision/zones/${id}`,'DELETE'); zones=await api(`/vision/cameras/${camId}/zones`); toast('Zone deleted'); draw(); }
         if (name==='gSave') { const f=form(); if (!draft?.points.length) return toast('Click on the image to place the zone’s points first','error'); if (!f.name) return toast('Give the zone a name','error');
           const body={...f,points:draft.points}; if (draft.id) await api(`/vision/zones/${draft.id}`,'PATCH',body); else await api(`/vision/cameras/${camId}/zones`,'POST',body);
@@ -198,13 +220,14 @@ export function createVision(ctx) {
   async function eventDialog(eventId){
     const e=await api(`/vision/events/${eventId}`), cam=camById(e.cameraId), zones=cam?await api(`/vision/cameras/${e.cameraId}/zones`).catch(()=>[]):[];
     const actions=e.edgeActions||{}, rows=[['Camera',`${esc(e.cameraName)} <span class="muted">${esc(e.location||'')}</span>`],['Occurred',`${when(e.occurredAt)} <span class="muted">received after ${ms(e.latencyMs)}</span>`],['Module',esc(mod(e.module))],['Severity',sevPill(e.severity)],['Confidence',e.confidence==null?'—':`${Math.round(e.confidence*100)} %`],
-      ...(eventDetail(e)?[['Detail',esc(eventDetail(e))]]:[]),...(Object.keys(actions).length?[['At the edge',esc(Object.entries(actions).map(([k,v])=>`${humanise(k.replace(/Ms$/,''))}: ${typeof v==='number'?`${v} ms`:v}`).join(' · '))]]:[]),
+      ...(eventDetail(e)?[['Detail',esc(eventDetail(e))+(e.detail?.surfaceClass?` · surface class ${esc(e.detail.surfaceClass)}`:'')]]:[]),
+      ...(e.module==='quality'&&vc().defectInfo?.[e.detail?.defect]?[['What it is',esc(vc().defectInfo[e.detail.defect][1])],['Typical causes',esc(vc().defectInfo[e.detail.defect][2])]]:[]),...(Object.keys(actions).length?[['At the edge',esc(Object.entries(actions).map(([k,v])=>`${humanise(k.replace(/Ms$/,''))}: ${typeof v==='number'?`${v} ms`:v}`).join(' · '))]]:[]),
       ['Status',`${statusPill(e.status)}${e.acknowledgedBy?` <span class="muted">acknowledged by ${esc(e.acknowledgedBy)}</span>`:''}${e.resolvedBy?` <span class="muted">· closed by ${esc(e.resolvedBy)}: ${esc(e.resolutionNote)}</span>`:''}`],['Evidence',e.locked?'🔒 Locked – kept permanently':'Deleted automatically after the retention period once closed']];
     const open=!['resolved','false_alarm'].includes(e.status);
     const d=openDialog(`${typeLabel(e.type)} – ${e.cameraName}`,`<div class="vevent">${frame({mediaId:e.snapshotMediaId,boxes:e.boxes,zones:zones.filter(z=>z.id===e.zoneId),cls:'large',alt:'Snapshot at detection'})}
       ${e.clipMediaId?`<video controls playsinline preload="metadata" data-vclip="${esc(e.clipMediaId)}" aria-label="10-second clip around the detection"></video>`:''}
       <table class="kv">${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('')}</table>
-      <div class="row">${e.status==='open'?btn('Acknowledge','vAck','secondary',e.id):''}${open?btn('Resolve','vResolve','primary',e.id)+btn('False alarm','vFalse','secondary',e.id):''}${e.locked?(canManage(e.companyId)?btn('Unlock evidence','vUnlock','secondary small',e.id):''):btn('Lock evidence','vLock','secondary small',e.id)}</div></div>`,{wide:true});
+      <div class="row">${e.status==='open'?btn('Acknowledge','vAck','secondary',e.id):''}${open?btn('Resolve','vResolve','primary',e.id)+btn('False alarm','vFalse','secondary',e.id):''}${e.locked?(canManage(e.companyId)?btn('Unlock evidence','vUnlock','secondary small',e.id):''):btn('Lock evidence','vLock','secondary small',e.id)}${e.module==='quality'&&cam?.equipmentId&&raiseTicket?btn('Report breakdown on this machine','vTicket','secondary small',e.id):''}</div></div>`,{wide:true});
     d.querySelectorAll('.vevent [data-action]').forEach(b=>b.onclick=()=>vAction(b.dataset.action,b.dataset.id));
     loadMedia(d);
   }
@@ -295,6 +318,9 @@ export function createVision(ctx) {
     if (name==='vResolve') { closeDialog(); return closeForm(id,'resolve'); }
     if (name==='vFalse') { closeDialog(); return closeForm(id,'false'); }
     if (name==='vLock'||name==='vUnlock') return api(`/vision/events/${id}/lock`,'POST',{locked:name==='vLock'}).then(()=>{ closeDialog(); toast(name==='vLock'?'Evidence locked':'Evidence unlocked'); refreshAll(); render(); }).catch(fail);
+    if (name==='vTicket') { const e=await api(`/vision/events/${id}`), cam=camById(e.cameraId), info=vc().defectInfo?.[e.detail?.defect];
+      closeDialog(); return raiseTicket(cam.equipmentId,{title:`${info?.[0]||humanise(e.detail?.defect||'Defect')} found by ${e.cameraName}`.slice(0,160),
+        symptoms:`Vision quality inspection: ${info?.[0]||e.detail?.defect}${e.detail?.sizeMm?` (${e.detail.sizeMm} mm)`:''}${e.detail?.surfaceClass?`, surface class ${e.detail.surfaceClass}`:''} at ${new Intl.DateTimeFormat(state.user.preferences.locale,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:state.user.preferences.timezone,timeZoneName:'short'}).format(new Date(e.occurredAt))}.${info?` Typical causes: ${info[2]}`:''}`,failureCategory:'tooling'}); }
     if (name==='vNewCamera') return cameraForm();
     if (name==='vEditCamera') return cameraForm(state.vcams.find(c=>c.id===id));
     if (name==='vZones') return zonesDialog(id).catch(fail);
@@ -330,5 +356,5 @@ export function createVision(ctx) {
   }
   const views={vision:overviewView,visionCameras:camerasView,visionIncidents:incidentsView,visionNodes:nodesView};
   const reset=()=>{ state.vo=undefined; state.vcams=undefined; state.vevents=undefined; state.vnodesLoaded=false; };
-  return {views,action:vAction,bind,reset,startAlarms,stopAlarms,canSeeVision,ACTIONS:['vGoCameras','vGoIncidents','vEvent','vAck','vResolve','vFalse','vLock','vUnlock','vNewCamera','vEditCamera','vZones','vModule','vAddModule','vRemoveModule','vNewNode','vEditNode','vNodeKey','vNodeConfig','vLicence']};
+  return {views,action:vAction,bind,reset,startAlarms,stopAlarms,canSeeVision,ACTIONS:['vTicket','vGoCameras','vGoIncidents','vEvent','vAck','vResolve','vFalse','vLock','vUnlock','vNewCamera','vEditCamera','vZones','vModule','vAddModule','vRemoveModule','vNewNode','vEditNode','vNodeKey','vNodeConfig','vLicence']};
 }

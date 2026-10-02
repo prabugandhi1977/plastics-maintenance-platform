@@ -18,15 +18,39 @@ export const MODULES={
   intrusion:{label:'Restricted area intrusion',duty:'security',events:['intrusion_person','intrusion_vehicle'],
     defaults:{classes:['person','vehicle'],dwellSeconds:0.5,sirenOutput:null}},
   quality:{label:'Quality inspection',duty:'qa',events:['defect'],
-    defaults:{preset:'electronics',minDefectMm:0.5,mmPerPixel:null,targetFps:60,rejectOutput:null}},
+    defaults:{preset:'automotive_plastic',triggerMode:'plc',cycleTimeS:3,resultBudgetMs:500,minDefectMm:0.5,mmPerPixel:null,targetFps:60,
+      acceptance:{A:0.5,B:1.0,C:2.0},triggerInput:null,okOutput:null,rejectOutput:null}},
 };
 export const MODULE_KEYS=Object.keys(MODULES);
 export const PPE_GEAR={helmet:'Safety helmet',vest:'High-visibility vest',goggles:'Safety goggles',boots:'Steel-toe footwear'};
 export const QUALITY_PRESETS={
+  automotive_plastic:{label:'Automotive plastic parts (injection moulded)',defects:['short_shot','flash','sink_mark','warpage','burn_mark','black_spot','splay','weld_line','flow_lines','jetting','scratch','crack','contamination','colour_variation','gloss_variation','missing_feature','dimensional']},
   vehicle_body:{label:'Vehicle body',defects:['scratch','dent','crack','stain','paint_run','orange_peel']},
   electronics:{label:'Electronics assembly',defects:['scratch','crack','stain','missing_component','solder_bridge','misalignment']},
   logistics_container:{label:'Logistics / shipping container damage',defects:['dent','hole','crack','rust','stain','deformation','torn_label']},
 };
+// The standard visual defects of injection-moulded automotive parts, what they look like and their usual causes,
+// so a QA lead (or the maintenance team) knows where to look. Names match the Vision quality defect Pareto.
+export const DEFECT_INFO={
+  short_shot:['Short shot','The part is incomplete: the melt did not fill the cavity.','Too little shot volume or injection pressure, cold melt or mould, blocked gate or vent, worn check ring.'],
+  flash:['Flash','Thin excess plastic at the parting line, ejector pins or slides.','Too much injection or holding pressure, too little clamp force, worn or damaged parting line, mould not closing fully.'],
+  sink_mark:['Sink mark','A shallow depression over thick sections, ribs or bosses.','Holding pressure or time too low, melt or mould too hot, thick wall design, gate freezing too early.'],
+  warpage:['Warpage','The part is bent or twisted after ejection.','Uneven cooling, too short cooling time, residual stress, uneven ejection, fibre orientation.'],
+  burn_mark:['Burn mark','Brown or black burnt areas, often at the end of flow or in corners.','Trapped air (blocked vents), injection too fast, melt too hot or too long in the barrel.'],
+  black_spot:['Black specks','Small dark particles in the surface.','Degraded material in the barrel or hot runner, contamination, dirty hopper or dryer.'],
+  splay:['Splay / silver streaks','Silvery streaks in the flow direction.','Moisture in the material (dryer), overheated material, air entrapment.'],
+  weld_line:['Weld line','A visible line where two melt fronts meet.','Low melt or mould temperature, slow injection, poor venting, gate position.'],
+  flow_lines:['Flow lines','Wavy lines or rings near the gate.','Slow injection, low melt or mould temperature, varying wall thickness.'],
+  jetting:['Jetting','A snake-like flow pattern from the gate.','Injection too fast through a small gate into an open cavity, gate design.'],
+  scratch:['Scratch','A line-shaped surface damage.','Handling, conveyors or robot gripper, ejection drag, damaged mould polish.'],
+  crack:['Crack','A fracture in the part, often near bosses or ejector pins.','Stress from ejection or overpacking, too short cooling, chemical attack, cold mould.'],
+  contamination:['Contamination','Foreign particles or a different material in the part.','Regrind or masterbatch quality, open hopper, wrong material, dirty dryer.'],
+  colour_variation:['Colour variation','Colour differs from the master sample.','Masterbatch dosing, material lot change, overheating, mixing.'],
+  gloss_variation:['Gloss variation','Gloss differs from the master sample or across the surface.','Mould temperature, mould surface wear, holding pressure, venting.'],
+  missing_feature:['Missing feature','A clip, boss, insert or label is missing.','Short shot in a feature, broken core pin, insert not loaded, automation fault.'],
+  dimensional:['Out of tolerance','A measured dimension is outside the drawing tolerance.','Shrinkage from process changes, warpage, worn mould, material change.'],
+};
+export const CAMERA_VENDORS=['Hikvision','Hikrobot','Keyence','Cognex','Basler','Axis','Other'];
 export const SYSTEM_EVENTS=['camera_offline','camera_tamper','node_overheat','disk_full','model_error'];
 export const SOURCE_TYPES=['rtsp','http-snapshot','cognex-native','folder','csi','visionforge'];
 export const DUTIES={ehs:'EHS officer',security:'Security & facility admin',qa:'QA lead'};
@@ -37,7 +61,7 @@ const RANK={info:0,warning:1,critical:2};
 const DEFAULT_SEVERITY={fire:'critical',smoke:'critical',intrusion_person:'critical',intrusion_vehicle:'warning',ppe_violation:'warning',defect:'info',
   camera_offline:'warning',camera_tamper:'warning',node_overheat:'warning',disk_full:'warning',model_error:'warning'};
 export const visionCatalog=()=>({modules:Object.fromEntries(Object.entries(MODULES).map(([k,m])=>[k,{label:m.label,duty:m.duty,events:m.events,defaults:m.defaults}])),
-  ppeGear:PPE_GEAR,qualityPresets:QUALITY_PRESETS,sourceTypes:SOURCE_TYPES,duties:DUTIES,zoneKinds:ZONE_KINDS,sensitivity:SENSITIVITY,outputProtocols:OUTPUT_PROTOCOLS,systemEvents:SYSTEM_EVENTS});
+  ppeGear:PPE_GEAR,qualityPresets:QUALITY_PRESETS,defectInfo:DEFECT_INFO,cameraVendors:CAMERA_VENDORS,sourceTypes:SOURCE_TYPES,duties:DUTIES,zoneKinds:ZONE_KINDS,sensitivity:SENSITIVITY,outputProtocols:OUTPUT_PROTOCOLS,systemEvents:SYSTEM_EVENTS});
 
 export function visionSettings() {
   const base={mediaRetentionDays:30,qualityAlertRatePct:2,clipSeconds:10,preEventSeconds:5,diskPrunePct:90,broadcastGroup:'239.10.10.10',broadcastPort:5005};
@@ -57,6 +81,16 @@ function output(v,name) {
   if (protocol==='gpio') return {protocol,pin:int('pin',0,512,0),activeHigh:v.activeHigh!==false,pulseMs:int('pulseMs',10,60000,2000)};
   return {protocol,url:/^https?:\/\/\S+$/.test(String(v.url||''))?String(v.url).slice(0,300):bad(`${name}.url must be an http(s) URL`),pulseMs:int('pulseMs',10,60000,1000)};
 }
+// A PLC signal the edge reads: the part-present trigger (Modbus TCP discrete input or coil, EtherNet/IP tag).
+function plcInput(v,name) {
+  if (v==null||v==='') return null;
+  if (typeof v!=='object'||Array.isArray(v)) bad(`${name} must be an object`);
+  const host=String(v.host??'').trim(); if (!host||host.length>120) bad(`${name}.host is required`);
+  const int=(k,min,max,fallback)=>{ const n=v[k]==null||v[k]===''?fallback:Number(v[k]); if (!Number.isInteger(n)||n<min||n>max) bad(`${name}.${k} must be a whole number from ${min} to ${max}`); return n; };
+  if (v.protocol==='modbus_tcp') return {protocol:'modbus_tcp',host,port:int('port',1,65535,502),unitId:int('unitId',0,255,1),kind:v.kind==='coil'?'coil':'discrete_input',address:int('address',0,65535,0)};
+  if (v.protocol==='ethernet_ip') { const tag=String(v.tag??'').trim(); if (!tag||tag.length>80) bad(`${name}.tag is required`); return {protocol:'ethernet_ip',host,tag}; }
+  bad(`${name}.protocol must be modbus_tcp or ethernet_ip`);
+}
 const num=(v,name,min,max,fallback)=>{ const n=v==null||v===''?fallback:Number(v); if (n==null) return null; if (!Number.isFinite(n)||n<min||n>max) bad(`${name} must be from ${min} to ${max}`); return n; };
 // Validates a module's settings against its catalogue entry; unknown keys are dropped.
 export function moduleConfig(module,input={}) {
@@ -73,7 +107,15 @@ export function moduleConfig(module,input={}) {
     return {classes,dwellSeconds:num(c.dwellSeconds,'dwellSeconds',0,30,d.dwellSeconds),sirenOutput:output(c.sirenOutput,'sirenOutput')};
   }
   const preset=c.preset==null?d.preset:QUALITY_PRESETS[c.preset]?c.preset:bad(`preset must be one of: ${Object.keys(QUALITY_PRESETS).join(', ')}`);
-  return {preset,minDefectMm:num(c.minDefectMm,'minDefectMm',0.05,50,d.minDefectMm),mmPerPixel:num(c.mmPerPixel,'mmPerPixel',0.001,10,null),targetFps:num(c.targetFps,'targetFps',1,120,d.targetFps),rejectOutput:output(c.rejectOutput,'rejectOutput')};
+  const triggerMode=c.triggerMode==null?d.triggerMode:['plc','camera','continuous'].includes(c.triggerMode)?c.triggerMode:bad('triggerMode must be plc, camera or continuous');
+  const cycleTimeS=num(c.cycleTimeS,'cycleTimeS',0.2,600,d.cycleTimeS), resultBudgetMs=num(c.resultBudgetMs,'resultBudgetMs',20,10000,d.resultBudgetMs);
+  // The OK/NG result must reach the PLC well inside the machine cycle: at most half of it.
+  if (resultBudgetMs>cycleTimeS*500) bad(`The result time (${resultBudgetMs} ms) must be at most half the cycle time (${cycleTimeS} s)`);
+  const a=c.acceptance&&typeof c.acceptance==='object'?c.acceptance:{}, acceptance=Object.fromEntries(['A','B','C'].map(k=>[k,num(a[k],`acceptance.${k}`,0.05,100,d.acceptance[k])]));
+  if (!(acceptance.A<=acceptance.B&&acceptance.B<=acceptance.C)) bad('Acceptance limits must not get stricter from class A to C (A ≤ B ≤ C)');
+  const triggerInput=plcInput(c.triggerInput,'triggerInput'); if (triggerMode==='plc'&&!triggerInput&&c.triggerInput!==undefined&&c.triggerInput!==null) bad('triggerInput is required for PLC triggering');
+  return {preset,triggerMode,cycleTimeS,resultBudgetMs,minDefectMm:num(c.minDefectMm,'minDefectMm',0.05,50,d.minDefectMm),mmPerPixel:num(c.mmPerPixel,'mmPerPixel',0.001,10,null),
+    targetFps:num(c.targetFps,'targetFps',1,120,d.targetFps),acceptance,triggerInput,okOutput:output(c.okOutput,'okOutput'),rejectOutput:output(c.rejectOutput,'rejectOutput')};
 }
 
 // ---------- Licences ----------
@@ -123,8 +165,8 @@ export function nodeConfig(node) {
       const key=`${c.company_id}:${a.module}`; seats[key]??=(()=>{ const l=licence(c.company_id,a.module); return l.valid?l.cameras:0; })();
       if (seats[key]<=0) return false; seats[key]--; return true;
     }).map(a=>({module:a.module,config:JSON.parse(a.config)}));
-    const zones=all('SELECT * FROM vision_zones WHERE camera_id=? AND active=1 ORDER BY created_at',c.id).map(z=>({id:z.id,name:z.name,kind:z.kind,severity:z.severity,classes:JSON.parse(z.classes),points:JSON.parse(z.points)}));
-    return {id:c.id,name:c.name,sourceType:c.source_type,sourceUrl:c.source_url,fps:c.fps,location:c.location,modules,zones};
+    const zones=all('SELECT * FROM vision_zones WHERE camera_id=? AND active=1 ORDER BY created_at',c.id).map(z=>({id:z.id,name:z.name,kind:z.kind,severity:z.severity,classes:JSON.parse(z.classes),points:JSON.parse(z.points),...(z.surface_class?{surfaceClass:z.surface_class}:{})}));
+    return {id:c.id,name:c.name,vendor:c.vendor,sourceType:c.source_type,sourceUrl:c.source_url,fps:c.fps,location:c.location,modules,zones};
   });
   return {nodeId:node.id,name:node.name,configVersion:node.config_version,maxStreams:node.max_streams,cameras,
     settings:{clipSeconds:s.clipSeconds,preEventSeconds:s.preEventSeconds,diskPrunePct:s.diskPrunePct,broadcast:{group:s.broadcastGroup,port:s.broadcastPort}}};
@@ -172,9 +214,21 @@ function effects(e,cam,zone) {
   if (e.type==='fire'||e.type==='smoke') { alert('critical','fire',`${e.type==='fire'?'Fire':'Smoke'} detected – ${where}`,`Camera ${cam.name} detected ${e.type} at ${e.occurred_at}. Confidence ${e.confidence??'—'}. Follow the emergency procedure.`); safety('fire_smoke',`${e.type==='fire'?'Fire':'Smoke'} detected by camera ${cam.name}`); }
   else if (e.module==='intrusion') alert(e.severity,'intrusion',`${e.type==='intrusion_vehicle'?'Vehicle':'Person'} in ${zone?.name||'restricted area'} – ${where}`,`Camera ${cam.name} detected a ${e.type==='intrusion_vehicle'?'vehicle':'person'} inside ${zone?.name||'a restricted area'} at ${e.occurred_at}.`);
   else if (e.module==='ppe') { const missing=(d.missing||[]).map(g=>PPE_GEAR[g]||g).join(', '); safety('ppe_missing',`Missing PPE (${missing}) at ${where}`); alert(e.severity,'ppe',`PPE missing – ${where}`,`Missing: ${missing}. Detected at ${e.occurred_at}.`); }
-  else if (e.module==='quality') qualityRateAlert(cam);
+  else if (e.module==='quality') { qualityRateAlert(cam); syncQualityMinute(cam,e.occurred_at.slice(0,16)); }
   else if (e.module==='system') alert(e.severity,`system:${e.type}`,`${label(e.type)[0].toUpperCase()}${label(e.type).slice(1)} – ${where}`,d.message?String(d.message).slice(0,500):`Reported by the edge node at ${e.occurred_at}.`);
 }
+// Edge quality results also feed the Vision quality page (first-pass yield, PPM, defect Pareto per machine): one
+// row per camera and minute, rebuilt from the counters and the defects recorded in that minute.
+export function syncQualityMinute(cam,minute) {
+  if (!cam.equipment_id) return;
+  const s=one("SELECT inspected,passed FROM vision_stats WHERE camera_id=? AND module='quality' AND minute=?",cam.id,minute);
+  const defects=Object.fromEntries(all("SELECT json_extract(detail,'$.defect') d,count(*) n FROM vision_events WHERE camera_id=? AND module='quality' AND substr(occurred_at,1,16)=? GROUP BY 1",cam.id,minute).map(r=>[r.d,r.n]));
+  const found=Object.values(defects).reduce((a,b)=>a+b,0), inspected=Math.max(s?.inspected??0,found), rejected=Math.max(inspected-(s?.passed??inspected),Math.min(found,inspected));
+  if (!inspected) return;
+  run(`INSERT INTO vision_results (id,company_id,equipment_id,station,period_start,period_minutes,inspected,rejected,defects,source) VALUES (?,?,?,?,?,1,?,?,?,'edge')
+    ON CONFLICT(equipment_id,station,period_start) DO UPDATE SET inspected=excluded.inspected,rejected=excluded.rejected,defects=excluded.defects`,id(),cam.company_id,cam.equipment_id,cam.name,`${minute}:00.000Z`,inspected,rejected,JSON.stringify(defects));
+}
+
 // A rising defect rate (last 15 minutes against the threshold in vision settings) raises one alert per camera.
 function qualityRateAlert(cam) {
   const since=new Date(Date.now()-15*60000).toISOString().slice(0,16), s=one("SELECT sum(inspected) i,sum(passed) p FROM vision_stats WHERE camera_id=? AND module='quality' AND minute>=?",cam.id,since);
@@ -202,6 +256,7 @@ export function heartbeat(node,body) {
       run(`INSERT INTO vision_stats (camera_id,minute,module,frames,people,compliant,inspected,passed,ignored) VALUES (?,?,?,?,?,?,?,?,?)
         ON CONFLICT(camera_id,minute,module) DO UPDATE SET frames=excluded.frames,people=excluded.people,compliant=excluded.compliant,inspected=excluded.inspected,passed=excluded.passed,ignored=excluded.ignored`,
         cam.id,s.minute.slice(0,16),s.module,n('frames'),n('people'),n('compliant'),n('inspected'),n('passed'),n('ignored'));
+      if (s.module==='quality') syncQualityMinute(cam,s.minute.slice(0,16));
     }
   } });
   const fresh=one('SELECT * FROM vision_nodes WHERE id=?',node.id);

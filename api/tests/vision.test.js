@@ -169,3 +169,31 @@ test('housekeeping: silent nodes alert; closed unlocked evidence is pruned, lock
   assert.equal(db.prepare('SELECT snapshot_media_id s FROM vision_events WHERE id=?').get(old).s,null);
   assert.ok(db.prepare('SELECT clip_media_id c FROM vision_events WHERE id=?').get(ctx.fire).c);
 });
+
+test('automotive plastic parts: preset, PLC trigger within the cycle, A/B/C acceptance, vendor and surface classes',async()=>{
+  await call('/vision/licences/c-acme/quality','PUT',{cameras:3,validUntil:'2099-12-31'},tokens.admin);
+  const cam=(await call('/vision/cameras','POST',{plantId:'plant-a',nodeId:null,name:'Door panel QA',vendor:'Cognex',sourceType:'cognex-native',sourceUrl:'192.168.10.30:23',equipmentId:'eq-a2'},tokens.acme)).data;
+  assert.equal(cam.vendor,'Cognex');
+  assert.match(error(await call('/vision/cameras','POST',{plantId:'plant-a',name:'X',vendor:'Acme Cams',sourceType:'rtsp',sourceUrl:'rtsp://x'},tokens.acme)),/vendor must be one of/);
+  const put=config=>call(`/vision/cameras/${cam.id}/modules/quality`,'PUT',{config},tokens.acme);
+  const defaults=(await put({})).data.modules.find(m=>m.module==='quality').config;
+  assert.deepEqual([defaults.preset,defaults.triggerMode,defaults.cycleTimeS,defaults.resultBudgetMs],['automotive_plastic','plc',3,500]);
+  assert.match(error(await put({cycleTimeS:3,resultBudgetMs:1800})),/at most half the cycle time/);
+  assert.match(error(await put({acceptance:{A:2,B:1,C:3}})),/A ≤ B ≤ C/);
+  assert.match(error(await put({triggerInput:{protocol:'profinet',host:'x'}})),/modbus_tcp or ethernet_ip/);
+  const plc=(await put({triggerInput:{protocol:'ethernet_ip',host:'192.168.10.40',tag:'Cell3_PartPresent'},okOutput:{protocol:'ethernet_ip',host:'192.168.10.40',tag:'Cell3_OK'},rejectOutput:{protocol:'modbus_tcp',host:'192.168.10.41',coil:2}})).data.modules.find(m=>m.module==='quality').config;
+  assert.equal(plc.triggerInput.tag,'Cell3_PartPresent'); assert.equal(plc.rejectOutput.port,502);
+  const roi=await call(`/vision/cameras/${cam.id}/zones`,'POST',{name:'Visible face',kind:'inspection_roi',surfaceClass:'A',points:[[0.1,0.1],[0.9,0.1],[0.9,0.6],[0.1,0.6]]},tokens.acme);
+  assert.equal(roi.data.surfaceClass,'A');
+  assert.equal((await call(`/vision/cameras/${cam.id}/zones`,'POST',{name:'Wall',kind:'exclusion',surfaceClass:'B',points:[[0,0],[1,0],[1,1]]},tokens.acme)).data.surfaceClass,null);
+  assert.ok((await call('/vision/catalog','GET',null,tokens.acme)).data.defectInfo.sink_mark[2].includes('Holding pressure'));
+  // Defects from the edge feed the Vision quality page (FPY and Pareto per machine).
+  await call(`/vision/nodes/${ctx.node}`,'PATCH',{maxStreams:4},tokens.acme);
+  assert.equal((await call(`/vision/cameras/${cam.id}`,'PATCH',{nodeId:ctx.node},tokens.acme)).data.nodeId,ctx.node);
+  const minute=new Date().toISOString().slice(0,16);
+  await edge('/edge/v1/heartbeat',{configVersion:0,cameras:[{id:cam.id,status:'online',stats:[{minute,module:'quality',frames:20,inspected:20,passed:18}]}]});
+  const r=await edge('/edge/v1/events',{events:['sink_mark','short_shot'].map((defect,i)=>({externalId:`auto-${i}`,cameraId:cam.id,module:'quality',type:'defect',occurredAt:new Date().toISOString(),detail:{preset:'automotive_plastic',defect,surfaceClass:'A',sizeMm:1.2}}))});
+  assert.equal(r.data.accepted,2,JSON.stringify(r.data.results));
+  const row=db.prepare("SELECT inspected,rejected,defects,source FROM vision_results WHERE equipment_id='eq-a2' AND station='Door panel QA'").get();
+  assert.deepEqual([row.inspected,row.rejected,row.source],[20,2,'edge']); assert.deepEqual(JSON.parse(row.defects),{short_shot:1,sink_mark:1});
+});
