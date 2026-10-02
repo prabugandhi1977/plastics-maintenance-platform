@@ -331,7 +331,7 @@ function assetDetail(){
 
 // ---------- Scan at the machine ----------
 // Tickets are linked to the machine by scanning its QR label or RFID tag when they are raised and closed.
-const scanPolicy=()=>state.cat?.scanPolicy||{raise:'required',close:'required'};
+const scanPolicy=()=>state.cat?.scanPolicy||{raise:'optional',close:'required'};
 const VIA={qr:'QR label scanned at the machine',rfid:'RFID tag scanned at the machine',alert:'From a machine alert',auto:'Raised automatically by condition monitoring',override:'Without a scan (dispatcher override)',manual:'Without a scan (scan optional)'};
 const viaText=(via,at,zone)=>via?`<span class="pill ${['qr','rfid'].includes(via)?'approved':via==='override'?'warning':'pending'}">${['qr','rfid'].includes(via)?'✓ ':via==='override'?'⚠ ':''}${esc(VIA[via]||humanise(via))}</span>${at?` <span class="muted">${when(at)}</span>`:''}`:'<span class="muted">Before scan linking</span>';
 // The scan block for a raise or close form. needed: the policy requires a scan; dispatchers may instead give a reason.

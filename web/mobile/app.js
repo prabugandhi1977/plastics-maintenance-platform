@@ -23,7 +23,7 @@ const norm=v=>String(v??'').toUpperCase().replace(/[^A-Z0-9]/g,'');
 const matches=(asset,code)=>!!asset&&(String(code).trim()===asset.qr_code||(!!asset.rfid_tag&&norm(code)===asset.rfid_tag));
 const canRaise=()=>['customer_admin','plant_manager','maintenance','platform_admin','dispatcher'].includes(state.user?.role);
 const isDispatchRole=()=>['platform_admin','dispatcher'].includes(state.user?.role);
-const scanPolicy=()=>state.cat?.scanPolicy||{raise:'required',close:'required'};
+const scanPolicy=()=>state.cat?.scanPolicy||{raise:'optional',close:'required'};
 const badge=(group,s)=>`<span class="badge ${safe(s)}">${safe(label(group,s))}</span>`;
 
 // Optimistic edits applied to the selected ticket (and its cache) while an action waits in the queue.

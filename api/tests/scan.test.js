@@ -23,7 +23,12 @@ const tokens={};
 const EQ_A_RFID='E28011606000020840A1B204';
 const noScan=equipmentId=>{const {scanCode,...body}=ticketBody(equipmentId);return body;};
 
-test('setup',async()=>{for(const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',engineer:'engineer@demo.test',acme:'acme@demo.test',nova:'nova@demo.test'}))tokens[key]=await login(email);});
+test('setup',async()=>{
+  for(const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',engineer:'engineer@demo.test',acme:'acme@demo.test',nova:'nova@demo.test'}))tokens[key]=await login(email);
+  // During rollout raising does not need a scan; these tests cover the policy with both steps required.
+  assert.deepEqual((await call('/catalog','GET',null,tokens.acme)).data.scanPolicy,{raise:'optional',close:'required'});
+  assert.deepEqual((await call('/settings/scan-policy','PATCH',{raise:'required'},tokens.admin)).data,{raise:'required',close:'required'});
+});
 
 test('a scan of the QR label or the RFID tag resolves the machine, within tenant limits',async()=>{
   const qr=(await call('/equipment/lookup?code=MC%3Aeq-a','GET',null,tokens.acme)).data;
@@ -83,7 +88,6 @@ test('closing a ticket needs a scan of the same machine, or a dispatcher overrid
 });
 
 test('the scan policy is a platform setting',async()=>{
-  assert.deepEqual((await call('/catalog','GET',null,tokens.acme)).data.scanPolicy,{raise:'required',close:'required'});
   assert.equal((await call('/settings/scan-policy','PATCH',{raise:'optional'},tokens.acme)).status,403);
   assert.match(error(await call('/settings/scan-policy','PATCH',{raise:'sometimes'},tokens.admin)),/raise must be one of/);
   assert.deepEqual((await call('/settings/scan-policy','PATCH',{raise:'optional'},tokens.admin)).data,{raise:'optional',close:'required'});

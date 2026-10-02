@@ -4,7 +4,7 @@
 import { one } from './db.js';
 import { bad } from './validate.js';
 
-export const SCAN_POLICY_DEFAULT={raise:'required',close:'required'};
+export const SCAN_POLICY_DEFAULT={raise:'optional',close:'required'};
 export function scanPolicy() {
   try { return {...SCAN_POLICY_DEFAULT,...JSON.parse(one("SELECT value FROM settings WHERE key='scan_policy'")?.value||'{}')}; } catch { return {...SCAN_POLICY_DEFAULT}; }
 }
