@@ -77,6 +77,18 @@ Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos onl
 
 An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `node api/seed.js` runs. A database without the stage 1 demo products is left unchanged.
 
+## Vision AI: PPE, fire and smoke, restricted areas, quality inspection
+
+Camera-based safety and quality, for EHS officers, security and facility admins, and QA leads. See [docs/VISION.md](docs/VISION.md) for every requirement and how it is met, and [edge/README.md](edge/README.md) for the edge node.
+
+- **Vision overview:** live PPE compliance, fire and smoke, intrusions and defect rates, with *EHS*, *Security* and *Quality inspection* views, camera tiles with detection boxes, and open alarms.
+- **Cameras & AI modules:** add IP or CSI cameras and drag licensed modules onto them (PPE, fire & smoke, restricted area, quality inspection), each with its settings: required gear and the doorway beacon; sensitivity and the factory-network alarm; quality preset, smallest defect and PLC reject output. **Draw zones** over the camera image: exclusion zones, tripwires, approved machine-motion areas.
+- **Vision incidents:** every detection with its snapshot, 10-second clip and handling; evidence of life-safety and PPE events is locked and never deleted; CSV proof-of-violation log; false alarms go to the retraining set.
+- **Edge nodes & licences:** the GPU PCs on site with their health, keys and configuration; module licences per company (set by the platform admin).
+- **Alarms:** a red banner (with a tone) on every page and in the field app, with vibration, for the alarms matching each person's **vision duties** (EHS, security, QA; set on the user). Fire reaches everyone with a duty.
+
+The demo includes an edge node, four cameras, zones, a day of counters and incidents. To feed it live detections without cameras: `cd edge && python3 -m edge_agent.simulate --platform http://localhost:3100 --key vn_demo-chicago-edge-node-key-0001`.
+
 ## Breakdown assistant (AI) and VR guide
 
 - **Equipment pictures:** every machine can have a photo (upload it on the equipment page, or when adding equipment). It appears in the equipment list, on tickets, in the field app and in the VR guide. Machines without one show an icon for their type.

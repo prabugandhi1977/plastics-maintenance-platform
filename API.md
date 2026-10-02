@@ -381,6 +381,40 @@ Same access as the other factory data: the customer's own staff and the platform
 - occasional safety-camera detections; older ones are already closed
 - tag sightings every 30 minutes from 2 days back: assets move between the zones their kind uses, trolleys sometimes go outside, and one gauge goes silent to show the "missing" alert
 
+## Vision AI
+
+Details and the requirement mapping: `docs/VISION.md`. Edge node: `edge/README.md`.
+
+**Edge API** (authenticated with the node's own key: `Authorization: Bearer vn_…`)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/edge/v1/heartbeat` | `{agentVersion, configVersion, metrics, cameras:[{id, status, fps, inferenceMs, stats:[{minute, module, frames, people, compliant, inspected, passed, ignored}]}]}`. Reply: `{serverTime, configVersion, config?}`; the config is included when the node's version is out of date |
+| `GET` | `/edge/v1/config` | The node's cameras (full stream URLs), licensed modules with settings, zones, and settings (clip length, pruning limit, broadcast group) |
+| `POST` | `/edge/v1/events` | `{events:[{externalId, cameraId, module, type, severity?, confidence, occurredAt, zoneId?, detail, boxes:[{x,y,w,h,label,confidence}], edgeActions}]}`, 1–500 per request; critical events are processed first; replays with the same `externalId` are reported as duplicates |
+| `POST` | `/edge/v1/media` | `{eventId (id or externalId), kind: snapshot\|clip, mime, base64}` or `{cameraId, kind: frame, …}` (background for drawing zones). JPEG/PNG/WebP images, MP4 clips, up to 6 MB |
+
+Event types: `ppe` → `ppe_violation` (`detail.missing`); `fire_smoke` → `fire`, `smoke`; `intrusion` → `intrusion_person`, `intrusion_vehicle` (`zoneId`); `quality` → `defect` (`detail.preset`, `detail.defect`, `detail.sizeMm`); `system` → `camera_offline`, `camera_tamper`, `node_overheat`, `disk_full`, `model_error`.
+
+**Management API** (signed-in users; viewing follows company access, configuring needs the platform admin or the company's customer admin)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/vision/catalog` | Modules, PPE items, quality presets, source types, zone kinds, duties |
+| `GET`, `PUT` | `/vision/licences`, `/vision/licences/:companyId/:module` | Licences `{cameras, validUntil}` (change: platform admin) with seats used |
+| `GET`, `POST`, `PATCH` | `/vision/nodes`, `/vision/nodes/:id` | Edge nodes; creating one returns its key once. `POST /vision/nodes/:id/key` replaces the key; `GET /vision/nodes/:id/config` shows what it runs |
+| `GET`, `POST`, `PATCH` | `/vision/cameras`, `/vision/cameras/:id` | Cameras (stream passwords masked) |
+| `PUT`, `DELETE` | `/vision/cameras/:id/modules/:module` | Assign or update a module `{enabled, config}` (uses a licence seat), or remove it |
+| `GET`, `POST` | `/vision/cameras/:id/zones` | Zones `{name, kind, points:[[x,y]…] (0..1), severity, classes}`; `PATCH`/`DELETE /vision/zones/:id` |
+| `GET` | `/vision/events`, `/vision/events/:id`, `/vision/events.csv` | Incidents (filters: module, severity, status, cameraId, plantId, hours) and the CSV proof log |
+| `POST` | `/vision/events/:id/acknowledge`, `/resolve` `{note}`, `/false-alarm` `{note, retrain}`, `/lock` `{locked}` | Handling; unlocking evidence needs an administrator |
+| `GET` | `/vision/media/:id` | Snapshot or clip (same company only) |
+| `GET` | `/vision/overview?hours&plantId` | Dashboard figures: PPE, fire, intrusion, quality, latency p95, cameras, nodes, open alarms |
+| `GET` | `/vision/alarms` | Open alarms of the last day matching the user's vision duties (fire always; without duties, critical only) |
+| `GET` | `/vision/retraining` | False alarms kept for retraining, with media links (administrators) |
+
+Users carry `visionDuties` (`ehs`, `security`, `qa`), set with `POST /users` or `PATCH /users/:id`.
+
 ## Offline actions
 
 The routes marked "works offline" above accept an `X-Client-Action-Id: <UUID>` header.

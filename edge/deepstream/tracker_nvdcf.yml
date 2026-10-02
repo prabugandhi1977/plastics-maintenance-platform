@@ -1,0 +1,25 @@
+# NvDCF tracker (DeepStream reference "perf" profile, shortened). Track ids drive PPE cooldowns, dwell time in
+# zones and tripwire crossings. Tune maxShadowTrackingAge for occlusions by machines.
+BaseConfig:
+  minDetectorConfidence: 0.3
+TargetManagement:
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.5
+  probationAge: 3
+  maxShadowTrackingAge: 30
+  earlyTerminationAge: 1
+TrajectoryManagement:
+  useUniqueID: 0
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 0
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.0
+  minMatchingScore4SizeSimilarity: 0.6
+  minMatchingScore4Iou: 0.0
+StateEstimator:
+  stateEstimatorType: 1
+VisualTracker:
+  visualTrackerType: 1
+  useColorNames: 1
+  useHog: 0

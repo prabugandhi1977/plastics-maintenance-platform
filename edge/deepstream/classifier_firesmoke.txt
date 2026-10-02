@@ -1,0 +1,16 @@
+# Secondary temporal classifier: confirms fire/smoke regions flagged by the detector using a short clip
+# (spatio-temporal 3D-CNN), separating flames and smoke plumes from steam, dust and welding arcs.
+[property]
+gpu-id=0
+onnx-file=/models/firesmoke_temporal.onnx
+model-engine-file=/models/firesmoke_temporal_b8_gpu0_fp16.engine
+labelfile-path=/models/firesmoke_labels.txt
+batch-size=8
+network-mode=2
+process-mode=2
+operate-on-gie-id=1
+# class ids 6 and 7 of the detector: fire, smoke
+operate-on-class-ids=6;7
+network-type=1
+classifier-threshold=0.6
+gie-unique-id=2

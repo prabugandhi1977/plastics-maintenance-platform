@@ -1,0 +1,12 @@
+# Quality inspection: semantic segmentation of surface defects at full sensor resolution.
+# One engine per preset (vehicle body, electronics, logistics container); the agent loads the camera's preset.
+[property]
+gpu-id=0
+onnx-file=/models/quality_${PRESET}.onnx
+model-engine-file=/models/quality_${PRESET}_b4_gpu0_fp16.engine
+labelfile-path=/models/quality_${PRESET}_labels.txt
+batch-size=4
+network-mode=2
+network-type=2
+segmentation-threshold=0.5
+gie-unique-id=3

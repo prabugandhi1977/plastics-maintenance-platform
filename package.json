@@ -7,7 +7,9 @@
     "seed": "node api/seed.js",
     "icons": "node scripts/make-icons.js",
     "test": "node --test api/tests/*.test.js",
-    "iot:sync": "node api/iot-sync.js"
+    "iot:sync": "node api/iot-sync.js",
+    "test:edge": "python3 -m unittest discover -s edge/tests",
+    "edge:simulate": "cd edge && python3 -m edge_agent.simulate --platform http://localhost:3100 --key vn_demo-chicago-edge-node-key-0001"
   },
   "engines": {
     "node": ">=22.13"
