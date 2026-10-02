@@ -30,7 +30,7 @@ export function preferences(u) {
   const c=u.company_id?byId('companies',u.company_id):null;
   return {locale:u.locale||c?.locale||'en',timezone:c?.timezone||'UTC',currency:c?.currency||'USD',units:c?.units||'metric'};
 }
-const profile=u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,preferences:preferences(u)});
+const profile=u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,preferences:preferences(u),visionDuties:(()=>{ try { return JSON.parse(u.vision_duties||'[]'); } catch { return []; } })()});
 
 export function register(r) {
   r.get('/health',()=>({ok:true,time:now()}),{public:true});

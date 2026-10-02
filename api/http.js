@@ -20,7 +20,7 @@ export function createRouter() {
   const routes=[];
   const add=method=>(pattern,handler,options={})=>routes.push({method,pattern,re:new RegExp('^/api'+pattern.replace(/:(\w+)/g,'(?<$1>[^/]+)')+'$'),handler,...options});
   return {
-    routes,get:add('GET'),post:add('POST'),patch:add('PATCH'),delete:add('DELETE'),
+    routes,get:add('GET'),post:add('POST'),put:add('PUT'),patch:add('PATCH'),delete:add('DELETE'),
     match(method,path) {
       let pathExists=false;
       for (const r of routes) { const m=r.re.exec(path); if (!m) continue; if (r.method===method) return {route:r,params:m.groups||{}}; pathExists=true; }

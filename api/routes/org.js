@@ -9,7 +9,10 @@ import { LOCALES, clearFailures } from './auth.js';
 
 export const MACHINE_TYPES=TYPES;
 const ROLES=['customer_admin','plant_manager','maintenance','dispatcher','engineer','provider_admin','provider_engineer'];
-const USER_COLUMNS='id,company_id,provider_id,name,email,role,active,service_areas,skills,must_change_password,phone,job_title';
+const USER_COLUMNS='id,company_id,provider_id,name,email,role,active,service_areas,skills,must_change_password,phone,job_title,vision_duties';
+// Vision duties (EHS officer, security & facility admin, QA lead) apply to customer staff and platform staff.
+const VISION_DUTIES=['ehs','security','qa'];
+const duties=v=>JSON.stringify([...new Set(stringArray(v,'visionDuties',VISION_DUTIES))]);
 const PROVIDER_COLUMNS='id,name,approved,service_areas,skills,contact_name,contact_email,contact_phone,country,insurance_expiry,certifications';
 const localeOf=v=>{ if (!LOCALES.includes(v)) bad(`locale must be one of: ${LOCALES.join(', ')}`); return v; };
 const keep=(body,key,current,check)=>body[key]==null?current:check(body[key]);
@@ -78,7 +81,7 @@ export function register(r) {
     const areas=field?serviceAreas(body.serviceAreas,'serviceAreas'):serviceAreas(body.serviceAreas||[],'serviceAreas'), skills=stringArray(field?body.skills:body.skills||[],'skills',MACHINE_TYPES);
     if (field&&(!areas.length||!skills.length)) bad('Field engineers need at least one service area and one machine skill');
     // New accounts get a temporary password and are asked to choose their own at first sign-in.
-    run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password,phone,job_title) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)',key,companyId,providerId,required(body.name,'name',160),address,hashPassword(password),role,1,JSON.stringify(areas),JSON.stringify(skills),now(),contact,optionalText(body.jobTitle,80));
+    run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password,phone,job_title,vision_duties) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)',key,companyId,providerId,required(body.name,'name',160),address,hashPassword(password),role,1,JSON.stringify(areas),JSON.stringify(skills),now(),contact,optionalText(body.jobTitle,80),body.visionDuties==null?'[]':duties(body.visionDuties));
     audit(u,'user.create','user',key,companyId); return created({id:key,email:address,role});
   });
   r.patch('/users/:id',({u,body,params})=>{
@@ -89,7 +92,7 @@ export function register(r) {
     const areas=body.serviceAreas==null?target.service_areas:fieldWork?JSON.stringify(serviceAreas(body.serviceAreas,'serviceAreas')):bad('Service areas apply to engineers only');
     const skills=body.skills==null?target.skills:fieldWork?JSON.stringify(stringArray(body.skills,'skills',MACHINE_TYPES)):bad('Skills apply to engineers only');
     const contact=body.phone==null?target.phone:FIELD_ROLES.includes(target.role)||body.phone?phone(body.phone):'';
-    run('UPDATE users SET name=?,active=?,service_areas=?,skills=?,phone=?,job_title=? WHERE id=?',body.name==null?target.name:required(body.name,'name',160),active,areas,skills,contact,body.jobTitle==null?target.job_title:optionalText(body.jobTitle,80),target.id);
+    run('UPDATE users SET name=?,active=?,service_areas=?,skills=?,phone=?,job_title=?,vision_duties=? WHERE id=?',body.name==null?target.name:required(body.name,'name',160),active,areas,skills,contact,body.jobTitle==null?target.job_title:optionalText(body.jobTitle,80),body.visionDuties==null?target.vision_duties:duties(body.visionDuties),target.id);
     audit(u,'user.update','user',target.id,target.company_id,{active:!!active});
     return one(`SELECT ${USER_COLUMNS} FROM users WHERE id=?`,target.id);
   });
