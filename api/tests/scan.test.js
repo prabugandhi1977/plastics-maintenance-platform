@@ -127,3 +127,13 @@ test('a machine can use a QR label it already has, and the label can be replaced
 test('the alerts list works for platform staff as well as customers',async()=>{
   for (const who of ['admin','dispatch','acme']) assert.equal((await call('/alerts','GET',null,tokens[who])).status,200,who);
 });
+
+test('vision demo data: cameras, zones, incidents, and the demo edge key is accepted',async()=>{
+  const { DEMO_NODE_KEY }=await import('../vision-demo.js');
+  const o=(await call('/vision/overview?hours=24','GET',null,tokens.acme)).data;
+  assert.equal(o.cameras.length,4); assert.ok(o.open.some(e=>e.type==='fire')); assert.ok(o.ppe.complianceRate>95);
+  assert.equal((await call('/vision/cameras/vc-hall/zones','GET',null,tokens.acme)).data.length,3);
+  const hb=await fetch(`${base}/api/edge/v1/heartbeat`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${DEMO_NODE_KEY}`},body:JSON.stringify({configVersion:0})}).then(r=>r.json());
+  assert.equal(hb.config.cameras.length,4);
+  assert.equal((await call('/vision/overview','GET',null,tokens.nova)).data.cameras.length,0);
+});
