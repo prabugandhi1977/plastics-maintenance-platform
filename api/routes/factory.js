@@ -5,14 +5,24 @@ import { isCustomer, isPlatform } from '../security.js';
 import { audit, byId, isDispatch } from '../access.js';
 import { created } from '../http.js';
 import { HttpError, bad, choice, deny, instant, missing, required, array } from '../validate.js';
-import { PRODUCTION_MACHINES, LIVE_STATES, DOWNTIME_REASONS, PRODUCT_UNITS, CONDITION_PARAMETERS, parametersFor } from '../catalog.js';
+import { PRODUCTION_MACHINES, LIVE_STATES, DOWNTIME_REASONS, PRODUCT_UNITS, CONDITION_PARAMETERS, parametersFor, DEFECT_TYPES, SAFETY_EVENTS } from '../catalog.js';
 import { recordCondition, machineHealth, trend, limitsFor } from '../factory/condition.js';
 import { recordEnergy, energyReport } from '../factory/energy.js';
 import { recordState, recordCount, machineOee, combine, dailyOee, lossList, currentProduct, plantOf, stateAlerts } from '../factory/production.js';
 import { currentShift, shiftsFor } from '../factory/time.js';
 import { simulateAll, simulatorEnabled } from '../factory/simulator.js';
+import { recordVision } from '../factory/quality.js';
+import { recordSafety } from '../factory/safety.js';
+import { recordSighting } from '../factory/assets.js';
 
 const DAY=86400000;
+function safetyEvent(ev,where,index) {
+  const eventType=choice(ev.eventType,'eventType',Object.keys(SAFETY_EVENTS)), source=choice(ev.source??'camera','source',['camera','wearable','sensor']), at=instant(ev.at,'at');
+  // Devices resend after a lost connection: the same event type at the same place and time is stored once.
+  if (one('SELECT 1 FROM safety_events WHERE plant_id=? AND event_type=? AND occurred_at=? AND source=? AND zone_id IS ? AND equipment_id IS ?',where.plantId,eventType,at,source,where.zoneId??null,where.equipmentId??null)) return {index,status:'duplicate'};
+  recordSafety({...where,eventType,source,description:ev.description?required(ev.description,'description',500):`${eventType.replaceAll('_',' ')} detected by ${source}`,occurredAt:at});
+  return {index,status:'accepted'};
+}
 // Factory data belongs to the customer: their own staff and the platform's internal team see it.
 const canView=u=>isCustomer(u)||isDispatch(u);
 const canManage=(u,companyId)=>isPlatform(u)||(['customer_admin','plant_manager'].includes(u.role)&&u.company_id===companyId);
@@ -137,6 +147,11 @@ export function register(r) {
     requireIntegrationKey(req);
     const events=array(body.events,'events'); if (!events.length||events.length>1000) bad('Send 1-1000 events per request');
     const results=transaction(()=>events.map((ev,index)=>{ try {
+      // Asset tags are identified by tag and reader, not by a machine's device id.
+      if (ev?.type==='sighting') { const at=instant(ev.at,'at'); const opt=(v,k,min,max)=>{ if (v==null) return null; if (!Number.isFinite(v)||v<min||v>max) bad(`${k} must be ${min} to ${max}`); return v; };
+        return {index,status:recordSighting({tagId:required(ev.tagId,'tagId',60),readerId:required(ev.readerId,'readerId',60),at,rssi:opt(ev.rssi,'rssi',-130,20),batteryPct:opt(ev.batteryPct,'batteryPct',0,100)})}; }
+      // Safety events from cameras, wearables or sensors: located by the zone's reader or by a mapped machine.
+      if (ev?.type==='safety'&&ev.readerId!=null) { const z=one('SELECT * FROM zones WHERE reader_id=?',String(ev.readerId)); if (!z) bad('Unknown readerId'); return safetyEvent(ev,{companyId:z.company_id,plantId:z.plant_id,zoneId:z.id},index); }
       const map=typeof ev?.deviceId==='string'&&one('SELECT * FROM device_mappings WHERE external_device_id=? AND active=1',ev.deviceId); if (!map) bad('Unknown or inactive deviceId');
       const e=byId('equipment',map.equipment_id);
       if (ev.type==='state') { const state=choice(ev.state,'state',LIVE_STATES); if (ev.reason!=null&&!(DOWNTIME_REASONS[state]||[]).includes(ev.reason)) bad(`reason must be one of: ${(DOWNTIME_REASONS[state]||[]).join(', ')||'(none for this state)'}`);
@@ -146,7 +161,11 @@ export function register(r) {
       if (ev.type==='condition') { const parameter=choice(ev.parameter,'parameter',Object.keys(CONDITION_PARAMETERS)); if (!Number.isFinite(ev.value)) bad('value must be a number'); return {index,status:recordCondition(e,parameter,ev.value,instant(ev.at,'at'),'device')}; }
       if (ev.type==='energy') { const kwh=ev.kwh, minutes=ev.periodMinutes; if (!Number.isFinite(kwh)||kwh<0) bad('kwh must be a non-negative number'); if (!Number.isFinite(minutes)||minutes<=0||minutes>1440) bad('periodMinutes must be 1-1440'); if (ev.peakKw!=null&&(!Number.isFinite(ev.peakKw)||ev.peakKw<0)) bad('peakKw must be a non-negative number');
         return {index,status:recordEnergy(e,{periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,kwh,peakKw:ev.peakKw??null},'device')}; }
-      bad('type must be state, count, condition or energy');
+      if (ev.type==='vision') { const n=(v,k)=>{ if (!Number.isInteger(v)||v<0) bad(`${k} must be a non-negative integer`); return v; }; const inspected=n(ev.inspected,'inspected'), rejected=n(ev.rejected,'rejected'); if (rejected>inspected) bad('rejected cannot exceed inspected'); const minutes=ev.periodMinutes; if (!Number.isFinite(minutes)||minutes<=0||minutes>1440) bad('periodMinutes must be 1-1440');
+        const defects=ev.defects??{}; if (typeof defects!=='object'||Array.isArray(defects)) bad('defects must be an object of defect → count'); const allowed=DEFECT_TYPES[e.machine_type]||[]; for (const [k,v] of Object.entries(defects)) { if (!allowed.includes(k)) bad(`defect must be one of: ${allowed.join(', ')}`); n(v,`defects.${k}`); }
+        return {index,status:recordVision(e,{station:required(ev.station??'Camera 1','station',60),periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,inspected,rejected,defects},'device')}; }
+      if (ev.type==='safety') return safetyEvent(ev,{companyId:e.company_id,plantId:e.plant_id,equipmentId:e.id},index);
+      bad('type must be state, count, condition, energy, vision, safety or sighting');
     } catch(err) { if (err instanceof HttpError) return {index,status:'rejected',error:err.message}; throw err; } }));
     const count=s=>results.filter(x=>x.status===s).length;
     return {accepted:count('accepted'),unchanged:count('unchanged'),duplicates:count('duplicate'),rejected:count('rejected'),results};

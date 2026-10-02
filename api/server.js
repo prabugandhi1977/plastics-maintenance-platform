@@ -20,10 +20,12 @@ import * as parts from './routes/parts.js';
 import * as dashboard from './routes/dashboard.js';
 import * as settings from './routes/settings.js';
 import * as factory from './routes/factory.js';
+import * as factoryOps from './routes/factory-ops.js';
 import { simulateAll, simulatorEnabled } from './factory/simulator.js';
+import { checkMissing } from './factory/assets.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,factory]) area.register(router);
+for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,factory,factoryOps]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
@@ -80,6 +82,8 @@ export function createServer() {
 if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   const port=Number(process.env.PORT||3100);
   createServer().listen(port,()=>console.log(`MouldCare listening on port ${port}`));
+  // Asset tags that stop reporting are flagged as missing whether the data is real or simulated.
+  setInterval(()=>{ try { checkMissing(); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
   // Simulated machine data (local demos only): backfills a week on first start, then keeps the factory live.
   if (simulatorEnabled()) { const tick=()=>{ try { const n=simulateAll(); if (n) console.log(`Factory simulator: ${n} slots generated`); } catch(e) { console.error('Factory simulator failed:',e.message); } }; tick(); setInterval(tick,60000).unref(); }
   const every=Number(process.env.IOT_SYNC_INTERVAL_SECONDS||0);

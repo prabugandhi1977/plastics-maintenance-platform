@@ -10,7 +10,62 @@ function equipment(key,companyId,plantId,type,make,model,serial,location,tag,cri
 function ticket(t) { run('INSERT INTO tickets (id,company_id,plant_id,equipment_id,title,priority,symptoms,error_codes,production_impact,status,assigned_user_id,assigned_provider_id,created_by,created_at,first_response_at,completed_at,downtime_minutes,failure_category,machine_state,safety_issue,occurred_at,failure_mode,root_cause,action_taken) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',t.id,t.company,t.plant,t.equipment,t.title,t.priority,t.symptoms,t.codes,t.impact,t.status,t.user??null,t.provider??null,t.by,t.created,t.response??null,t.completed??null,t.downtime,t.category,t.state,0,t.occurred??t.created,t.mode??null,t.cause??null,t.action??null); }
 const event=(ticketId,actor,type,detail,at=stamp)=>run('INSERT INTO ticket_events (id,ticket_id,actor_id,event_type,detail,created_at) VALUES (?,?,?,?,?,?)',id(),ticketId,actor,type,detail,at);
 
-if (one('SELECT 1 FROM companies LIMIT 1')) { console.log('Seed already present'); process.exit(0); }
+// Stage 3–4 demo data (traceability, safety, asset tracking). Also added to an existing demo database that predates it.
+function seedOperations() {
+  const zone=(key,company,plant,name,kind,reader)=>run('INSERT INTO zones (id,company_id,plant_id,name,kind,reader_id,created_at) VALUES (?,?,?,?,?,?,?)',key,company,plant,name,kind,reader,stamp);
+  zone('z-a-hall','c-acme','plant-a','Moulding hall','production','GW-ACME-01'); zone('z-a-tool','c-acme','plant-a','Tool room','tool_room','GW-ACME-02'); zone('z-a-wh','c-acme','plant-a','Warehouse','storage','GW-ACME-03');
+  zone('z-a-mnt','c-acme','plant-a','Maintenance shop','maintenance','GW-ACME-04'); zone('z-a-dock','c-acme','plant-a','Shipping dock','dock','RFID-ACME-DOCK'); zone('z-a-yard','c-acme','plant-a','Yard / gate','outside','RFID-ACME-GATE');
+  zone('z-n-hall','c-nova','plant-n','Extrusionshalle','production','GW-NOVA-01'); zone('z-n-lager','c-nova','plant-n','Lager','storage','GW-NOVA-02'); zone('z-n-werk','c-nova','plant-n','Werkstatt','tool_room','GW-NOVA-03'); zone('z-n-tor','c-nova','plant-n','Tor / Hof','outside','RFID-NOVA-GATE');
+  const asset=(key,company,plant,tag,type,kind,name,equipment,home,missingAfter=24)=>run('INSERT INTO tracked_assets (id,company_id,plant_id,tag_id,tag_type,kind,name,equipment_id,home_zone_id,missing_after_hours,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,company,plant,tag,type,kind,name,equipment,home,missingAfter,stamp);
+  asset('ta-mould','c-acme','plant-a','BLE-0001','ble','mould','Mould M-2409 (24-cav closure)','eq-b','z-a-hall');
+  asset('ta-mould2','c-acme','plant-a','BLE-0002','ble','mould','Mould M-1802 (housing)',null,'z-a-tool');
+  asset('ta-trolley1','c-acme','plant-a','RFID-T-101','rfid','trolley','Mould trolley 1',null,'z-a-hall',12);
+  asset('ta-trolley2','c-acme','plant-a','RFID-T-102','rfid','trolley','Material trolley 2',null,'z-a-wh',12);
+  asset('ta-torque','c-acme','plant-a','BLE-0101','ble','tool','Torque wrench 40–200 Nm',null,'z-a-tool',8);
+  asset('ta-gauge','c-acme','plant-a','BLE-0102','ble','gauge','Thread gauge PCO1881',null,'z-a-tool',8);
+  asset('ta-fork','c-acme','plant-a','BLE-0201','ble','forklift','Forklift FL-02',null,'z-a-wh',4);
+  asset('ta-die','c-nova','plant-n','BLE-N-01','ble','tool','Pipe die head 110 mm','eq-n2','z-n-hall');
+  asset('ta-ntrolley','c-nova','plant-n','RFID-N-11','rfid','trolley','Screw-change trolley',null,'z-n-werk',12);
+  asset('ta-ngauge','c-nova','plant-n','BLE-N-21','ble','gauge','Wall-thickness gauge',null,'z-n-werk',8);
+  // Material lots (with supplier certificates) and three batches per production machine: released, completed, running.
+  const lot=(key,company,number,material,supplier,days,kg,cert)=>run('INSERT INTO material_lots (id,company_id,lot_number,material,supplier,received_at,quantity_kg,status,certificate,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',key,company,number,material,supplier,daysAgo(days),kg,'released',cert,stamp);
+  lot('lot-pp1','c-acme','PP-24-0815','PP homopolymer MFI 12','PolyChem Inc.',12,12500,'CoA 0815-A'); lot('lot-pp2','c-acme','PP-24-0902','PP homopolymer MFI 12','PolyChem Inc.',4,12500,'CoA 0902-A');
+  lot('lot-mb','c-acme','MB-BLUE-311','Blue masterbatch 2 %','ColorTec',20,500,'CoA MB-311'); lot('lot-pcabs','c-acme','PCABS-7731','PC/ABS flame-retardant','Polymer Partners',9,2000,'CoA 7731');
+  lot('lot-hd1','c-acme','HDPE-5502','HDPE blow grade','Gulf Resins',10,10000,'CoA 5502'); lot('lot-hd2','c-acme','HDPE-5517','HDPE blow grade','Gulf Resins',3,10000,'CoA 5517');
+  lot('lot-npp','c-nova','PP-H-44120','PP-Homopolymer','Rheinpolymer GmbH',8,20000,'APZ 3.1 44120'); lot('lot-gf','c-nova','GF-ECR-9081','Glasfaser ECR 4,5 mm','FiberGlas AG',15,8000,'APZ 3.1 9081');
+  lot('lot-pe1','c-nova','PE100-22871','PE100 schwarz','Rheinpolymer GmbH',11,22000,'APZ 3.1 22871'); lot('lot-pe2','c-nova','PE100-23015','PE100 schwarz','Rheinpolymer GmbH',2,22000,'APZ 3.1 23015');
+  const batch=(key,company,number,product,machine,mould,operator,planned,status,start,end,params,lots)=>{ run('INSERT INTO batches (id,company_id,batch_number,product_id,equipment_id,mould_id,operator_name,planned_qty,status,started_at,ended_at,process_params,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',key,company,number,product,machine,mould,operator,planned,status,daysAgo(start),end==null?null:daysAgo(end),JSON.stringify(params),stamp); for (const [l,kg] of lots) run('INSERT INTO batch_materials (batch_id,lot_id,quantity_kg) VALUES (?,?,?)',key,l,kg); };
+  const cap={meltTempC:230,mouldTempC:35,injectionPressureBar:950,holdPressureBar:520,cycleTimeS:4.9}, hsg={meltTempC:265,mouldTempC:80,injectionPressureBar:1150,holdPressureBar:650,cycleTimeS:32.5}, btl={parisonTempC:195,blowPressureBar:7,cycleTimeS:14.4}, cmp={meltTempC:235,screwRpm:450,meltPressureBar:45,lineSpeedMMin:28}, pipe={meltTempC:210,screwRpm:32,meltPressureBar:185,lineSpeedMMin:2.1};
+  batch('b-cap1','c-acme','B-CAP-2026-101','pr-cap','eq-a','eq-b','J. Ortiz',1000000,'released',6.5,4.6,cap,[['lot-pp1',820],['lot-mb',16]]);
+  batch('b-cap2','c-acme','B-CAP-2026-102','pr-cap','eq-a','eq-b','K. Wong',1000000,'completed',4.5,1.6,cap,[['lot-pp1',600],['lot-pp2',240],['lot-mb',17]]);
+  batch('b-cap3','c-acme','B-CAP-2026-103','pr-cap','eq-a','eq-b','J. Ortiz',1000000,'running',1.5,null,cap,[['lot-pp2',null],['lot-mb',null]]);
+  batch('b-hsg1','c-acme','B-HSG-2026-041','pr-hsg','eq-a2',null,'K. Wong',8000,'released',6.8,4.2,hsg,[['lot-pcabs',600]]);
+  batch('b-hsg2','c-acme','B-HSG-2026-042','pr-hsg','eq-a2',null,'P. Shah',8000,'completed',4.1,1.4,hsg,[['lot-pcabs',590]]);
+  batch('b-hsg3','c-acme','B-HSG-2026-043','pr-hsg','eq-a2',null,'P. Shah',8000,'running',1.3,null,hsg,[['lot-pcabs',null]]);
+  batch('b-btl1','c-acme','B-BTL-2026-210','pr-btl','eq-bm',null,'M. Brown',50000,'released',6.2,4.0,btl,[['lot-hd1',2100]]);
+  batch('b-btl2','c-acme','B-BTL-2026-211','pr-btl','eq-bm',null,'M. Brown',50000,'completed',3.9,1.2,btl,[['lot-hd1',1500],['lot-hd2',650]]);
+  batch('b-btl3','c-acme','B-BTL-2026-212','pr-btl','eq-bm',null,'L. Garcia',50000,'running',1.1,null,btl,[['lot-hd2',null]]);
+  batch('b-cmp1','c-nova','C-2026-0611','pr-cmp','eq-n',null,'T. Becker',40000,'released',6.9,4.5,cmp,[['lot-npp',27000],['lot-gf',11600]]);
+  batch('b-cmp2','c-nova','C-2026-0612','pr-cmp','eq-n',null,'A. Yilmaz',40000,'completed',4.4,1.5,cmp,[['lot-npp',26500],['lot-gf',11400]]);
+  batch('b-cmp3','c-nova','C-2026-0613','pr-cmp','eq-n',null,'T. Becker',40000,'running',1.4,null,cmp,[['lot-npp',null],['lot-gf',null]]);
+  batch('b-pipe1','c-nova','R-2026-1101','pr-pipe','eq-n2',null,'S. Wagner',45000,'released',6.6,4.3,pipe,[['lot-pe1',24500]]);
+  batch('b-pipe2','c-nova','R-2026-1102','pr-pipe','eq-n2',null,'S. Wagner',45000,'completed',4.2,1.3,pipe,[['lot-pe1',9000],['lot-pe2',15000]]);
+  batch('b-pipe3','c-nova','R-2026-1103','pr-pipe','eq-n2',null,'L. Krause',45000,'running',1.2,null,pipe,[['lot-pe2',null]]);
+  // Safety history: reported near misses and conditions, camera detections, and one lost-time injury at Nova ~40 days ago.
+  const safety=(company,plant,zone,eq,type,severity,source,text,days,by,status,lost=0,cause=null,action=null)=>run('INSERT INTO safety_events (id,company_id,plant_id,zone_id,equipment_id,event_type,severity,source,description,occurred_at,reported_by,status,lost_time,root_cause,corrective_action,closed_by,closed_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',id(),company,plant,zone,eq,type,severity,source,text,daysAgo(days),by,status,lost,cause,action,status==='closed'?'u-acme':null,status==='closed'?daysAgo(days-2):null,stamp);
+  safety('c-acme','plant-a','z-a-hall','eq-a','near_miss','warning','person','Mould trolley rolled when the brake was not set; nobody hurt',12,'u-acme-maint','closed',0,'Trolley brake worn, slope at bay 4','Brake replaced; wheel chocks at every press');
+  safety('c-acme','plant-a','z-a-wh',null,'unsafe_condition','warning','person','Oil spill next to the dryer stairs',5,'u-acme-maint','investigating');
+  safety('c-acme','plant-a','z-a-hall','eq-a2','first_aid','warning','person','Small cut on hand while removing a part from the gripper',9,'u-acme-maint','closed',0,'Sharp edge on gripper finger','Edge deburred; cut-resistant gloves issued');
+  safety('c-acme','plant-a','z-a-dock',null,'near_miss','warning','person','Forklift reversed close to a pedestrian at the dock door',2,'u-acme','open');
+  safety('c-nova','plant-n','z-n-hall','eq-n2','injury','critical','person','Verbrennung am Unterarm beim Reinigen des Werkzeugs ohne Hitzeschutz',41,'u-nova','closed',1,'Hitzeschutzhandschuhe nicht am Arbeitsplatz','Handschuhe an jeder Linie; Unterweisung aller Schichten');
+  safety('c-nova','plant-n','z-n-lager',null,'unsafe_condition','warning','person','Regal im Lager beschädigt (Anfahrschaden)',6,'u-nova','open');
+  run("UPDATE safety_events SET closed_by='u-nova' WHERE company_id='c-nova' AND closed_by IS NOT NULL");
+}
+if (one('SELECT 1 FROM companies LIMIT 1')) {
+  if (one("SELECT 1 FROM companies WHERE id='c-acme'")&&one("SELECT 1 FROM products WHERE id='pr-cap'")&&!one('SELECT 1 FROM zones LIMIT 1')) { db.exec('BEGIN IMMEDIATE'); try { seedOperations(); db.exec('COMMIT'); console.log('Added traceability, safety and asset-tracking demo data'); } catch(e) { db.exec('ROLLBACK'); throw e; } }
+  else console.log('Seed already present');
+  process.exit(0);
+}
 db.exec('BEGIN IMMEDIATE');
 try {
   for (const [code,name] of [['US-MW','United States – Midwest'],['DE-NW','Germany – North-West'],['IN-S','India – South']]) run('INSERT OR IGNORE INTO service_areas (code,name,created_at) VALUES (?,?,?)',code,name,stamp);
@@ -61,5 +116,6 @@ try {
   run("UPDATE companies SET energy_price_per_kwh=0.12 WHERE id='c-acme'"); run("UPDATE companies SET energy_price_per_kwh=0.21 WHERE id='c-nova'");
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-a','demo-device-a','c-acme','eq-a',stamp);
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-n','demo-device-n','c-nova','eq-n',stamp);
+  seedOperations();
   db.exec('COMMIT'); console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');
 } catch(e) { db.exec('ROLLBACK'); throw e; }

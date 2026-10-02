@@ -87,12 +87,33 @@ export const CONDITION_PARAMETERS={
   melt_pressure:{label:'Melt pressure',unit:'bar',types:['extrusion'],limits:{warnHigh:300,critHigh:350},category:'controls'},
   air_pressure:{label:'Compressed air pressure',unit:'bar',types:['blow'],limits:{warnLow:6,critLow:5},category:'pneumatic'}
 };
+// Vision quality: the defects cameras classify on moulded and extruded parts.
+export const DEFECT_TYPES={
+  injection:['short_shot','flash','sink_mark','warpage','burn_mark','black_spot','splay','weld_line','colour_variation','dimensional'],
+  blow:['wall_thickness','pinch_off','flash','contamination','deformation','colour_variation'],
+  extrusion:['diameter_out_of_tolerance','ovality','surface_defect','contamination','wall_thickness']
+};
+// Process settings recorded on each production batch (the "recipe" the batch was made with).
+export const PROCESS_PARAMS={
+  injection:[['meltTempC','Melt temperature','°C'],['mouldTempC','Mould temperature','°C'],['injectionPressureBar','Injection pressure','bar'],['holdPressureBar','Hold pressure','bar'],['cycleTimeS','Cycle time','s']],
+  blow:[['parisonTempC','Parison temperature','°C'],['blowPressureBar','Blow pressure','bar'],['cycleTimeS','Cycle time','s']],
+  extrusion:[['meltTempC','Melt temperature','°C'],['screwRpm','Screw speed','rpm'],['meltPressureBar','Melt pressure','bar'],['lineSpeedMMin','Line speed','m/min']]
+};
+// Safety events and their default severity. Near misses and unsafe conditions are leading indicators: reporting them
+// early is how injuries are prevented (Heinrich/Bird safety pyramid).
+export const SAFETY_EVENTS={
+  ppe_missing:'warning', zone_intrusion:'warning', guard_bypassed:'critical', unsafe_act:'warning', unsafe_condition:'warning',
+  near_miss:'warning', first_aid:'warning', injury:'critical', man_down:'critical', fire_smoke:'critical'
+};
+export const ZONE_KINDS=['production','storage','tool_room','maintenance','dock','restricted','outside'];
+export const ASSET_KINDS=['mould','tool','trolley','gauge','forklift','fixture','container','other'];
+export const TAG_TYPES=['ble','rfid','uwb'];
 export const parametersFor=type=>Object.entries(CONDITION_PARAMETERS).filter(([,p])=>p.types.includes(type)).map(([key,p])=>({key,...p}));
 // Approximate national grid emission factors (kg CO₂ per kWh, recent annual averages). Replace with the factor from
 // your electricity supplier under Organisation → Company for accurate reporting.
 export const GRID_CO2={IN:0.71,CN:0.58,US:0.37,DE:0.38,GB:0.21,FR:0.06,IT:0.30,ES:0.17,JP:0.47,KR:0.44,BR:0.10,MX:0.42,TH:0.48,VN:0.47,ID:0.68,PL:0.66,TR:0.43,ZA:0.88,AE:0.40,default:0.45};
 
-export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:FAILURE_CATEGORIES,machineStates:MACHINE_STATES,failureModes:FAILURE_MODES,rootCauses:ROOT_CAUSES,actions:ACTIONS,coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS,conditionParameters:CONDITION_PARAMETERS});
+export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:FAILURE_CATEGORIES,machineStates:MACHINE_STATES,failureModes:FAILURE_MODES,rootCauses:ROOT_CAUSES,actions:ACTIONS,coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS,conditionParameters:CONDITION_PARAMETERS,defectTypes:DEFECT_TYPES,processParams:PROCESS_PARAMS,safetyEvents:SAFETY_EVENTS,zoneKinds:ZONE_KINDS,assetKinds:ASSET_KINDS,tagTypes:TAG_TYPES});
 
 // Validates a full parameter set for a machine type and returns only known keys, typed.
 // linkedEquipment(id) must return the referenced asset (or undefined) so cross-company links are refused.

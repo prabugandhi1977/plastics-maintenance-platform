@@ -306,6 +306,54 @@ Readings and energy intervals are idempotent per machine and timestamp.
 
 **Simulator.** It now also produces energy use per state, sized from each machine's data sheet, plus condition signals with daily variation. Some machines have one slowly failing part that drifts over a repeating 10-day cycle, so the demo shows the whole chain: warning → critical → automatic ticket.
 
+## Smart factory: traceability, vision quality, safety and asset tracking
+
+Same access as the other factory data: the customer's own staff and the platform team see it, and providers do not. Records are created by customer staff (or the platform admin). Customer admins and plant managers make the decisions: quarantine and release, hold and release batches, close safety events, and edit zones and assets.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`/`POST` | `/trace/lots` | Material lots: `lotNumber`, `material`, `supplier`, `receivedAt`, `quantityKg` (all required), `certificate` |
+| `GET` | `/trace/lots/:id` | Lot with every batch that used it (forward traceability) |
+| `POST` | `/trace/lots/:id/quarantine` | `{reason}`: the lot is blocked, and every running, completed or released batch that used it goes on hold. Raises a quality alert |
+| `POST` | `/trace/lots/:id/release` | Lift a quarantine. Held batches stay on hold until each is released |
+| `GET`/`POST` | `/trace/batches` | Start a batch: `productId`, `equipmentId`, `mouldId` (required for injection), `batchNumber`, `operatorName`, `plannedQty`, `lots:[{lotId,quantityKg?}]` (released lots only), `processParams` (every setting for the machine type; see `processParams` in `/catalog`). One running batch per machine |
+| `GET` | `/trace/batches/:id` | Genealogy: lots, process settings, output, OEE, camera FPY, unplanned stops, alerts and maintenance tickets on the machine and mould while it ran |
+| `POST` | `/trace/batches/:id/complete` | `{goodQty?, scrapQty?}`. Without quantities, the machine's own counts are used |
+| `POST` | `/trace/batches/:id/status` | `{status: released\|on_hold\|scrapped, reason}`. Hold and scrap need a reason. A batch with a quarantined lot cannot be released |
+| `GET` | `/trace/search?q=` | Lots and batches by number |
+| `GET` | `/factory/quality?from&to&plantId&equipmentId` | Inspected, rejected, first-pass yield, PPM, a defect Pareto, a row per machine, and FPY per day |
+| `GET` | `/safety?from&to&plantId` | Events, counts by type and severity, open events, near misses, days since the last lost-time injury |
+| `POST` | `/safety/events` | Report: `plantId`, `eventType` (see `safetyEvents` in `/catalog`), `description`, optional `zoneId`, `equipmentId`, `occurredAt`, `lostTime` (injuries only). Open to the plant's staff, the platform team, and engineers or providers with current work there. Supports offline replay |
+| `POST` | `/safety/events/:id/investigate` | Mark as under investigation |
+| `POST` | `/safety/events/:id/close` | `{rootCause, correctiveAction}` (both required). Resolves the event's alert |
+| `GET`/`POST`/`PATCH` | `/zones`, `/zones/:id` | Zones: `plantId`, `name`, `kind` (production, storage, tool_room, maintenance, dock, restricted, outside), `readerId` (unique: the BLE gateway or RFID reader covering it) |
+| `GET`/`POST`/`PATCH` | `/assets`, `/assets/:id` | Tracked assets: `plantId`, `name`, `kind`, `tagId` (unique), `tagType` (ble, rfid, uwb), `homeZoneId`, `equipmentId`, `missingAfterHours`. The list includes the current zone and the missing and away-from-home flags |
+| `GET` | `/assets/:id/history?hours=48` | Stays per zone, newest first |
+
+**Rules** (`api/factory/quality.js`, `safety.js`, `assets.js`, `trace.js`):
+- **Reject rate** over at least 50 inspected parts: a warning at 3 %, critical (emailed) at 8 %, cleared below 1.5 %. One alert per machine and station.
+- **Safety:** warning and critical events raise an alert. Critical types are guard bypassed, injury, man down, and fire or smoke.
+- **Assets:** a mould, tool, gauge or fixture seen in a restricted or outside zone raises a warning. A tag not heard for `missingAfterHours` is marked missing; this is checked every 5 minutes and when the list is opened. A battery below 15 % raises an info alert. Each alert clears once its cause is gone. A late, out-of-order sighting is kept in the history but does not move the asset.
+
+**Intake event types**, added to the four above:
+
+```json
+{ "type": "vision", "deviceId": "cam-imm-04", "station": "Camera 1", "periodStart": "2026-10-02T08:00:00Z", "periodMinutes": 15, "inspected": 2880, "rejected": 41, "defects": { "short_shot": 25, "flash": 16 } }
+{ "type": "safety", "readerId": "GW-ACME-01", "eventType": "ppe_missing", "source": "camera", "at": "2026-10-02T08:12:30Z", "description": "No safety glasses at IMM-04" }
+{ "type": "safety", "deviceId": "plc-imm-04", "eventType": "guard_bypassed", "source": "sensor", "at": "2026-10-02T08:13:00Z" }
+{ "type": "sighting", "tagId": "BLE-0001", "readerId": "GW-ACME-02", "at": "2026-10-02T08:15:00Z", "rssi": -67, "batteryPct": 82 }
+```
+
+- **Defect codes** depend on the machine type; see `defectTypes` in `/catalog`.
+- **Safety events** are located either by a zone's reader or by a mapped machine.
+- **Sightings** are identified by tag and reader, so they need no device mapping.
+- **Duplicates:** vision intervals, sightings, and device safety events (same type, place, source and time) are each stored once.
+
+**Simulator.** For each running interval it produces:
+- camera results, with rejects equal to the counted scrap and spread over two or three defects typical of the machine
+- occasional safety-camera detections; older ones are already closed
+- tag sightings every 30 minutes from 2 days back: assets move between the zones their kind uses, trolleys sometimes go outside, and one gauge goes silent to show the "missing" alert
+
 ## Offline actions
 
 The routes marked "works offline" above accept an `X-Client-Action-Id: <UUID>` header.

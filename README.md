@@ -57,7 +57,7 @@ The seed sets up two customers and two approved providers:
 - **Acme** has an injection moulding machine and a mould in Chicago, an annual contract with an 8-hour response target, an earlier completed repeat of the same hydraulic fault, and a quoted spare part.
 - **Nova** has an extrusion line in Cologne and a contract due for renewal within 90 days.
 
-## Smart factory (stages 1–2 of 4)
+## Smart factory
 
 The platform now monitors production as well as maintaining machines, under the **Smart factory** menu:
 
@@ -67,11 +67,15 @@ The platform now monitors production as well as maintaining machines, under the 
 - **Products:** ideal cycle times and cavities, so performance can be measured.
 - **Condition:** each machine's health from sensor readings against warning and critical limits, with trend charts and a limits editor. A critical reading raises a maintenance ticket automatically.
 - **Energy:** kWh, kWh per kg, wasted energy, CO₂ (supplier factor or national average) and cost (set the electricity price under *Organisation*).
+- **Quality:** camera inspection results. Shows first-pass yield, rejects per million (PPM) and a defect Pareto by machine. A rising reject rate raises an alert.
+- **Traceability:** material lots → batches → output. Each batch records its lots, machine, mould, operator and process settings. A batch's *genealogy* also shows the stops, alerts, maintenance and camera rejects on its machine while it ran. Quarantining a lot puts exactly the batches that used it on hold.
+- **Safety:** events detected by cameras, wearables and sensors, and reported by people (also from the mobile app, offline). Each event is investigated and closed with a root cause and a corrective action. The page shows days without a lost-time injury and the near-miss count.
+- **Asset tracking:** moulds, tools, gauges and trolleys located by zone from BLE beacons or RFID tags. Alerts for a guarded asset in a restricted or outside zone, a tag not heard for too long, and a low tag battery. Each asset has a 48-hour location history.
 - **Shifts:** set under *Organisation → Plants → Shifts*.
 
-Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. Real PLC or sensor gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
+Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
-Still to come: traceability and vision quality (stage 3), safety and tracking tools and trolleys (stage 4).
+An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `node api/seed.js` runs. A database without the stage 1 demo products is left unchanged.
 
 ## Demo path
 
@@ -127,7 +131,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 40 tests in six files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
+There are 47 tests in seven files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -152,6 +156,15 @@ There are 40 tests in six files. Each file uses its own temporary database and t
 - stale data, trends and tenant isolation
 - energy figures against a worked example (0.42 kWh/kg, CO₂, cost)
 - simulated signals
+
+**`trace-safety-assets.test.js`**
+- lots and batches limited to each tenant; a batch needs its mould (injection), released lots and every process setting
+- quarantining a lot holds exactly the batches that used it and blocks their release; genealogy and search
+- vision intake validation, reject-rate alerts (warning → critical → clears), FPY, PPM and Pareto
+- safety events: who may report, device detections stored once, investigate and close, days since lost-time injury
+- asset sightings, zone/missing/battery alerts, out-of-order sightings, history, zones and assets
+- simulator: camera rejects equal counted scrap; safety detections; tag sightings
+- offline safety reports from the field app stored once on replay
 
 **`factory.test.js`**
 - shift calendar and custom shifts
@@ -189,16 +202,17 @@ api/server.js        HTTP entry: static files with security headers, router, off
 api/http.js          Router, JSON replies, body parsing
 api/access.js        Tenant-scoped lookups and permission helpers shared by all routes
 api/catalog.js       Master-data catalogue: mandatory parameter sets and ISO 14224 code lists
-api/factory/         Smart factory: shift calendar, production recording and OEE, alerts and email, simulator
-api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard, settings, factory
+api/factory/         Smart factory: shifts, OEE, alerts and email, condition, energy, quality, traceability, safety, asset tracking, simulator
+api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard, settings, factory, factory-ops
 api/files.js         Private file storage with file-type checks
 api/security.js      Passwords, signed access tokens, role checks
 api/validate.js      Input validation, time-zone conversion
 api/iot/             Standard record format, ingest/freshness, sync runner, adapters (mock)
-api/migrations/      Versioned SQL migrations (001 base, 002 IoT, 003 workflow completion)
+api/migrations/      Versioned SQL migrations (001 base … 008 traceability, quality, safety, assets)
 api/tests/           API workflow, IoT and platform tests
 web/                 Desktop web workspace
 web/mobile/          Installable field app with offline queue and signature capture
+web/ops.js           Smart factory pages: traceability, quality, safety, asset tracking
 web/ui.js            Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
 web/charts.js        Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
 web/shared/          Translations and formatting, signature pad (used by both clients)
