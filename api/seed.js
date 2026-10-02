@@ -1,5 +1,6 @@
 import { db, id, now, one, run } from './db.js';
 import { hashPassword } from './security.js';
+import { parametersFor } from './catalog.js';
 
 const stamp=now(), daysAgo=d=>new Date(Date.now()-d*86400000).toISOString();
 function company(key,name,currency,timezone,locale,country,contact,email,phone) { run('INSERT INTO companies (id,name,timezone,currency,units,locale,created_at,country,contact_name,contact_email,contact_phone) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,name,timezone,currency,'metric',locale,stamp,country,contact,email,phone); }
@@ -55,6 +56,9 @@ try {
   event('ticket-a','u-dispatch','assigned','Assigned to Alex Engineer'); event('ticket-n','u-dispatch','assigned','Assigned to EuroTech Service');
   run('INSERT INTO parts_requests (id,company_id,ticket_id,item,quantity,status,created_at,updated_at,part_number,unit,urgency,manufacturer) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)','part-a','c-acme','ticket-a','Pressure relief valve assembly',1,'quoted',stamp,stamp,'ARB-PRV-570-02','pcs','breakdown','Arburg');
   run('INSERT INTO quotations (id,request_id,company_id,amount_minor,currency,lead_days,status,created_at,valid_until) VALUES (?,?,?,?,?,?,?,?,?)','quote-a','part-a','c-acme',48500,'USD',3,'pending',stamp,new Date(Date.now()+30*86400000).toISOString().slice(0,10)+'T00:00:00.000Z');
+  // Condition monitoring: recommended limits on every production machine; energy prices for cost reporting.
+  for (const eq of ['eq-a','eq-a2','eq-bm','eq-n','eq-n2']) { const m=one('SELECT company_id,machine_type FROM equipment WHERE id=?',eq); for (const p of parametersFor(m.machine_type)) run('INSERT INTO sensor_limits (id,company_id,equipment_id,parameter,warn_low,warn_high,crit_low,crit_high,auto_ticket,updated_at) VALUES (?,?,?,?,?,?,?,?,1,?)',id(),m.company_id,eq,p.key,p.limits.warnLow??null,p.limits.warnHigh??null,p.limits.critLow??null,p.limits.critHigh??null,stamp); }
+  run("UPDATE companies SET energy_price_per_kwh=0.12 WHERE id='c-acme'"); run("UPDATE companies SET energy_price_per_kwh=0.21 WHERE id='c-nova'");
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-a','demo-device-a','c-acme','eq-a',stamp);
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-n','demo-device-n','c-nova','eq-n',stamp);
   db.exec('COMMIT'); console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');

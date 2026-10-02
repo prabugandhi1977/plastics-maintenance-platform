@@ -15,6 +15,12 @@ export function raiseAlert({companyId,plantId=null,module,severity,equipmentId=n
   if (RANK[severity]>=RANK[emailThreshold()]) queueEmails(one('SELECT * FROM alerts WHERE id=?',key));
   return key;
 }
+// Raises an open alert's severity (e.g. warning → critical); emails go out if it now meets the email threshold.
+export function escalateAlert(alertId,{severity,title,detail}) {
+  const before=one('SELECT * FROM alerts WHERE id=?',alertId); if (!before) return;
+  run("UPDATE alerts SET severity=?,title=?,detail=?,status='open' WHERE id=?",severity,title.slice(0,200),detail.slice(0,2000),alertId);
+  if (RANK[severity]>=RANK[emailThreshold()]&&RANK[before.severity]<RANK[emailThreshold()]) queueEmails(one('SELECT * FROM alerts WHERE id=?',alertId));
+}
 // Auto-resolve when the condition clears (e.g. the machine runs again).
 export function resolveAlertKey(dedupeKey,at=now()) { run("UPDATE alerts SET status='resolved',resolved_at=? WHERE dedupe_key=? AND status<>'resolved'",at,dedupeKey); }
 

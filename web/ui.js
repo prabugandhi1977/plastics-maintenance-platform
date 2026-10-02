@@ -70,7 +70,7 @@ export const specsFromForm=fd=>Object.fromEntries([...fd.entries()].filter(([k,v
 export function openDialog(title,content,{submitLabel=t('action.save'),onSubmit,wide=true,onOpen}={}) {
   closeDialog();
   const d=document.createElement('dialog'); d.className=`modal${wide?' wide':''}`; d.id='modal';
-  d.innerHTML=`<form method="dialog" class="modal-form" novalidate><header><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></header><div class="modal-body">${content}<p class="form-error notice error" role="alert" hidden></p></div><footer><span class="muted"><span class="req">*</span> required</span><span class="spacer"></span><button type="button" class="secondary" data-close>${t('action.cancel')}</button>${onSubmit?`<button type="submit" class="primary">${esc(submitLabel)}</button>`:''}</footer></form>`;
+  d.innerHTML=`<form method="dialog" class="modal-form" novalidate><header><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></header><div class="modal-body">${content}<p class="form-error notice error" role="alert" hidden></p></div><footer>${onSubmit?'<span class="muted"><span class="req">*</span> required</span>':''}<span class="spacer"></span><button type="button" class="secondary" data-close>${onSubmit?t('action.cancel'):'Close'}</button>${onSubmit?`<button type="submit" class="primary">${esc(submitLabel)}</button>`:''}</footer></form>`;
   document.body.append(d);
   d.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeDialog());
   d.addEventListener('close',()=>d.remove());

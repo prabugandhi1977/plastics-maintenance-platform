@@ -258,6 +258,54 @@ Counts are idempotent per machine and period start. Without `partNumber`, the pr
 - On first start it fills in 7 days of history, then keeps up every minute.
 - It's on only with `FACTORY_SIMULATOR=true`. Keep it off on any site with real customer data.
 
+## Smart factory: condition monitoring and energy
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/factory/condition?plantId=` | Each machine's health (`ok`, `warning`, `critical` or `unknown`), and every monitored parameter's latest value, limits and status |
+| `GET` | `/factory/condition/:id/trend?parameter&hours=24\|168` | Readings for a chart: raw for 24 h, hourly averages for 7 days, with the limits |
+| `GET, PATCH` | `/equipment/:id/limits` | Limits per parameter: `{limits:[{parameter,warnLow,warnHigh,critLow,critHigh,autoTicket}]}`. This replaces all limits; a parameter left without any bound is not monitored. Customer admins, plant managers, platform admins and dispatchers can change them |
+| `GET` | `/factory/energy?from&to&plantId&equipmentId` | kWh, kWh per kg, wasted energy, peak power, CO₂ and cost: totals, a row per machine, and kWh per day |
+
+**Parameters and recommended limits** (`GET /catalog` → `conditionParameters`):
+
+| Parameter | Machines | Unit | Warning | Critical |
+| --- | --- | --- | --- | --- |
+| Hydraulic oil temperature | injection, blow | °C | ≥ 55 | ≥ 65 |
+| Pump / motor vibration | all | mm/s | ≥ 4.5 | ≥ 7.1 |
+| Cooling water supply | all | °C | ≥ 22 | ≥ 28 |
+| Gearbox oil temperature | extrusion | °C | ≥ 70 | ≥ 85 |
+| Melt pressure | extrusion | bar | ≥ 300 | ≥ 350 |
+| Compressed air pressure | blow | bar | ≤ 6 | ≤ 5 |
+
+The vibration limits follow the ISO 10816 / ISO 20816 zones for medium machines. Tune the rest per machine.
+
+**How a reading is judged** (`api/factory/condition.js`). Each reading is compared with its machine's limit for that parameter:
+- **Normal:** resolves any open alert for that machine and parameter.
+- **Warning:** raises one alert.
+- **Critical:** upgrades the alert to critical, which emails it.
+- When the limit has `autoTicket` on, a critical reading also **raises one maintenance ticket**. It's high priority, created by "Automatic monitoring", and its failure category comes from the parameter. A continuing problem reuses the same open ticket instead of creating another.
+
+A machine's health is its worst parameter. A parameter with no reading in the last hour is `stale`.
+
+**Energy** (`api/factory/energy.js`):
+- **SEC** (specific energy consumption) = kWh ÷ kg produced. Parts are converted with the product's part weight; metres are left out.
+- **Wasted energy** = kWh used in intervals when the machine wasn't running.
+- **CO₂** = kWh × the company's grid emission factor (`gridCo2KgPerKwh`), or its country's average if none is set.
+- **Cost** = kWh × `energyPricePerKwh`, shown when all selected machines share one currency.
+- Both energy settings are edited with `PATCH /companies/:id`.
+
+**Intake event types**, added to `state` and `count`:
+
+```json
+{ "type": "condition", "deviceId": "plc-imm-04", "at": "2026-10-02T08:15:00Z", "parameter": "hydraulic_oil_temp", "value": 58.4 }
+{ "type": "energy", "deviceId": "meter-imm-04", "periodStart": "2026-10-02T08:00:00Z", "periodMinutes": 15, "kwh": 11.2, "peakKw": 52 }
+```
+
+Readings and energy intervals are idempotent per machine and timestamp.
+
+**Simulator.** It now also produces energy use per state, sized from each machine's data sheet, plus condition signals with daily variation. Some machines have one slowly failing part that drifts over a repeating 10-day cycle, so the demo shows the whole chain: warning → critical → automatic ticket.
+
 ## Offline actions
 
 The routes marked "works offline" above accept an `X-Client-Action-Id: <UUID>` header.

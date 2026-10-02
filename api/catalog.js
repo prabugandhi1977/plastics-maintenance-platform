@@ -76,7 +76,23 @@ export const DOWNTIME_REASONS={
 export const PRODUCT_UNITS=['parts','kg','m'];
 export const ALERT_SEVERITIES=['info','warning','critical'];
 
-export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:FAILURE_CATEGORIES,machineStates:MACHINE_STATES,failureModes:FAILURE_MODES,rootCauses:ROOT_CAUSES,actions:ACTIONS,coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS});
+// Condition monitoring: parameters per machine type with recommended limits. Vibration follows the ISO 10816 /
+// ISO 20816 zones for medium machines (4.5 mm/s: restricted operation, 7.1 mm/s: damage likely). Temperatures and
+// pressures are typical machine-builder values; tune them per machine in Smart factory → Condition.
+export const CONDITION_PARAMETERS={
+  hydraulic_oil_temp:{label:'Hydraulic oil temperature',unit:'°C',types:['injection','blow'],limits:{warnHigh:55,critHigh:65},category:'hydraulic'},
+  pump_vibration:{label:'Pump / motor vibration',unit:'mm/s',types:['injection','blow','extrusion'],limits:{warnHigh:4.5,critHigh:7.1},category:'mechanical'},
+  cooling_water_temp:{label:'Cooling water supply',unit:'°C',types:['injection','blow','extrusion'],limits:{warnHigh:22,critHigh:28},category:'cooling'},
+  gearbox_oil_temp:{label:'Gearbox oil temperature',unit:'°C',types:['extrusion'],limits:{warnHigh:70,critHigh:85},category:'mechanical'},
+  melt_pressure:{label:'Melt pressure',unit:'bar',types:['extrusion'],limits:{warnHigh:300,critHigh:350},category:'controls'},
+  air_pressure:{label:'Compressed air pressure',unit:'bar',types:['blow'],limits:{warnLow:6,critLow:5},category:'pneumatic'}
+};
+export const parametersFor=type=>Object.entries(CONDITION_PARAMETERS).filter(([,p])=>p.types.includes(type)).map(([key,p])=>({key,...p}));
+// Approximate national grid emission factors (kg CO₂ per kWh, recent annual averages). Replace with the factor from
+// your electricity supplier under Organisation → Company for accurate reporting.
+export const GRID_CO2={IN:0.71,CN:0.58,US:0.37,DE:0.38,GB:0.21,FR:0.06,IT:0.30,ES:0.17,JP:0.47,KR:0.44,BR:0.10,MX:0.42,TH:0.48,VN:0.47,ID:0.68,PL:0.66,TR:0.43,ZA:0.88,AE:0.40,default:0.45};
+
+export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:FAILURE_CATEGORIES,machineStates:MACHINE_STATES,failureModes:FAILURE_MODES,rootCauses:ROOT_CAUSES,actions:ACTIONS,coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS,conditionParameters:CONDITION_PARAMETERS});
 
 // Validates a full parameter set for a machine type and returns only known keys, typed.
 // linkedEquipment(id) must return the referenced asset (or undefined) so cross-company links are refused.

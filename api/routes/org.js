@@ -42,6 +42,8 @@ export function register(r) {
   // Settings apply from now on: stored times stay UTC and existing quotes keep the currency they were issued in.
   r.patch('/companies/:id',({u,body,params})=>{
     const c=byId('companies',params.id); if (!c) missing(); if (!canManageCompany(u,c.id)) deny();
+    const energyNum=(v,n,max)=>{ if (v===null||v==='') return null; const x=typeof v==='string'?Number(v):v; if (!Number.isFinite(x)||x<0||x>max) bad(`${n} must be a number from 0 to ${max}`); return x; };
+    run('UPDATE companies SET energy_price_per_kwh=?,grid_co2_kg_per_kwh=? WHERE id=?',body.energyPricePerKwh===undefined?c.energy_price_per_kwh:energyNum(body.energyPricePerKwh,'energyPricePerKwh',1000),body.gridCo2KgPerKwh===undefined?c.grid_co2_kg_per_kwh:energyNum(body.gridCo2KgPerKwh,'gridCo2KgPerKwh',2),c.id);
     run('UPDATE companies SET name=?,timezone=?,currency=?,units=?,locale=?,country=?,contact_name=?,contact_email=?,contact_phone=?,tax_id=? WHERE id=?',keep(body,'name',c.name,v=>required(v,'name',160)),keep(body,'timezone',c.timezone,timezone),keep(body,'currency',c.currency,currency),keep(body,'units',c.units,v=>choice(v,'units',['metric','imperial'])),keep(body,'locale',c.locale,localeOf),keep(body,'country',c.country,country),keep(body,'contactName',c.contact_name,v=>required(v,'contactName',120)),keep(body,'contactEmail',c.contact_email,email),keep(body,'contactPhone',c.contact_phone,v=>phone(v,'contactPhone')),body.taxId==null?c.tax_id:optionalText(body.taxId,40),c.id);
     audit(u,'company.update','company',c.id,c.id,{fields:Object.keys(body)}); const updated=byId('companies',c.id); return {...updated,missing:companyGaps(updated)};
   });

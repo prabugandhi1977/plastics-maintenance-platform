@@ -57,7 +57,7 @@ The seed sets up two customers and two approved providers:
 - **Acme** has an injection moulding machine and a mould in Chicago, an annual contract with an 8-hour response target, an earlier completed repeat of the same hydraulic fault, and a quoted spare part.
 - **Nova** has an extrusion line in Cologne and a contract due for renewal within 90 days.
 
-## Smart factory (stage 1 of 4)
+## Smart factory (stages 1–2 of 4)
 
 The platform now monitors production as well as maintaining machines, under the **Smart factory** menu:
 
@@ -65,11 +65,13 @@ The platform now monitors production as well as maintaining machines, under the 
 - **OEE:** results by period, plant and machine, with a chart of where time was lost and a short guide to the calculation.
 - **Alerts:** problems machines report. You can acknowledge them, resolve them, or turn them into a pre-filled maintenance ticket. A bell at the top of every page shows the open alerts.
 - **Products:** ideal cycle times and cavities, so performance can be measured.
+- **Condition:** each machine's health from sensor readings against warning and critical limits, with trend charts and a limits editor. A critical reading raises a maintenance ticket automatically.
+- **Energy:** kWh, kWh per kg, wasted energy, CO₂ (supplier factor or national average) and cost (set the electricity price under *Organisation*).
 - **Shifts:** set under *Organisation → Plants → Shifts*.
 
 Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. Real PLC or sensor gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
-Still to come: condition monitoring and energy (stage 2), traceability and vision quality (stage 3), safety and tracking tools and trolleys (stage 4).
+Still to come: traceability and vision quality (stage 3), safety and tracking tools and trolleys (stage 4).
 
 ## Demo path
 
@@ -125,7 +127,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 34 tests in five files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
+There are 40 tests in six files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -142,6 +144,14 @@ There are 34 tests in five files. Each file uses its own temporary database and 
 - batch uploads, quality flags, and alarm raise and clear
 - device-mapping permissions, and telemetry isolation between tenants and providers
 - plant-local visit times, quote replacement, and upload file-type checks
+
+**`condition-energy.test.js`**
+- how readings are judged against limits
+- the limits editor's rules and permissions
+- the full chain: warning → critical → exactly one automatic ticket → alert closes itself
+- stale data, trends and tenant isolation
+- energy figures against a worked example (0.42 kWh/kg, CO₂, cost)
+- simulated signals
 
 **`factory.test.js`**
 - shift calendar and custom shifts

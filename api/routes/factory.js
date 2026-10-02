@@ -5,7 +5,9 @@ import { isCustomer, isPlatform } from '../security.js';
 import { audit, byId, isDispatch } from '../access.js';
 import { created } from '../http.js';
 import { HttpError, bad, choice, deny, instant, missing, required, array } from '../validate.js';
-import { PRODUCTION_MACHINES, LIVE_STATES, DOWNTIME_REASONS, PRODUCT_UNITS } from '../catalog.js';
+import { PRODUCTION_MACHINES, LIVE_STATES, DOWNTIME_REASONS, PRODUCT_UNITS, CONDITION_PARAMETERS, parametersFor } from '../catalog.js';
+import { recordCondition, machineHealth, trend, limitsFor } from '../factory/condition.js';
+import { recordEnergy, energyReport } from '../factory/energy.js';
 import { recordState, recordCount, machineOee, combine, dailyOee, lossList, currentProduct, plantOf, stateAlerts } from '../factory/production.js';
 import { currentShift, shiftsFor } from '../factory/time.js';
 import { simulateAll, simulatorEnabled } from '../factory/simulator.js';
@@ -43,7 +45,7 @@ export function register(r) {
     return {id:e.id,assetTag:e.asset_tag,make:e.make,model:e.model,machineType:e.machine_type,plantId:e.plant_id,plantName:plant.name,location:e.location,
       state:state?.state||'offline',reason:state?.reason_code||null,since:state?.started_at||null,product:{name:product.name,partNumber:product.part_number||null,unit:product.unit},
       shift:shift?{name:shift.name,start:new Date(shift.start).toISOString(),end:new Date(shift.end).toISOString(),...(o?summary(o):{}),good:o?.good??0,scrap:o?.scrap??0}:null,
-      openAlerts:one("SELECT count(*) n FROM alerts WHERE equipment_id=? AND status='open'",e.id).n};
+      openAlerts:one("SELECT count(*) n FROM alerts WHERE equipment_id=? AND status='open'",e.id).n,health:machineHealth(e).status};
   }));
   // OEE for a period: per machine, combined, per day, and the losses behind it (Pareto).
   r.get('/factory/oee',({u,query})=>{
@@ -53,6 +55,34 @@ export function register(r) {
       machines:per.map((o,i)=>({id:machines[i].id,assetTag:machines[i].asset_tag,name:`${machines[i].make} ${machines[i].model}`,...summary(o),good:o.good,scrap:o.scrap,unit:o.unit,downHours:Math.round((o.stateMs.down+o.stateMs.idle+o.stateMs.setup)/360000)/10})),
       daily:dailyOee(machines,from,to).map(d=>({date:d.date,...summary(d)}))};
   });
+
+  // Condition monitoring: health of every machine, the readings behind it, and limits.
+  r.get('/factory/condition',({u,query})=>machinesFor(u,{plantId:query.get('plantId')||null}).map(e=>({id:e.id,assetTag:e.asset_tag,make:e.make,model:e.model,machineType:e.machine_type,plantName:plantOf(e).name,location:e.location,companyId:e.company_id,...machineHealth(e),openAlerts:one("SELECT count(*) n FROM alerts WHERE equipment_id=? AND module='condition' AND status<>'resolved'",e.id).n})));
+  r.get('/factory/condition/:id/trend',({u,params,query})=>{
+    const [e]=machinesFor(u,{equipmentId:params.id}); if (!e) missing();
+    const parameter=choice(query.get('parameter'),'parameter',Object.keys(CONDITION_PARAMETERS)), hours=Number(query.get('hours')||24); if (![24,168].includes(hours)) bad('hours must be 24 or 168');
+    const l=one('SELECT * FROM sensor_limits WHERE equipment_id=? AND parameter=?',e.id,parameter);
+    return {parameter,...CONDITION_PARAMETERS[parameter],hours,limit:l?{warnLow:l.warn_low,warnHigh:l.warn_high,critLow:l.crit_low,critHigh:l.crit_high}:null,points:trend(e,parameter,hours)};
+  });
+  r.get('/equipment/:id/limits',({u,params})=>{ const [e]=machinesFor(u,{equipmentId:params.id}); if (!e) missing(); const set=Object.fromEntries(limitsFor(e.id).map(l=>[l.parameter,l]));
+    return parametersFor(e.machine_type).map(p=>{ const l=set[p.key]; return {parameter:p.key,label:p.label,unit:p.unit,recommended:p.limits,warnLow:l?.warn_low??null,warnHigh:l?.warn_high??null,critLow:l?.crit_low??null,critHigh:l?.crit_high??null,autoTicket:l?!!l.auto_ticket:true,configured:!!l}; }); });
+  // Replace a machine's limits. A parameter left without any bound is not monitored.
+  r.patch('/equipment/:id/limits',({u,body,params})=>{
+    const [e]=machinesFor(u,{equipmentId:params.id}); if (!e) missing(); if (!canManage(u,e.company_id)&&!isDispatch(u)) deny();
+    const allowed=parametersFor(e.machine_type).map(p=>p.key), num=(v,n)=>{ if (v==null||v==='') return null; const x=typeof v==='string'?Number(v):v; if (!Number.isFinite(x)) bad(`${n} must be a number`); return x; };
+    const rows=array(body.limits,'limits').map(x=>{
+      const parameter=choice(x.parameter,'parameter',allowed), label=CONDITION_PARAMETERS[parameter].label, l={parameter,warnLow:num(x.warnLow,label+' warning low'),warnHigh:num(x.warnHigh,label+' warning high'),critLow:num(x.critLow,label+' critical low'),critHigh:num(x.critHigh,label+' critical high'),autoTicket:x.autoTicket!==false};
+      if (l.warnHigh!=null&&l.critHigh!=null&&l.critHigh<l.warnHigh) bad(`${label}: the critical high limit must be at or above the warning high limit`);
+      if (l.warnLow!=null&&l.critLow!=null&&l.critLow>l.warnLow) bad(`${label}: the critical low limit must be at or below the warning low limit`);
+      if (l.warnLow!=null&&l.warnHigh!=null&&l.warnLow>=l.warnHigh) bad(`${label}: the warning low limit must be below the warning high limit`);
+      return l; }).filter(l=>[l.warnLow,l.warnHigh,l.critLow,l.critHigh].some(v=>v!=null));
+    if (new Set(rows.map(r=>r.parameter)).size!==rows.length) bad('Each parameter can appear once');
+    transaction(()=>{ run('DELETE FROM sensor_limits WHERE equipment_id=?',e.id); for (const l of rows) run('INSERT INTO sensor_limits (id,company_id,equipment_id,parameter,warn_low,warn_high,crit_low,crit_high,auto_ticket,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',id(),e.company_id,e.id,l.parameter,l.warnLow,l.warnHigh,l.critLow,l.critHigh,l.autoTicket?1:0,now()); });
+    audit(u,'equipment.limits','equipment',e.id,e.company_id,{parameters:rows.map(r=>r.parameter)}); return machineHealth(e);
+  });
+
+  // Energy: kWh, kWh per kg, wasted energy, peak power, CO2 and cost for a period.
+  r.get('/factory/energy',({u,query})=>{ const {from,to}=range(query); return {from:new Date(from).toISOString(),to:new Date(to).toISOString(),...energyReport(machinesFor(u,{plantId:query.get('plantId')||null,equipmentId:query.get('equipmentId')||null}),from,to)}; });
 
   r.get('/plants/:id/shifts',({u,params})=>{ const p=byId('plants',params.id); if (!p) missing(); if (!(isDispatch(u)||u.company_id===p.company_id)) deny(); return shiftsFor(p); });
   // Replace a plant's shifts. An empty list returns the plant to the defaults of its operating pattern.
@@ -113,7 +143,10 @@ export function register(r) {
         const at=instant(ev.at,'at'), change=recordState(e,state,ev.reason||null,at,'device'); stateAlerts(e,state,ev.reason||null,change,at); return {index,status:change.changed?'accepted':'unchanged'}; }
       if (ev.type==='count') { const product=ev.partNumber?one('SELECT * FROM products WHERE company_id=? AND part_number=?',e.company_id,String(ev.partNumber).toUpperCase()):currentProduct(e); if (!product) bad('Unknown partNumber'); const n=(v,k)=>{ if (!Number.isFinite(v)||v<0) bad(`${k} must be a non-negative number`); return v; }; const total=n(ev.totalQty,'totalQty'), scrap=n(ev.scrapQty??0,'scrapQty'); if (scrap>total) bad('scrapQty cannot exceed totalQty'); const minutes=n(ev.periodMinutes,'periodMinutes'); if (!minutes||minutes>1440) bad('periodMinutes must be 1-1440');
         return {index,status:recordCount(e,{periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,totalQty:total,scrapQty:scrap,unit:product.unit,idealRatePerHour:product.ideal_rate_per_hour,productId:product.id},'device')}; }
-      bad('type must be state or count');
+      if (ev.type==='condition') { const parameter=choice(ev.parameter,'parameter',Object.keys(CONDITION_PARAMETERS)); if (!Number.isFinite(ev.value)) bad('value must be a number'); return {index,status:recordCondition(e,parameter,ev.value,instant(ev.at,'at'),'device')}; }
+      if (ev.type==='energy') { const kwh=ev.kwh, minutes=ev.periodMinutes; if (!Number.isFinite(kwh)||kwh<0) bad('kwh must be a non-negative number'); if (!Number.isFinite(minutes)||minutes<=0||minutes>1440) bad('periodMinutes must be 1-1440'); if (ev.peakKw!=null&&(!Number.isFinite(ev.peakKw)||ev.peakKw<0)) bad('peakKw must be a non-negative number');
+        return {index,status:recordEnergy(e,{periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,kwh,peakKw:ev.peakKw??null},'device')}; }
+      bad('type must be state, count, condition or energy');
     } catch(err) { if (err instanceof HttpError) return {index,status:'rejected',error:err.message}; throw err; } }));
     const count=s=>results.filter(x=>x.status===s).length;
     return {accepted:count('accepted'),unchanged:count('unchanged'),duplicates:count('duplicate'),rejected:count('rejected'),results};

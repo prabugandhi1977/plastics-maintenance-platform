@@ -136,3 +136,9 @@ dialog.confirm .modal-body h2{margin:0 0 8px;font-size:18px}
 .shift-head,.shift-row{display:grid;grid-template-columns:120px 110px 110px 1fr;gap:8px;align-items:center;margin-bottom:8px} .shift-head{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .shift-row .days{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:13px} .shift-row .days label{display:flex;gap:4px;align-items:center}
 @media(max-width:700px){.shift-head{display:none}.shift-row{grid-template-columns:1fr 1fr 1fr}.shift-row .days{grid-column:1/-1}}
+
+/* Condition & energy */
+.health-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}
+.health-card{border-left:5px solid #c3c2b7;margin:0} .health-card.ok{border-left-color:#0ca30c} .health-card.warning{border-left-color:#fab219} .health-card.critical{border-left-color:#d03b3b}
+.health-card table td{padding:8px} .health-card .section-actions{margin:8px 0 0}
+@media(max-width:560px){.health-grid{grid-template-columns:1fr}}
