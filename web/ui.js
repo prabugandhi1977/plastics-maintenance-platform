@@ -25,7 +25,7 @@ export function dataTable(id,{rows,columns,search,filters=[],empty=t('msg.noReco
 }
 // Re-render on input while keeping the cursor in the search box.
 export function bindTables(rerender) {
-  document.querySelectorAll('.table-tools').forEach(box=>{
+  document.querySelectorAll('.table-tools[data-table]').forEach(box=>{
     const id=box.dataset.table, st=tableState[id];
     const search=box.querySelector('.tt-search');
     search.oninput=()=>{ st.q=search.value; const pos=search.selectionStart; rerender(); const again=document.querySelector(`.table-tools[data-table="${id}"] .tt-search`); if (again) { again.focus(); again.setSelectionRange(pos,pos); } };

@@ -63,7 +63,20 @@ export const PART_URGENCY=['normal','urgent','breakdown'];
 export const DEFAULT_RESPONSE_HOURS={critical:4,high:8,medium:24,low:72};
 export const FIELD_ROLES=['engineer','provider_engineer'];
 
-export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:FAILURE_CATEGORIES,machineStates:MACHINE_STATES,failureModes:FAILURE_MODES,rootCauses:ROOT_CAUSES,actions:ACTIONS,coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES});
+// Smart factory. Machine states and the downtime reasons behind them, grouped the way OEE losses are analysed
+// (the "six big losses": breakdowns, set-ups, small stops/idling, reduced speed, start-up and production rejects).
+export const PRODUCTION_MACHINES=['injection','blow','extrusion'];
+export const LIVE_STATES=['running','idle','down','setup','planned_stop','offline'];
+export const DOWNTIME_REASONS={
+  down:['breakdown','mould_fault','auxiliary_fault','quality_stop','power_failure'],
+  setup:['mould_change','material_change','colour_change','start_up'],
+  idle:['waiting_material','waiting_operator','waiting_quality_approval','minor_stop'],
+  planned_stop:['break','no_production_planned','planned_maintenance','trial_run']
+};
+export const PRODUCT_UNITS=['parts','kg','m'];
+export const ALERT_SEVERITIES=['info','warning','critical'];
+
+export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:FAILURE_CATEGORIES,machineStates:MACHINE_STATES,failureModes:FAILURE_MODES,rootCauses:ROOT_CAUSES,actions:ACTIONS,coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS});
 
 // Validates a full parameter set for a machine type and returns only known keys, typed.
 // linkedEquipment(id) must return the referenced asset (or undefined) so cross-company links are refused.

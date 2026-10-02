@@ -64,7 +64,7 @@ export function register(r) {
     return byId('providers',p.id);
   });
 
-  r.get('/users',({u})=>isPlatform(u)?all(`SELECT ${USER_COLUMNS} FROM users ORDER BY name`):u.role==='dispatcher'?all(`SELECT ${USER_COLUMNS} FROM users WHERE role IN ('dispatcher','engineer') ORDER BY name`):isCustomer(u)?all(`SELECT ${USER_COLUMNS} FROM users WHERE company_id=? ORDER BY name`,u.company_id):isProvider(u)?all(`SELECT ${USER_COLUMNS} FROM users WHERE provider_id=? ORDER BY name`,u.provider_id):[]);
+  r.get('/users',({u})=>isPlatform(u)?all(`SELECT ${USER_COLUMNS} FROM users WHERE id<>'u-system' ORDER BY name`):u.role==='dispatcher'?all(`SELECT ${USER_COLUMNS} FROM users WHERE role IN ('dispatcher','engineer') ORDER BY name`):isCustomer(u)?all(`SELECT ${USER_COLUMNS} FROM users WHERE company_id=? ORDER BY name`,u.company_id):isProvider(u)?all(`SELECT ${USER_COLUMNS} FROM users WHERE provider_id=? ORDER BY name`,u.provider_id):[]);
   r.post('/users',({u,body})=>{
     const companyId=body.companyId||null,providerId=body.providerId||null,role=choice(body.role,'role',ROLES);
     if (!(isPlatform(u)||(u.role==='customer_admin'&&companyId===u.company_id&&['plant_manager','maintenance'].includes(role))||(u.role==='provider_admin'&&providerId===u.provider_id&&role==='provider_engineer'))) deny();

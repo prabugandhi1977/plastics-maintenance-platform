@@ -13,6 +13,10 @@ services:
       MOULDCARE_ADMIN_PASSWORD: ${MOULDCARE_ADMIN_PASSWORD:-}
       IOT_SYNC_ADAPTER: ${IOT_SYNC_ADAPTER:-mock}
       IOT_SYNC_INTERVAL_SECONDS: ${IOT_SYNC_INTERVAL_SECONDS:-0}
+      FACTORY_SIMULATOR: ${FACTORY_SIMULATOR:-false}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     volumes:
       - platform-data:/data
     restart: unless-stopped

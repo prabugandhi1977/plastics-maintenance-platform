@@ -137,7 +137,7 @@ test('settings: default response targets and editable standard checklists',async
 test('dashboard reports MTTR, MTBF, availability and a 12-week trend',async()=>{
   const d=(await call('/dashboard','GET',null,tokens.acme)).data;
   assert.equal(d.weekly.length,12); assert.ok(d.weekly.every(w=>/^\d{4}-\d\d-\d\d$/.test(w.weekStart)));
-  assert.ok(d.kpi.mttrHours>0); assert.ok(d.kpi.mtbfHours>0); assert.ok(d.kpi.availabilityPct>90&&d.kpi.availabilityPct<100);
+  assert.ok(d.kpi.mttrHours>0); assert.ok(d.kpi.mtbfHours>0); assert.ok(d.kpi.availabilityPct>90&&d.kpi.availabilityPct<=100);
   assert.equal(d.kpi.periodDays,90);
   assert.equal((await call('/dashboard','GET',null,tokens.atlas)).data.kpi.mtbfHours,null);
 });

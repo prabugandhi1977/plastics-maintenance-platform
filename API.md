@@ -194,6 +194,70 @@ Records created before a field became mandatory are still accepted. They come ba
 
 All three use calendar hours. The dashboard also returns `weekly`, breakdowns per week for the last 12 weeks, and `incompleteAssets`.
 
+## Smart factory: production monitoring (OEE) and alerts
+
+The monitoring modules live in the same platform as maintenance, so a problem a machine reports can become a ticket for the right engineer. All factory data belongs to the customer: their own staff, platform admins and dispatchers can see it; service providers cannot.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/factory/floor?plantId=` | Every production machine: current state and reason, time in that state, current product, this shift's OEE (A/P/Q), good output and scrap, open alerts |
+| `GET` | `/factory/oee?from&to&plantId&equipmentId` | OEE for a period (up to 92 days; default the last 7). Returns totals, a row per machine, OEE per local day, and losses sorted largest first |
+| `GET, PATCH` | `/plants/:id/shifts` | A plant's shifts. PATCH `{shifts:[{name,start:'06:00',end:'14:00',days:[1..7]}]}`; an empty list returns the plant to the defaults for its operating pattern |
+| `GET, POST, PATCH` | `/products`, `/products/:id` | Products and their ideal rate. Parts: `idealCycleS` and `cavities`, rate = 3600 ÷ cycle × cavities. Continuous output: `unit` `kg` or `m` plus `idealRatePerHour` |
+| `GET` | `/alerts?status=active\|all` | Alerts from every module |
+| `GET` | `/alerts/summary` | Open alerts by severity (for the alert bell) |
+| `POST` | `/alerts/:id/acknowledge`, `/alerts/:id/resolve` | Work an alert. Raising a ticket with `alertId` links the two and acknowledges the alert |
+| `GET` | `/alerts/emails` | Platform admin: the email outbox |
+| `POST` | `/integrations/factory/events` | Machine-data intake (server-to-server, `X-Integration-Key`) |
+| `GET, POST` | `/factory/simulator`, `/factory/simulator/run` | Platform admin: simulator status and a manual run |
+
+**How OEE is calculated** (`api/factory/production.js`). Everything is measured only inside planned shift time:
+- **Planned time** = shift time − planned stops − time with no data.
+- **Availability** = running time ÷ planned time.
+- **Performance** = ideal time for the output made ÷ running time, where ideal time = output ÷ ideal rate.
+- **Quality** = good output ÷ total output.
+- **OEE** = A × P × Q. Combining machines is weighted by time, not averaged: plant OEE = Σ(ideal time × quality) ÷ Σ planned time.
+
+**Shifts.** Plants without their own shifts use the defaults for their operating pattern:
+- 24×7: three shifts (06–14, 14–22, 22–06) every day
+- 24×5: the same three shifts, Monday to Friday
+- 16×5: 06–14 and 14–22, Monday to Friday
+- 8×5: 08–16, Monday to Friday
+
+**Machine states and downtime reasons** (`GET /catalog` → `liveStates`, `downtimeReasons`):
+
+| State | Reasons |
+| --- | --- |
+| `down` | breakdown, mould fault, auxiliary fault, quality stop, power failure |
+| `setup` | mould change, material change, colour change, start-up |
+| `idle` | waiting for material, waiting for operator, waiting for quality approval, minor stop |
+| `planned_stop` | break, no production planned, planned maintenance, trial run |
+
+`offline` means no data. When a machine goes `down` for a breakdown, mould fault, auxiliary fault or power failure, one alert is raised; it resolves itself when the machine runs again.
+
+**Intake format.** Devices are mapped to machines under *IoT integration → Device mappings*. Up to 1,000 events per request, each accepted, unchanged, duplicate or rejected (with a reason):
+
+```json
+{ "events": [
+  { "type": "state", "deviceId": "plc-imm-04", "at": "2026-10-02T08:15:00Z", "state": "down", "reason": "breakdown" },
+  { "type": "count", "deviceId": "plc-imm-04", "periodStart": "2026-10-02T08:00:00Z", "periodMinutes": 15, "totalQty": 4300, "scrapQty": 40, "partNumber": "CAP-28-PCO" }
+] }
+```
+
+Counts are idempotent per machine and period start. Without `partNumber`, the product assigned to the machine is used, or else a rate taken from the machine's data sheet.
+
+**Alerts and email.**
+- An alert has a dedupe key, so a long fault produces one alert, not one per reading.
+- Critical alerts are emailed to the customer's admins, plant managers and maintenance staff (anyone who hasn't opted out), and to dispatchers.
+- The lowest emailed severity is the `alert_email_min_severity` setting; the default is `critical`.
+- Sending uses an email API: set `EMAIL_PROVIDER` (`brevo`, `sendgrid` or `resend`), `EMAIL_API_KEY` and `EMAIL_FROM`. Until those are set, messages stay in the outbox as `not_configured`.
+
+**Simulator** (`api/factory/simulator.js`).
+- Produces realistic 15-minute machine states and output for every in-service production machine, through the same `recordState`/`recordCount` path as real data.
+- Each machine has a stable "character" (reliability, speed, scrap rate).
+- On first start it fills in 7 days of history, then keeps up every minute.
+- It's on only with `FACTORY_SIMULATOR=true`. Keep it off on any site with real customer data.
+
 ## Offline actions
 
 The routes marked "works offline" above accept an `X-Client-Action-Id: <UUID>` header.

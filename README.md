@@ -57,6 +57,20 @@ The seed sets up two customers and two approved providers:
 - **Acme** has an injection moulding machine and a mould in Chicago, an annual contract with an 8-hour response target, an earlier completed repeat of the same hydraulic fault, and a quoted spare part.
 - **Nova** has an extrusion line in Cologne and a contract due for renewal within 90 days.
 
+## Smart factory (stage 1 of 4)
+
+The platform now monitors production as well as maintaining machines, under the **Smart factory** menu:
+
+- **Live floor:** every machine's state and this shift's OEE. It refreshes every 30 seconds.
+- **OEE:** results by period, plant and machine, with a chart of where time was lost and a short guide to the calculation.
+- **Alerts:** problems machines report. You can acknowledge them, resolve them, or turn them into a pre-filled maintenance ticket. A bell at the top of every page shows the open alerts.
+- **Products:** ideal cycle times and cavities, so performance can be measured.
+- **Shifts:** set under *Organisation → Plants → Shifts*.
+
+Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. Real PLC or sensor gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
+
+Still to come: condition monitoring and energy (stage 2), traceability and vision quality (stage 3), safety and tracking tools and trolleys (stage 4).
+
 ## Demo path
 
 Every record has mandatory, industry-standard data (see *Mandatory master data* in `API.md`). Forms mark required fields with *, show units, and explain what is missing before anything is sent. Older records missing mandatory data are flagged **Incomplete** rather than rejected.
@@ -111,7 +125,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 27 tests in four files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
+There are 34 tests in five files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -128,6 +142,15 @@ There are 27 tests in four files. Each file uses its own temporary database and 
 - batch uploads, quality flags, and alarm raise and clear
 - device-mapping permissions, and telemetry isolation between tenants and providers
 - plant-local visit times, quote replacement, and upload file-type checks
+
+**`factory.test.js`**
+- shift calendar and custom shifts
+- the OEE arithmetic against a hand-worked example (75.5%)
+- factory data limited to each tenant and closed to providers
+- product ideal rates
+- the machine-data intake path
+- alerts: one per fault, auto-resolve, acknowledge, raise a ticket, email outbox
+- the deterministic simulator
 
 **`masterdata.test.js`**
 - the catalogue and every mandatory parameter set, including machine-type parameters, value ranges and duplicate asset tags
@@ -156,7 +179,8 @@ api/server.js        HTTP entry: static files with security headers, router, off
 api/http.js          Router, JSON replies, body parsing
 api/access.js        Tenant-scoped lookups and permission helpers shared by all routes
 api/catalog.js       Master-data catalogue: mandatory parameter sets and ISO 14224 code lists
-api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard, settings
+api/factory/         Smart factory: shift calendar, production recording and OEE, alerts and email, simulator
+api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard, settings, factory
 api/files.js         Private file storage with file-type checks
 api/security.js      Passwords, signed access tokens, role checks
 api/validate.js      Input validation, time-zone conversion

@@ -97,6 +97,7 @@ export function register(r) {
       key,e.company_id,e.plant_id,e.id,required(body.title,'title',160),priority,required(body.symptoms,'symptoms',3000),String(body.errorCodes||'').slice(0,500),required(body.productionImpact,'productionImpact',1000),'open',u.id,stamp,0,
       choice(body.failureCategory,'failureCategory',FAILURE_CATEGORIES),choice(body.machineState,'machineState',MACHINE_STATES),body.safetyIssue?1:0,occurredAt);
     if (body.safetyIssue) ticketEvent(key,u,'safety','Safety issue reported: priority set to critical',stamp);
+    if (body.alertId) { const a=one('SELECT * FROM alerts WHERE id=?',body.alertId); if (!a||a.company_id!==e.company_id) bad('Unknown alert for this company'); run("UPDATE alerts SET ticket_id=?,status=CASE WHEN status='open' THEN 'acknowledged' ELSE status END,acknowledged_by=COALESCE(acknowledged_by,?),acknowledged_at=COALESCE(acknowledged_at,?) WHERE id=?",key,u.id,stamp,a.id); ticketEvent(key,u,'alert',`Raised from alert: ${a.title}`,stamp); }
     audit(u,'ticket.create','ticket',key,e.company_id,{priority,safetyIssue:body.safetyIssue}); return created(ticketDetail(u,key));
   });
   r.get('/tickets/:id',({u,params})=>ticketDetail(u,params.id));

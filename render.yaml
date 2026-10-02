@@ -29,3 +29,12 @@ services:
         value: mock
       - key: IOT_SYNC_INTERVAL_SECONDS
         value: "0"
+      # Simulated machine data is for demos only; keep it off where real customer data lives.
+      - key: FACTORY_SIMULATOR
+        value: "false"
+      - key: EMAIL_PROVIDER
+        sync: false
+      - key: EMAIL_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

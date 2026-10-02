@@ -29,6 +29,16 @@ try {
   equipment('eq-b','c-acme','plant-a','mould','Husky','Hot Runner 24','HSK-2409','Tool Room','MLD-24','B',2021,{mouldNumber:'M-2409',cavities:24,hotRunner:'yes',hotRunnerZones:26,shotCount:1842000,pmIntervalShots:250000,steelGrade:'1.2343'});
   equipment('eq-n','c-nova','plant-n','extrusion','Coperion','ZSK 58','COP-58-811','Line 2','EXT-02','A',2017,{lineType:'compounding',screwConfig:'twin',screwDiameterMm:58,ldRatio:44,outputKgH:400});
   equipment('eq-c','c-acme','plant-a','auxiliary','Motan','Luxor CA 120','MOT-120-77','Bay 4 mezzanine','AUX-DRY-01','B',2019,{auxType:'dryer',capacity:'120 L hopper',linkedEquipmentId:'eq-a'});
+  equipment('eq-a2','c-acme','plant-a','injection','Engel','e-mac 180','ENG-180-2214','Bay 5','IMM-05','A',2022,{clampForceKn:1800,shotVolumeCm3:301,screwDiameterMm:40,driveType:'electric',controller:'CC300'});
+  equipment('eq-bm','c-acme','plant-a','blow','Kautex','KBS 2-20','KTX-220-0881','Blow hall','BM-01','B',2018,{process:'extrusion_blow',cavities:4,maxVolumeL:2,clampForceKn:200});
+  equipment('eq-n2','c-nova','plant-n','extrusion','battenfeld-cincinnati','solEX NG 75','BC-75-4410','Line 3','EXT-03','A',2020,{lineType:'pipe',screwConfig:'single',screwDiameterMm:75,ldRatio:40,outputKgH:450});
+  // Products with the ideal rates OEE performance is measured against (parts: 3600 ÷ cycle × cavities).
+  const product=(id,company,pn,name,material,weight,unit,cycle,cav,rate,mould,machine)=>run('INSERT INTO products (id,company_id,part_number,name,material,part_weight_g,unit,ideal_cycle_s,cavities,ideal_rate_per_hour,mould_id,default_machine_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',id,company,pn,name,material,weight,unit,cycle,cav,rate,mould,machine,stamp);
+  product('pr-cap','c-acme','CAP-28-PCO','28 mm PCO1881 closure','PP',2.1,'parts',4.8,24,3600/4.8*24,'eq-b','eq-a');
+  product('pr-hsg','c-acme','HSG-180-A','Electronics housing','PC/ABS',38,'parts',32,2,3600/32*2,null,'eq-a2');
+  product('pr-btl','c-acme','BTL-1L-HD','1 L HDPE bottle','HDPE',42,'parts',14,4,3600/14*4,null,'eq-bm');
+  product('pr-cmp','c-nova','CMP-PPGF30','PP-GF30 compound','PP + 30 % glass fibre',null,'kg',null,1,400,null,'eq-n');
+  product('pr-pipe','c-nova','PIPE-PE100-110','PE100 pipe 110 mm SDR11','PE100',null,'kg',null,1,450,null,'eq-n2');
   run('INSERT INTO contracts (id,company_id,title,starts_at,renews_at,commitments,exclusions,status,created_at,response_hours,contract_number,coverage_hours,restore_hours,visits_per_year,notice_days) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)','contract-a','c-acme','Annual care 2026','2026-01-01T00:00:00.000Z','2027-01-01T00:00:00.000Z','4 preventive visits; 8-hour response','Consumables and tooling','active',stamp,8,'AMC-2026-001','8x5',48,4,60);
   run('INSERT INTO contract_equipment (contract_id,equipment_id) VALUES (?,?)','contract-a','eq-a');
   run('INSERT INTO visits (id,contract_id,company_id,equipment_id,due_at,status,notes) VALUES (?,?,?,?,?,?,?)','visit-a','contract-a','c-acme','eq-a','2026-11-15T14:00:00.000Z','scheduled','Quarterly inspection');
