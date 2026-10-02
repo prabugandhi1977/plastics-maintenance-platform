@@ -30,7 +30,11 @@ Each person's **vision duties** (set by the company admin on the user) decide wh
 | 4.2 Distinguish flame/smoke from steam, dust, welding | Temporal confirmation over 0.2–1.8 s with flicker/growth and a tiny-static filter, plus a 3D-CNN classifier stage; sensitivity per camera | Reference; model training at site |
 | 4.2 Critical alarm across the factory subnet in < 2 s | Signed UDP multicast, 3 repeats, sent before anything else; measured time stored with the incident and shown as p95 | Reference (broadcast < 5 ms measured) |
 | 4.3 Micro-defects ≥ 0.5 mm | Minimum defect size and calibration (mm/pixel) per camera; size computed per defect; camera sizing in `edge/README.md` | Reference; optics at site |
-| 4.3 Presets: vehicle body, electronics, logistics containers | Three presets with their defect classes; one model per preset | Built (platform), Reference (edge) |
+| 4.3 Presets: automotive plastic parts, vehicle body, electronics, logistics containers | Four presets with their defect classes; one model per preset. **Automotive plastic parts** (default) covers the standard injection-moulding defects: short shot, flash, sink mark, warpage, burn mark, black specks, splay, weld line, flow lines, jetting, scratch, crack, contamination, colour and gloss variation, missing feature, out of tolerance; each incident explains the defect and its typical process causes | Built (platform), Reference (edge) |
+| 4.3 Acceptance by surface class (automotive) | Inspection areas drawn per camera with surface class A/B/C (VDA 16); limits per class (default A 0.5, B 1.0, C 2.0 mm); the strictest class wins where areas overlap; defects outside the part are ignored; unmeasured defects are never passed | Built (platform), Reference (edge, tested) |
+| 4.3 Cycle time 3 s minimum; PLC handshake | PLC part-present trigger (EtherNet/IP tag or Modbus input), one inspection per rising edge, OK and NG outputs, result budget per camera (default 500 ms, at most half the cycle); trigger-to-result time reported per part and per camera; a part without an image is rejected | Reference (tested against a simulated PLC and Cognex); timing on the real line at site |
+| Cameras: Hikvision, Keyence, Cognex | Camera make per camera picks the connection: Cognex In-Sight Native Mode (trigger + image over one session), Hikvision ISAPI snapshot or RTSP, Keyence/Hikrobot image output by FTP; same camera types as the VisionForge gateway | Reference (tested against simulated cameras); GigE Vision SDK adapter not included |
+| Quality results in the maintenance platform | Edge counters and defects feed the Vision quality page (FPY, PPM, Pareto per machine); a defect incident can raise a breakdown ticket on the watched machine | Built |
 | 4.4 Draw exclusion lines and polygons | Geofence editor over the camera image: exclusion zones, tripwires, approved-motion areas, PPE zones, inspection areas | Built |
 | 4.4 Human/vehicle intrusions vs approved machine motion | People/vehicles in exclusion zones raise events (severity per zone); detections inside approved-motion areas are ignored and counted | Reference (edge), Built (platform) |
 
@@ -41,7 +45,7 @@ Each person's **vision duties** (set by the company admin on the user) decide wh
 | FEAT-01 (Must) | 16 streams per edge node | `maxStreams` per node (default 16) enforced by the platform; DeepStream batch of 16 with NVDEC decoding; sizing in `edge/README.md` | Built (platform), Reference (edge) |
 | FEAT-02 (Must) | Unified dashboard with overlays and live statistics | Vision overview: camera tiles with latest snapshot and bounding boxes, pass/fail/compliance per camera, open alarms, charts; refreshes every 15 s; alarm banner on every page | Built |
 | FEAT-03 (Must) | Drag-and-drop module routing | Drag a licensed module card onto a camera (or use *Add module*), then set its options | Built |
-| FEAT-04 (Must) | PLC outputs within 15 ms (Modbus TCP, EtherNet/IP) | Reject fires inline in the quality path before logging; Modbus on a persistent raw socket; EtherNet/IP via pycomm3 | Reference (Modbus measured < 15 ms on loopback); timing test on the real PLC at site |
+| FEAT-04 (Must) | PLC outputs within 15 ms (Modbus TCP, EtherNet/IP) | NG or OK fires inline in the quality path before logging; Modbus on a persistent raw socket; EtherNet/IP via pycomm3 on one open session per PLC; the part-present input is read the same way | Reference (Modbus measured < 15 ms on loopback); timing test on the real PLC at site |
 | FEAT-05 (Should) | 10-second incident clips | Ring buffer of 2-s segments, clip from 5 s before to 5 s after, uploaded with the incident; playable in the incident view | Reference (edge), Built (platform) |
 | FEAT-06 (Should) | Click-and-drag geofencing over live view | Points placed by clicking and moved by dragging, over the camera's latest frame | Built |
 | FEAT-07 (Could) | Upload false alarms for retraining (OTA) | *False alarm → send for retraining* keeps the clip; `GET /api/vision/retraining` lists the training set | Built (collection); OTA model rollout is a next step |
@@ -64,9 +68,18 @@ Each person's **vision duties** (set by the company admin on the user) decide wh
 - Evidence is served only to users of the same company; exports and evidence locks are recorded in the audit trail.
 - Video of people is personal data: inform employees, limit retention, and restrict access to EHS, security and administrators. Check your works council or local rules before go-live. Face recognition is deliberately not part of this solution.
 
-## Open questions for the next round
+## Decisions
 
-1. Camera models and count per plant, and which PLCs and I/O modules (brand, Modbus or EtherNet/IP)?
-2. The parts and products for quality inspection (size, speed, defect examples)?
-3. Retention: how long to keep closed incidents and their clips (now 30 days; locked evidence permanently)?
-4. Should vision alarms also go out by SMS, WhatsApp or phone call (needs a provider such as Twilio)?
+| Question | Decision |
+| --- | --- |
+| Cameras and PLCs | Hikvision, Keyence and Cognex cameras; PLCs over EtherNet/IP and Modbus TCP |
+| Products | Automotive plastic (injection-moulded) parts, standard moulding defects, acceptance by surface class |
+| Speed | Machine cycle 3 s minimum; OK/NG within 500 ms of the part-present signal by default |
+| Retention | Closed, unlocked incidents and clips are kept 30 days; locked evidence (life safety, PPE, and any incident locked by hand) permanently |
+| Alarm channels | Platform and mobile app only (banner, tone, vibration); no SMS, WhatsApp or phone calls |
+
+## Open for commissioning
+
+1. Per line: camera model and lens, field of view and the resulting mm per pixel (0.5 mm on class A needs about 0.17 mm per pixel).
+2. PLC tag names or Modbus addresses for part-present, OK and NG, and the PLC's timeout for a missing result.
+3. The customer's surface-class drawing and acceptance limits per part number, and 300+ images per defect class for training.

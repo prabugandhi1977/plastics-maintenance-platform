@@ -200,3 +200,50 @@ def defect_findings(detections, preset_defects, mm_per_pixel, image_width_px, mi
 def required_pixel_size(min_defect_mm, pixels_across_defect=3):
     """Camera sizing: the pixel footprint needed to resolve a defect reliably (default 3 px across)."""
     return min_defect_mm / pixels_across_defect
+
+
+# ---------- Quality grading by surface class (VDA 16) ----------
+
+DEFAULT_ACCEPTANCE = {"A": 0.5, "B": 1.0, "C": 2.0}
+_STRICTNESS = {"A": 0, "B": 1, "C": 2}
+
+
+@dataclass
+class Graded:
+    detection: Detection
+    size_mm: Optional[float]
+    surface_class: str
+    limit_mm: float
+    reject: bool
+
+
+def surface_class_at(x, y, zones):
+    """The surface class at a point: the strictest inspection area containing it. None when inspection areas are
+    drawn and the point is outside all of them (background, fixture). Class A when none are drawn."""
+    rois = [z for z in zones if z.get("kind") == "inspection_roi"]
+    if not rois:
+        return "A"
+    hits = [z.get("surfaceClass") or "A" for z in rois if point_in_polygon(x, y, z["points"])]
+    return min(hits, key=_STRICTNESS.get) if hits else None
+
+
+def grade_part(detections, preset_defects, zones, acceptance=None, mm_per_pixel=None, image_width_px=1920, min_confidence=0.5):
+    """Grades one part. Each defect of the preset's classes is placed in its surface class by its centre and
+    rejects the part when it is at least the class limit (mm). Without calibration the size is unknown and every
+    defect on the part rejects it: unmeasured defects are never passed. Returns (ok, [Graded ...]), rejects first."""
+    acc = {**DEFAULT_ACCEPTANCE, **(acceptance or {})}
+    graded = []
+    for d in detections:
+        if d.label not in preset_defects or d.confidence < min_confidence:
+            continue
+        cls = surface_class_at(d.box["x"] + d.box["w"] / 2, d.box["y"] + d.box["h"] / 2, zones)
+        if cls is None:
+            continue
+        size_mm = None
+        if mm_per_pixel:
+            size_px = d.attributes.get("size_px") or max(d.box["w"], d.box["h"]) * image_width_px
+            size_mm = round(size_px * mm_per_pixel, 2)
+        limit = float(acc[cls])
+        graded.append(Graded(d, size_mm, cls, limit, size_mm is None or size_mm >= limit))
+    graded.sort(key=lambda g: (not g.reject, _STRICTNESS[g.surface_class], -(g.size_mm or 0)))
+    return not any(g.reject for g in graded), graded

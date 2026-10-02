@@ -164,7 +164,10 @@ export function nodeConfig(node) {
     const modules=all('SELECT * FROM vision_assignments WHERE camera_id=? AND enabled=1 ORDER BY updated_at',c.id).filter(a=>{
       const key=`${c.company_id}:${a.module}`; seats[key]??=(()=>{ const l=licence(c.company_id,a.module); return l.valid?l.cameras:0; })();
       if (seats[key]<=0) return false; seats[key]--; return true;
-    }).map(a=>({module:a.module,config:JSON.parse(a.config)}));
+    }).map(a=>{ const config=JSON.parse(a.config);
+      // The node grades against the preset's defect classes, so it needs no copy of the preset list.
+      if (a.module==='quality') config.defects=QUALITY_PRESETS[config.preset]?.defects||[];
+      return {module:a.module,config}; });
     const zones=all('SELECT * FROM vision_zones WHERE camera_id=? AND active=1 ORDER BY created_at',c.id).map(z=>({id:z.id,name:z.name,kind:z.kind,severity:z.severity,classes:JSON.parse(z.classes),points:JSON.parse(z.points),...(z.surface_class?{surfaceClass:z.surface_class}:{})}));
     return {id:c.id,name:c.name,vendor:c.vendor,sourceType:c.source_type,sourceUrl:c.source_url,fps:c.fps,location:c.location,modules,zones};
   });
@@ -248,7 +251,7 @@ export function heartbeat(node,body) {
   transaction(()=>{ for (const c of cams) {
     const cam=one('SELECT * FROM vision_cameras WHERE id=? AND node_id=?',c?.id,node.id); if (!cam) continue;
     const status=['online','offline','tampered','starting'].includes(c.status)?c.status:'online';
-    run('UPDATE vision_cameras SET status=?,last_seen_at=?,metrics=? WHERE id=?',status,status==='online'?at:cam.last_seen_at,json({fps:c.fps??null,inferenceMs:c.inferenceMs??null,decodeMs:c.decodeMs??null},'camera metrics',500),cam.id);
+    run('UPDATE vision_cameras SET status=?,last_seen_at=?,metrics=? WHERE id=?',status,status==='online'?at:cam.last_seen_at,json({fps:c.fps??null,inferenceMs:c.inferenceMs??null,decodeMs:c.decodeMs??null,inspectionMs:c.inspectionMs??null},'camera metrics',500),cam.id);
     if (status==='online') resolveAlertKey(`vision:system:camera_offline:${cam.id}`,at);
     for (const s of Array.isArray(c.stats)?c.stats.slice(0,120):[]) {
       if (!MODULES[s?.module]||typeof s.minute!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(s.minute)) continue;

@@ -14,8 +14,24 @@ from .decisions import Detection
 from .platform import Platform
 from .settings import Settings
 
-PRESETS = {"vehicle_body": ["scratch", "dent", "crack", "stain"], "electronics": ["scratch", "crack", "solder_bridge", "missing_component"],
-           "logistics_container": ["dent", "hole", "rust", "deformation"]}
+# Defects that occur most on moulded parts are drawn more often (weights).
+COMMON = {"short_shot": 3, "flash": 4, "sink_mark": 5, "black_spot": 4, "scratch": 4, "splay": 2, "weld_line": 2, "burn_mark": 1}
+
+
+def part_for(rt, rnd, defect_rate=0.05):
+    """One moulded part: usually clean; sometimes a defect inside one of the inspection areas, 0.2-1.6 mm."""
+    defects = rt.modules["quality"].get("defects") or ["scratch", "crack"]
+    if rnd.random() > defect_rate:
+        return []
+    label = rnd.choices(defects, [COMMON.get(d, 1) for d in defects])[0]
+    rois = [z for z in rt.zones if z["kind"] == "inspection_roi"] or [{"points": [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]}]
+    pts = rnd.choice(rois)["points"]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    cx, cy = rnd.uniform(min(xs) + 0.02, max(xs) - 0.02), rnd.uniform(min(ys) + 0.02, max(ys) - 0.02)
+    mmpp = rt.modules["quality"].get("mmPerPixel") or 0.1
+    size_px = rnd.uniform(0.2, 1.6) / mmpp
+    w = size_px / rt.image_width_px
+    return [Detection(label, round(rnd.uniform(0.8, 0.99), 2), {"x": cx - w / 2, "y": cy - 0.01, "w": w, "h": 0.02}, attributes={"size_px": size_px})]
 
 
 def person(track, x, gear, conf=0.92, y=0.25, h=0.5):
@@ -68,10 +84,10 @@ def main():
     while time.time() - t0 < a.minutes * 60:
         t = time.time()
         for rt in agent.cameras.values():
-            if "quality" in rt.modules:
-                preset = rt.modules["quality"].get("preset", "electronics")
-                defects = [Detection(rnd.choice(PRESETS[preset]), 0.95, {"x": rnd.random() * 0.8, "y": rnd.random() * 0.8, "w": 0.05, "h": 0.03})] if rnd.random() < 0.01 else []
-                rt.on_part(defects, t, PRESETS[preset])
+            q = rt.modules.get("quality")
+            if q and t - getattr(rt, "_last_part", 0) >= q.get("cycleTimeS", 3):
+                rt._last_part = t                     # one part per machine cycle, as the PLC trigger would give
+                rt.on_part(part_for(rt, rnd), t, started=time.perf_counter() - rnd.uniform(0.12, 0.25))
             if any(m in rt.modules for m in ("ppe", "intrusion", "fire_smoke")):
                 rt.on_frame(frame_for(rt, t, rnd), t)
         if t - last_hb >= s.heartbeat_seconds:

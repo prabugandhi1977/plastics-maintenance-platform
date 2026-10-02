@@ -56,8 +56,10 @@ class Dispatcher:
             event["edgeActions"] = {**event.get("edgeActions", {}), **self._act(event, outs)}
             event["edgeActions"]["decisionToUplinkMs"] = round((time.perf_counter() - start) * 1000, 1)
             event.pop("broadcast", None)
+            media = event.pop("_media", ())
             self.platform.send_events([event])
             self.sent.append(("critical", [event]))
+            self._send_media(event, media)
 
     def run_normal(self):
         while not self.stop.is_set():
@@ -65,16 +67,27 @@ class Dispatcher:
             self.flush_normal()
 
     def flush_normal(self):
-        batch = []
+        batch, media = [], []
         while not self.normal.empty() and len(batch) < 200:
             _, event, outs = self.normal.get_nowait()
             if outs:
                 event["edgeActions"] = {**event.get("edgeActions", {}), **self._act(event, outs)}
+            media.append((event, event.pop("_media", ())))
             batch.append(event)
         if batch:
             self.platform.send_events(batch)
             self.sent.append(("normal", batch))
+            for event, m in media:
+                self._send_media(event, m)
         return len(batch)
+
+    def _send_media(self, event, media):
+        """Evidence attached to an event ("_media": [(kind, mime, bytes)]) goes up after the event itself."""
+        for kind, mime, data in media:
+            try:
+                self.platform.send_media(kind=kind, mime=mime, data=data, event_id=event["externalId"])
+            except Exception as e:  # evidence must never block alarms
+                print(f"Media upload for {event['externalId']} failed: {e}")
 
     def start(self):
         threading.Thread(target=self.run_critical, name="alarms-critical", daemon=True).start()

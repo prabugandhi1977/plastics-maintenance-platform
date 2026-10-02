@@ -18,7 +18,9 @@ The edge node is an industrial PC with an NVIDIA GPU, installed on the factory n
 | --- | --- | --- |
 | `edge_agent/decisions.py` | PPE check per person (gear on the right body part, zone, confidence, cooldown); fire/smoke temporal confirmation (flicker/growth, rejects welding arcs, confirms within 1.8 s); intrusion in exclusion zones minus approved machine motion, with dwell time and tripwires; quality defect size from calibration and minimum size | ✓ |
 | `edge_agent/alarms.py` | Two lanes: life-safety events pre-empt everything (local actions first, immediate upload); other events are batched | ✓ |
-| `edge_agent/outputs.py` | Modbus TCP Write Single Coil on a raw socket (no library), EtherNet/IP via `pycomm3`, GPIO via `gpioset`, HTTP relays; pulse and release | ✓ Modbus against a simulated PLC: < 15 ms |
+| `edge_agent/outputs.py` | Modbus TCP write coil / read coils and discrete inputs on a raw socket (no library), EtherNet/IP tag read and write via `pycomm3` over one open session per PLC, GPIO via `gpioset`, HTTP relays; pulse and release | ✓ Modbus against a simulated PLC: < 15 ms |
+| `edge_agent/sources.py` | Image capture per part: Cognex In-Sight Native Mode (SW8 trigger + RB image, one logged-in session), Hikvision ISAPI snapshot (digest/basic login), RTSP kept open by ffmpeg (newest frame after the trigger), Keyence/Hikrobot FTP folder (first image after the trigger) | ✓ against simulated cameras |
+| `edge_agent/quality.py` | Triggered inspection: PLC part-present rising edge → capture → model → grade by surface class A/B/C → NG or OK output → report; a part without an image is rejected | ✓ trigger to result against a simulated PLC and Cognex |
 | `edge_agent/broadcast.py` | Signed UDP multicast alarm on the factory subnet, sent 3×; example receiver for screens, PA and fire panels | ✓ |
 | `edge_agent/storage.py` | ffmpeg ring buffer (2-s segments, stream copy), 10-second clips from 5 s before to 5 s after, pruning agent (90 % → 85 %, locked clips never deleted) | ✓ |
 | `edge_agent/platform.py` | Edge API client with a disk outbox: nothing is lost while the uplink is down | ✓ |
@@ -82,6 +84,40 @@ docker run -d --name vision-edge --gpus all --restart unless-stopped --network h
 
 The platform shows the measured p95 of the broadcast and actuator times from the incidents' `edgeActions`.
 
+## Quality inspection on moulding lines (Hikvision, Keyence, Cognex; EtherNet/IP, Modbus)
+
+One inspection per part, driven by the machine:
+
+```
+PLC part-present ↑ ──▶ capture ──▶ model (GPU) ──▶ grade A/B/C ──▶ NG or OK to the PLC ──▶ report
+        (≤ 5 ms poll)   50–250 ms     20–60 ms        < 1 ms          < 15 ms                 async
+```
+
+**Cycle time.** The shortest machine cycle is 3 s. The OK/NG result is due within the **result budget** (default 500 ms, at most half the cycle; set per camera), leaving the robot and the PLC the rest of the cycle. Each result reports `inspectionMs` (trigger to output); the camera tile shows it, and a part over budget is flagged. **Program the PLC to treat a missing result within its own timeout as NG.** A part the camera could not capture is rejected and a `camera_offline` event is raised.
+
+**Grading.** Inspection areas drawn on the camera image carry a surface class (VDA 16): **A** visible surfaces, **B** partly visible, **C** hidden. A defect is placed by its centre (where areas overlap, the stricter class wins) and rejects the part when its size reaches the class limit (defaults A 0.5 mm, B 1.0 mm, C 2.0 mm; use the limits agreed with your customer). Defects outside every area are ignored. Without calibration (mm per pixel), sizes are unknown and every defect rejects the part.
+
+**Cameras.**
+
+| Make | Connection to choose | Address | Notes |
+| --- | --- | --- | --- |
+| Cognex In-Sight | Cognex In-Sight Native Mode | `admin:password@192.168.0.50:23` | The job must accept software triggers (Spreadsheet: AcquireImage trigger = External/Network) and the camera must be Online. The agent triggers with `SW8` and reads the image with `RB`. If the PLC triggers the camera directly (*Camera hardware trigger*), let the job write each image by FTP to the edge PC and choose *Image folder* instead. |
+| Hikvision IP camera | HTTP snapshot | `http://user:pass@192.168.0.64/ISAPI/Streaming/channels/101/picture` | Digest login (Hikvision default). Use a fixed exposure and a fixed focus. |
+| Hikvision / any IP camera | RTSP | `rtsp://user:pass@192.168.0.64:554/Streaming/Channels/101` | ffmpeg keeps the stream open; the first frame after the trigger is used. Adds the stream latency (~100–200 ms). |
+| Keyence CV-X / XG-X / IV, Hikrobot smart cameras | Image folder | `/data/vision/ftp/imm05` | Set the camera's image output to FTP on the edge PC (e.g. vsftpd). The agent takes the first image written after the trigger. |
+| Hikrobot / Keyence GigE Vision area-scan cameras | — | — | Use the maker's SDK (Hikrobot MVS, Keyence) or GenICam (Aravis/harvesters) behind a small adapter with the same `capture()`; not included yet. |
+
+**PLC.** In the quality module set the trigger input and the OK and NG outputs:
+
+| Protocol | Trigger input | OK / NG outputs |
+| --- | --- | --- |
+| EtherNet/IP (Rockwell/Omron CIP) | BOOL tag, e.g. `Cell5_PartPresent` | BOOL tags, e.g. `Cell5_VisionOK`, `Cell5_VisionNG` (pulsed) |
+| Modbus TCP | Discrete input or coil address | Coil addresses (pulsed) |
+
+The agent polls the trigger every 5 ms on a persistent connection and acts on the rising edge only (a signal held high is one part). With *Camera hardware trigger* there is no PLC input to read: use the image-folder connection, where each new image is one part.
+
+**Model.** Start the agent with `QUALITY_MODEL=package.module:factory`: `factory(camera)` returns `model(frame) -> [Detection]` (your TensorRT segmentation or PatchCore engine; see `MODELS.md`). Continuous quality cameras (*Continuous video* trigger) run in the DeepStream pipeline instead.
+
 ## Connecting VisionForge stations
 
 Quality stations running VisionForge (the browser inspection console with recipes, approval and PatchCore anomaly detection) can report through the same edge API: add the station as a camera of source type **VisionForge inspection station**, assign **Quality inspection**, and post each FAIL as a `defect` event plus per-minute `inspected`/`passed` counters in the heartbeat. Camera definitions use the same types as the VisionForge camera gateway (`rtsp`, `http-snapshot`, `cognex-native`, `folder`).
@@ -89,5 +125,6 @@ Quality stations running VisionForge (the browser inspection console with recipe
 ## Not done yet (needs your site)
 
 - Training and validating the models on your own images (see `MODELS.md`); accuracy targets cannot be met with generic public models.
-- Commissioning: camera placement and lighting, calibration targets for quality cameras, PLC addresses and timing tests on the real line, the multicast group on your switches (IGMP snooping).
+- Commissioning: camera placement and lighting, calibration targets for quality cameras, PLC tags/addresses and the trigger-to-result timing test on the real line (the PLC's NG-on-timeout), the multicast group on your switches (IGMP snooping).
+- A GigE Vision (GenICam) capture adapter for Hikrobot or Keyence area-scan cameras without FTP output.
 - A signed, versioned container image and over-the-air model updates driven from the platform (the retraining set is already collected).

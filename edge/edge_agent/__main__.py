@@ -4,6 +4,9 @@ On the edge PC the GPU pipelines start for the cameras the platform assigns to t
 (e.g. on a laptop) the agent still connects, syncs its configuration and sends heartbeats, so the platform
 side can be set up first; use edge_agent.simulate to generate demo detections.
 """
+import importlib
+import os
+
 from .agent import Agent
 from .platform import Platform
 from .settings import Settings
@@ -32,6 +35,21 @@ def main():
     except ImportError:
         print("DeepStream (pyds) not found: running without video pipelines (heartbeat and configuration only).")
         runner = None
+    # Triggered quality cameras (Cognex, Hikvision, Keyence): QUALITY_MODEL=package.module:factory, where
+    # factory(camera) returns model(frame) -> [Detection] (e.g. a TensorRT segmentation or PatchCore engine).
+    if os.environ.get("QUALITY_MODEL"):
+        mod, _, fn = os.environ["QUALITY_MODEL"].partition(":")
+        factory = getattr(importlib.import_module(mod), fn or "load")
+        inner = runner
+
+        def runner(a):  # noqa: E306 - starts quality inspection once the configuration is known
+            a.start_quality(factory)
+            if inner:
+                inner(a)
+            else:
+                import time
+                while True:
+                    time.sleep(3600)
     agent.run_forever(runner)
 
 

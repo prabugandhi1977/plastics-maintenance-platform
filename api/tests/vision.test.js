@@ -190,8 +190,13 @@ test('automotive plastic parts: preset, PLC trigger within the cycle, A/B/C acce
   // Defects from the edge feed the Vision quality page (FPY and Pareto per machine).
   await call(`/vision/nodes/${ctx.node}`,'PATCH',{maxStreams:4},tokens.acme);
   assert.equal((await call(`/vision/cameras/${cam.id}`,'PATCH',{nodeId:ctx.node},tokens.acme)).data.nodeId,ctx.node);
+  const conf=(await edge('/edge/v1/config')).data.cameras.find(c=>c.id===cam.id);
+  const q=conf.modules.find(m=>m.module==='quality').config;
+  assert.ok(q.defects.includes('short_shot')&&q.defects.includes('sink_mark'),'the node gets the preset defect classes to grade against');
+  assert.equal(conf.zones.find(z=>z.kind==='inspection_roi').surfaceClass,'A');
   const minute=new Date().toISOString().slice(0,16);
-  await edge('/edge/v1/heartbeat',{configVersion:0,cameras:[{id:cam.id,status:'online',stats:[{minute,module:'quality',frames:20,inspected:20,passed:18}]}]});
+  await edge('/edge/v1/heartbeat',{configVersion:0,cameras:[{id:cam.id,status:'online',inspectionMs:212,stats:[{minute,module:'quality',frames:20,inspected:20,passed:18}]}]});
+  assert.equal(JSON.parse(db.prepare('SELECT metrics FROM vision_cameras WHERE id=?').get(cam.id).metrics).inspectionMs,212);
   const r=await edge('/edge/v1/events',{events:['sink_mark','short_shot'].map((defect,i)=>({externalId:`auto-${i}`,cameraId:cam.id,module:'quality',type:'defect',occurredAt:new Date().toISOString(),detail:{preset:'automotive_plastic',defect,surfaceClass:'A',sizeMm:1.2}}))});
   assert.equal(r.data.accepted,2,JSON.stringify(r.data.results));
   const row=db.prepare("SELECT inspected,rejected,defects,source FROM vision_results WHERE equipment_id='eq-a2' AND station='Door panel QA'").get();

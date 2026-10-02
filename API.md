@@ -389,12 +389,12 @@ Details and the requirement mapping: `docs/VISION.md`. Edge node: `edge/README.m
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/edge/v1/heartbeat` | `{agentVersion, configVersion, metrics, cameras:[{id, status, fps, inferenceMs, stats:[{minute, module, frames, people, compliant, inspected, passed, ignored}]}]}`. Reply: `{serverTime, configVersion, config?}`; the config is included when the node's version is out of date |
-| `GET` | `/edge/v1/config` | The node's cameras (full stream URLs), licensed modules with settings, zones, and settings (clip length, pruning limit, broadcast group) |
+| `POST` | `/edge/v1/heartbeat` | `{agentVersion, configVersion, metrics, cameras:[{id, status, fps, inferenceMs, inspectionMs, stats:[{minute, module, frames, people, compliant, inspected, passed, ignored}]}]}`. Reply: `{serverTime, configVersion, config?}`; the config is included when the node's version is out of date |
+| `GET` | `/edge/v1/config` | The node's cameras (make, connection, full stream URLs), licensed modules with settings (quality also gets its preset's `defects`), zones (inspection areas with `surfaceClass` A/B/C), and settings (clip length, pruning limit, broadcast group) |
 | `POST` | `/edge/v1/events` | `{events:[{externalId, cameraId, module, type, severity?, confidence, occurredAt, zoneId?, detail, boxes:[{x,y,w,h,label,confidence}], edgeActions}]}`, 1–500 per request; critical events are processed first; replays with the same `externalId` are reported as duplicates |
 | `POST` | `/edge/v1/media` | `{eventId (id or externalId), kind: snapshot\|clip, mime, base64}` or `{cameraId, kind: frame, …}` (background for drawing zones). JPEG/PNG/WebP images, MP4 clips, up to 6 MB |
 
-Event types: `ppe` → `ppe_violation` (`detail.missing`); `fire_smoke` → `fire`, `smoke`; `intrusion` → `intrusion_person`, `intrusion_vehicle` (`zoneId`); `quality` → `defect` (`detail.preset`, `detail.defect`, `detail.sizeMm`); `system` → `camera_offline`, `camera_tamper`, `node_overheat`, `disk_full`, `model_error`.
+Event types: `ppe` → `ppe_violation` (`detail.missing`); `fire_smoke` → `fire`, `smoke`; `intrusion` → `intrusion_person`, `intrusion_vehicle` (`zoneId`); `quality` → `defect` (`detail.preset`, `detail.defect`, `detail.sizeMm`, `detail.surfaceClass`, `detail.limitMm`; `edgeActions.inspectionMs` from PLC trigger to OK/NG); `system` → `camera_offline`, `camera_tamper`, `node_overheat`, `disk_full`, `model_error`.
 
 **Management API** (signed-in users; viewing follows company access, configuring needs the platform admin or the company's customer admin)
 

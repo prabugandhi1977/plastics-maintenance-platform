@@ -11,6 +11,28 @@ The platform is model-agnostic: the edge node runs any ONNX model through Tensor
 | Intrusion | People and vehicles (forklifts, trucks) | Same detector (COCO person/vehicle classes) + NvDCF tracker | Zones, dwell time and approved machine motion are handled by the agent, not the model |
 | Quality | Surface defects at 0.5 mm | **Anomaly detection (PatchCore, via anomalib, Apache-2.0)** to start, then a **segmentation model (SegFormer / U-Net)** per preset once defects are labelled | PatchCore needs only good parts (as in VisionForge); segmentation gives defect classes and sizes |
 
+### Automotive plastic parts
+
+The quality model for moulded parts is trained on the preset's defect classes (the names the platform uses):
+
+| Class | Looks like | Where to expect it |
+| --- | --- | --- |
+| `short_shot` | Incomplete part, missing material at the end of flow | Thin ribs, clips, far end from the gate |
+| `flash` | Thin excess material | Parting line, ejector pins, slides |
+| `sink_mark` | Shallow depression | Opposite ribs and bosses (often class A) |
+| `warpage` | Part bent or twisted | Long flat panels; best with a 3D or fixture check |
+| `burn_mark` / `black_spot` | Dark or black marks/specks | End of flow, vents; degraded material |
+| `splay` | Silver streaks | Near the gate; moisture |
+| `weld_line` / `flow_lines` / `jetting` | Lines or wavy patterns | Where flow fronts meet; near gates |
+| `scratch` / `crack` | Line damage / fracture | Handling, ejection, robot gripper |
+| `contamination` | Foreign particles | Anywhere |
+| `colour_variation` / `gloss_variation` | Shade or gloss differs from the master | Visible surfaces; needs stable lighting |
+| `missing_feature` / `dimensional` | Clip or insert missing; out of tolerance | Feature check by ROI; measurement by calibration |
+
+Recommended order: start with **PatchCore** trained on good parts per part number (finds anything unusual), label what it finds into the classes above, then train the **segmentation** model so each defect gets a class and a size. The size and the surface class (A/B/C areas drawn in the platform, VDA 16) decide OK/NG on the edge, not the model, so the same model serves parts with different acceptance limits.
+
+Lighting decides what can be seen: a diffuse dome for sink marks, gloss and colour on grained or glossy class A surfaces; low-angle light for scratches, flow lines and weld lines; backlight for short shots and missing features. Keep exposure fixed and calibrate the shade against a master part each shift.
+
 ### Licensing: please check before production
 
 - **Ultralytics YOLOv5/v8/11 are AGPL-3.0.** Using them in a commercial product requires releasing your source code or buying an Ultralytics Enterprise licence. RT-DETR and YOLOX (Apache-2.0) avoid this.
