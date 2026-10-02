@@ -148,3 +148,5 @@ dialog.confirm .modal-body h2{margin:0 0 8px;font-size:18px}
 .tabs .tab:hover{background:var(--brand-wash);color:var(--ink)} .tabs .tab.active{color:var(--brand-dark);border-bottom-color:var(--brand)}
 .modal-body h3{margin:16px 0 6px;font-size:15px}
 .help.scan-ok{color:var(--good);font-weight:600} .help.scan-bad{color:#903f37;font-weight:600}
+
+.chip{display:inline-flex;align-items:center;gap:4px} .chip-x{border:0;background:none;color:var(--muted);font-size:15px;line-height:1;padding:0 2px;cursor:pointer;border-radius:50%} .chip-x:hover{color:#b0413e} button.chip-add{cursor:pointer;color:var(--good);font-weight:650;border-style:dashed}

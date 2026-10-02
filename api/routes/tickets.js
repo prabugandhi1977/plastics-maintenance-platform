@@ -7,7 +7,7 @@ import { created } from '../http.js';
 import { storeFile } from '../files.js';
 import { coverageFor, responseTarget } from './contracts.js';
 import { HttpError, bad, choice, date, deny, integer, missing, required } from '../validate.js';
-import { FAILURE_CATEGORIES, MACHINE_STATES, FAILURE_MODES, ROOT_CAUSES, ACTIONS } from '../catalog.js';
+import { MACHINE_STATES, codes } from '../catalog.js';
 import { resolveScan, scanFor, scanPolicy } from '../scan.js';
 
 const TRANSITIONS={assigned:['accepted','declined','escalated'],accepted:['in_progress','escalated'],in_progress:['escalated','completed'],escalated:['in_progress','completed']};
@@ -76,7 +76,7 @@ function serviceAction(u,t,body) {
     if (!one('SELECT 1 FROM work_logs WHERE ticket_id=?',t.id)) bad('A work log is required before completion');
     const gaps=[...(!body.failureMode?['failure mode']:[]),...(!body.rootCause?['root cause']:[]),...(!body.actionTaken?['action taken']:[])];
     if (gaps.length) bad(`To complete a breakdown, record the ${gaps.join(', ')}`);
-    closeOut={failure_mode:choice(body.failureMode,'failureMode',FAILURE_MODES),root_cause:choice(body.rootCause,'rootCause',ROOT_CAUSES),action_taken:choice(body.actionTaken,'actionTaken',ACTIONS)};
+    closeOut={failure_mode:choice(body.failureMode,'failureMode',codes('failure_modes')),root_cause:choice(body.rootCause,'rootCause',codes('root_causes')),action_taken:choice(body.actionTaken,'actionTaken',codes('actions'))};
     // Closing is tied to the machine: scan its QR label or RFID tag, unless the scan policy or a dispatcher override allows otherwise.
     closeLink=body.scanCode?{via:scanFor(body.scanCode,byId('equipment',t.equipment_id))}:unscanned(u,body,'close');
     // A stopped machine with no downtime entered: downtime runs from when the failure started until now.
@@ -124,7 +124,7 @@ export function register(r) {
     if (body.safetyIssue) priority='critical';
     const key=id(); run('INSERT INTO tickets (id,company_id,plant_id,equipment_id,title,priority,symptoms,error_codes,production_impact,status,created_by,created_at,downtime_minutes,failure_category,machine_state,safety_issue,occurred_at,raised_via,raised_scan_at,scan_override_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       key,e.company_id,e.plant_id,e.id,required(body.title,'title',160),priority,required(body.symptoms,'symptoms',3000),String(body.errorCodes||'').slice(0,500),required(body.productionImpact,'productionImpact',1000),'open',u.id,stamp,0,
-      choice(body.failureCategory,'failureCategory',FAILURE_CATEGORIES),choice(body.machineState,'machineState',MACHINE_STATES),body.safetyIssue?1:0,occurredAt,
+      choice(body.failureCategory,'failureCategory',codes('failure_categories')),choice(body.machineState,'machineState',MACHINE_STATES),body.safetyIssue?1:0,occurredAt,
       link.via,scanned?stamp:null,link.reason?`Raise: ${link.reason}`:null);
     if (link.via!=='alert') ticketEvent(key,u,'scan',SCAN_LABEL[link.via]?`Raised at the machine: ${SCAN_LABEL[link.via]}`:link.via==='override'?`Raised without a scan: ${link.reason}`:'Raised without a scan (scan optional)',stamp);
     if (body.safetyIssue) ticketEvent(key,u,'safety','Safety issue reported: priority set to critical',stamp);

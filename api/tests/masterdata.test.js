@@ -141,3 +141,25 @@ test('dashboard reports MTTR, MTBF, availability and a 12-week trend',async()=>{
   assert.equal(d.kpi.periodDays,90);
   assert.equal((await call('/dashboard','GET',null,tokens.atlas)).data.kpi.mtbfHours,null);
 });
+
+test('failure coding lists: a platform admin adds and deletes codes; recorded tickets keep theirs',async()=>{
+  const cat=async()=>(await call('/catalog','GET',null,tokens.acme)).data;
+  assert.equal((await call('/settings/codes/failureCategories','POST',{label:'Lubrication'},tokens.acme)).status,403);
+  assert.equal((await call('/settings/codes/machineTypes','POST',{label:'Robot'},tokens.admin)).status,400);
+  const added=await call('/settings/codes/failureCategories','POST',{label:'Lubrication & grease'},tokens.admin);
+  assert.equal(added.status,201); assert.equal(added.data.code,'lubrication_and_grease');
+  assert.equal((await cat()).failureCategories.at(-1),'lubrication_and_grease');
+  assert.match(error(await call('/settings/codes/failureCategories','POST',{label:'lubrication and GREASE'},tokens.admin)),/already in the list/);
+  // The new code is accepted on a ticket straight away.
+  const t=await call('/tickets','POST',ticketBody('eq-a',{failureCategory:'lubrication_and_grease'}),tokens.acme);
+  assert.equal(t.status,201);
+  assert.equal((await call('/settings/codes/failureCategories/lubrication_and_grease','DELETE',null,tokens.acme)).status,403);
+  const del=await call('/settings/codes/failureCategories/lubrication_and_grease','DELETE',null,tokens.admin);
+  assert.equal(del.data.ticketsKeepingCode,1); assert.ok(!(await cat()).failureCategories.includes('lubrication_and_grease'));
+  assert.equal((await call(`/tickets/${t.data.id}`,'GET',null,tokens.acme)).data.failure_category,'lubrication_and_grease');
+  assert.match(error(await call('/tickets','POST',ticketBody('eq-a',{failureCategory:'lubrication_and_grease'}),tokens.acme)),/failureCategory must be one of/);
+  assert.equal((await call('/settings/codes/failureCategories/lubrication_and_grease','DELETE',null,tokens.admin)).status,404);
+  // Close-out lists are editable too, but never emptied.
+  for (const code of (await cat()).actions.slice(1)) assert.equal((await call(`/settings/codes/actions/${code}`,'DELETE',null,tokens.admin)).status,200);
+  assert.match(error(await call(`/settings/codes/actions/${(await cat()).actions[0]}`,'DELETE',null,tokens.admin)),/at least one/);
+});

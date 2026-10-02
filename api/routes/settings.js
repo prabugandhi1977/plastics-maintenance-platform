@@ -5,7 +5,7 @@ import { isInternal, isPlatform } from '../security.js';
 import { audit } from '../access.js';
 import { created } from '../http.js';
 import { bad, deny, missing, required, integer, array, choice } from '../validate.js';
-import { catalog, DEFAULT_RESPONSE_HOURS, MACHINE_TYPES } from '../catalog.js';
+import { catalog, codes, CODE_LISTS, DEFAULT_RESPONSE_HOURS, MACHINE_TYPES } from '../catalog.js';
 import { scanPolicy } from '../scan.js';
 
 const PRIORITIES=['critical','high','medium','low'];
@@ -46,6 +46,26 @@ export function register(r) {
     const current=scanPolicy(), value={raise:choice(body.raise??current.raise,'raise',['required','optional']),close:choice(body.close??current.close,'close',['required','optional'])};
     run("INSERT INTO settings (key,value,updated_at) VALUES ('scan_policy',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify(value),now());
     audit(u,'settings.scan_policy','settings','scan_policy',null,value); return value;
+  });
+
+  // Failure coding lists: add a code, or delete one. Tickets keep codes recorded before a deletion.
+  const COLUMN={failureCategories:'failure_category',failureModes:'failure_mode',rootCauses:'root_cause',actions:'action_taken'};
+  r.post('/settings/codes/:list',({u,body,params})=>{
+    if (!isPlatform(u)) deny(); const key=choice(params.list,'list',Object.keys(CODE_LISTS)), list=CODE_LISTS[key];
+    const text=required(body.label,'label',60), code=text.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/&/g,' and ').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    if (!code) bad('Use letters or digits in the name');
+    if (one('SELECT 1 FROM code_lists WHERE list=? AND code=?',list,code)) bad(`"${text}" is already in the list`);
+    if (codes(list).length>=60) bad('A list can hold at most 60 codes');
+    run('INSERT INTO code_lists (list,code,position,created_at) VALUES (?,?,(SELECT COALESCE(max(position),0)+1 FROM code_lists WHERE list=?),?)',list,code,list,now());
+    audit(u,'settings.code_add','code_list',`${list}:${code}`,null,{label:text}); return created({list:key,code,codes:codes(list)});
+  });
+  r.delete('/settings/codes/:list/:code',({u,params})=>{
+    if (!isPlatform(u)) deny(); const key=choice(params.list,'list',Object.keys(CODE_LISTS)), list=CODE_LISTS[key], code=decodeURIComponent(params.code);
+    if (!one('SELECT 1 FROM code_lists WHERE list=? AND code=?',list,code)) missing();
+    if (codes(list).length<=1) bad('A list needs at least one code');
+    run('DELETE FROM code_lists WHERE list=? AND code=?',list,code);
+    const used=one(`SELECT count(*) n FROM tickets WHERE ${COLUMN[key]}=?`,code).n;
+    audit(u,'settings.code_delete','code_list',`${list}:${code}`,null,{ticketsKeepingCode:used}); return {list:key,code,deleted:true,ticketsKeepingCode:used,codes:codes(list)};
   });
 
   r.get('/settings/checklists',({u})=>{ if (!isInternal(u)) deny(); return Object.fromEntries(MACHINE_TYPES.map(t=>[t,all('SELECT item FROM checklist_templates WHERE machine_type=? ORDER BY position',t).map(x=>x.item)])); });

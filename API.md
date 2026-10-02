@@ -82,6 +82,8 @@ Data scoping and auditing:
 | `GET` | `/catalog` | Master-data catalogue: machine parameter sets and ISO 14224 code lists |
 | `GET, POST` | `/service-areas` | Managed service-area list (create: platform admin) |
 | `PATCH` | `/service-areas/:code` | Rename a service area (the code stays fixed) |
+| `POST` | `/settings/codes/:list` | Platform admin: add a failure code `{label}` to `failureCategories`, `failureModes`, `rootCauses` or `actions`. The code is the label in lower case with underscores |
+| `DELETE` | `/settings/codes/:list/:code` | Platform admin: delete a code (a list keeps at least one). Tickets keep codes already recorded; the reply says how many (`ticketsKeepingCode`) |
 | `GET, PATCH` | `/settings/scan-policy` | `{raise, close}`, each `required` or `optional` (read: everyone, also in `/catalog` as `scanPolicy`; change: platform admin) |
 | `GET, PATCH` | `/settings/response-targets` | Default response hours by priority (read: internal staff; change: platform admin) |
 | `GET` | `/settings/checklists` | Standard checklist per machine type |
