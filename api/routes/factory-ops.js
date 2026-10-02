@@ -6,6 +6,7 @@ import { created } from '../http.js';
 import { HttpError, bad, choice, date, deny, missing, required, array, instant } from '../validate.js';
 import { PRODUCTION_MACHINES, PROCESS_PARAMS, SAFETY_EVENTS, ZONE_KINDS, ASSET_KINDS, TAG_TYPES } from '../catalog.js';
 import { batchSummary, genealogy, lotUsage, quarantineLot } from '../factory/trace.js';
+import { fifoWarnings, windowOf, releaseBlockers, deviationsOf } from '../factory/traceability.js';
 import { qualityReport } from '../factory/quality.js';
 import { recordSafety, closeSafety, safetyReport } from '../factory/safety.js';
 import { checkMissing, assetView } from '../factory/assets.js';
@@ -57,12 +58,18 @@ export function register(r) {
     const lots=array(body.lots,'lots'); if (!lots.length) bad('Record at least one material lot');
     const lotRows=lots.map((l,i)=>{ const lot=byId('material_lots',l.lotId); if (!lot||lot.company_id!==product.company_id) bad(`lots[${i}]: unknown lot`); if (lot.status!=='released') bad(`Lot ${lot.lot_number} is ${lot.status} and cannot be used`); return {lot,qty:l.quantityKg==null||l.quantityKg===''?null:num(l.quantityKg,`lots[${i}].quantityKg`,0,1e7)}; });
     const params=Object.fromEntries(PROCESS_PARAMS[machine.machine_type].map(([k,label])=>[k,num(body.processParams?.[k],label,0,100000)]));
+    // Real-time validation: start settings must sit inside the product's validated process window.
+    const win=windowOf(product), outside=PROCESS_PARAMS[machine.machine_type].filter(([k])=>win[k]&&((win[k].min!=null&&params[k]<win[k].min)||(win[k].max!=null&&params[k]>win[k].max)));
+    if (outside.length) bad(`Outside the validated process window of ${product.part_number}: ${outside.map(([k,label,unit])=>`${label} ${params[k]} ${unit} (allowed ${win[k].min??'–'}…${win[k].max??'–'})`).join('; ')}`);
+    // FIFO: older lots of the same material with stock left must be used first, unless a reason is given.
+    const fifo=fifoWarnings(lotRows.map(r=>r.lot)), fifoOverride=typeof body.fifoOverride==='string'&&body.fifoOverride.trim()?body.fifoOverride.trim().slice(0,300):null;
+    if (fifo.length&&!fifoOverride) bad(`FIFO: ${fifo.map(f=>`use older lot ${f.olderLot} (${f.remainingKg} kg left) before ${f.lot}`).join('; ')}. Or give a reason to override FIFO.`);
     const zone=plantOf(machine).timezone, startedAt=body.startedAt?date(body.startedAt,'startedAt',zone):now(), key=id();
     transaction(()=>{
-      run('INSERT INTO batches (id,company_id,batch_number,product_id,equipment_id,mould_id,operator_name,planned_qty,status,started_at,process_params,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',key,product.company_id,batchNumber,product.id,machine.id,mould?.id??null,required(body.operatorName,'operatorName',120),num(body.plannedQty,'plannedQty',1,1e9),'running',startedAt,JSON.stringify(params),now());
+      run('INSERT INTO batches (id,company_id,batch_number,product_id,equipment_id,mould_id,operator_name,planned_qty,status,started_at,process_params,created_at,started_by,fifo_override) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',key,product.company_id,batchNumber,product.id,machine.id,mould?.id??null,required(body.operatorName,'operatorName',120),num(body.plannedQty,'plannedQty',1,1e9),'running',startedAt,JSON.stringify(params),now(),u.id,fifo.length?`${fifoOverride} (skipped ${fifo.map(f=>f.olderLot).join(', ')})`:null);
       for (const {lot,qty} of lotRows) run('INSERT INTO batch_materials (batch_id,lot_id,quantity_kg) VALUES (?,?,?)',key,lot.id,qty);
     });
-    audit(u,'batch.start','batch',key,product.company_id); return created(batchSummary(byId('batches',key)));
+    audit(u,'batch.start','batch',key,product.company_id,fifo.length?{fifoOverride}:{}); return created(batchSummary(byId('batches',key)));
   });
   r.get('/trace/batches/:id',({u,params})=>{ view(u); return genealogy(owned(u,byId('batches',params.id))); });
   r.post('/trace/batches/:id/complete',({u,body,params})=>{
@@ -70,7 +77,9 @@ export function register(r) {
     const endedAt=body.endedAt?date(body.endedAt,'endedAt',plantOf(byId('equipment',b.equipment_id)).timezone):now(); if (endedAt<=b.started_at) bad('The end must be after the start');
     // Output from the machine's own counts unless entered by hand.
     const counted=batchSummary({...b,ended_at:endedAt});
-    run("UPDATE batches SET status='completed',ended_at=?,good_qty=?,scrap_qty=? WHERE id=?",endedAt,body.goodQty==null||body.goodQty===''?counted.good:num(body.goodQty,'goodQty'),body.scrapQty==null||body.scrapQty===''?counted.scrap:num(body.scrapQty,'scrapQty'),b.id);
+    // Undecided process deviations put the batch on hold when the product asks for it.
+    const hold=byId('products',b.product_id).hold_on_deviation&&deviationsOf(b.id).some(d=>d.status==='open');
+    run("UPDATE batches SET status=?,hold_reason=?,ended_at=?,good_qty=?,scrap_qty=? WHERE id=?",hold?'on_hold':'completed',hold?'Process deviations need a decision':null,endedAt,body.goodQty==null||body.goodQty===''?counted.good:num(body.goodQty,'goodQty'),body.scrapQty==null||body.scrapQty===''?counted.scrap:num(body.scrapQty,'scrapQty'),b.id);
     audit(u,'batch.complete','batch',b.id,b.company_id); return batchSummary(byId('batches',b.id));
   });
   // Quality release decisions: release a completed or held batch, hold it, or scrap it.
@@ -78,9 +87,9 @@ export function register(r) {
     const b=owned(u,byId('batches',params.id)); if (!canManage(u,b.company_id)) deny();
     const status=choice(body.status,'status',['released','on_hold','scrapped']);
     if (status==='released'&&!['completed','on_hold'].includes(b.status)) bad('Only a completed or held batch can be released');
-    if (status==='released'&&b.status==='on_hold'&&lotUsageBlocked(b.id)) bad('A material lot of this batch is still quarantined');
+    if (status==='released') { const blockers=releaseBlockers(b); if (blockers.length) bad(`Cannot release ${b.batch_number}: ${blockers.join('; ')}`); }
     if (status!=='released'&&!body.reason) bad('Give a reason to hold or scrap a batch');
-    run('UPDATE batches SET status=?,hold_reason=? WHERE id=?',status,status==='released'?null:String(body.reason).slice(0,300),b.id); audit(u,`batch.${status}`,'batch',b.id,b.company_id,{reason:body.reason??null});
+    run('UPDATE batches SET status=?,hold_reason=?,released_by=?,released_at=? WHERE id=?',status,status==='released'?null:String(body.reason).slice(0,300),status==='released'?u.id:b.released_by,status==='released'?now():b.released_at,b.id); audit(u,`batch.${status}`,'batch',b.id,b.company_id,{reason:body.reason??null});
     return batchSummary(byId('batches',b.id));
   });
   r.get('/trace/search',({u,query})=>{ view(u); const q=`%${String(query.get('q')||'').trim().toUpperCase()}%`; if (q.length<4) bad('Type at least 2 characters'); const [w,a]=companyFilter(u);
@@ -137,4 +146,4 @@ export function register(r) {
     const stays=[]; for (const s of all('SELECT s.seen_at,s.zone_id,z.name,z.kind FROM asset_sightings s JOIN zones z ON z.id=s.zone_id WHERE s.asset_id=? AND s.seen_at>=? ORDER BY s.seen_at',a.id,new Date(Date.now()-hours*3600000).toISOString())) { const last=stays[stays.length-1]; if (last&&last.zoneId===s.zone_id) last.to=s.seen_at; else stays.push({zoneId:s.zone_id,zone:s.name,kind:s.kind,from:s.seen_at,to:s.seen_at}); }
     return {asset:assetView(a),stays:stays.reverse()}; });
 }
-function lotUsageBlocked(batchId) { return !!one("SELECT 1 FROM batch_materials bm JOIN material_lots l ON l.id=bm.lot_id WHERE bm.batch_id=? AND l.status='quarantined'",batchId); }
+

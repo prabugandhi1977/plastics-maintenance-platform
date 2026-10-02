@@ -7,6 +7,7 @@ import { createVision } from './vision.js';
 import { $, esc, btn, pill, humanise, dataTable, bindTables, simpleTable, field, select, checkboxes, yesNo, section, specFields, specsFromForm, openDialog, closeDialog, confirmAction, toast, incomplete } from './ui.js';
 import { columnChart, barChart, lineChart, statTile, bindCharts } from './charts.js';
 import { createOps } from './ops.js';
+import { createTrace } from './trace.js';
 
 const state={token:null,user:null,page:'dashboard',detail:null,error:'',data:{},cat:null};
 const is=(...roles)=>roles.includes(state.user.role);
@@ -34,7 +35,7 @@ async function load(){
   const out=await Promise.all(paths.map(async p=>[p,await api('/'+p).catch(()=>[])]));
   state.data=Object.fromEntries(out.map(([p,v])=>[{'integrations/status':'integrations','alerts/summary':'alertSummary','alerts/emails':'alertEmails','service-areas':'serviceAreas','settings/response-targets':'responseTargets','settings/checklists':'checklists'}[p]||p,v]));
   if (!state.cat) state.cat=await api('/catalog').catch(()=>null);
-  state.floor=undefined; state.oee=undefined; state.condition=undefined; state.energy=undefined; ops.reset();
+  state.floor=undefined; state.oee=undefined; state.condition=undefined; state.energy=undefined; ops.reset(); trace.reset();
   render();
 }
 
@@ -79,12 +80,12 @@ async function boot(){
 }
 
 // ---------- Layout ----------
-const ICONS={vision:'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',visionCameras:'M3 7h11v10H3zM14 10l7-4v12l-7-4',visionIncidents:'M12 3l9 16H3L12 3zm0 6v4m0 3v.5',visionNodes:'M4 4h16v6H4zM4 14h16v6H4zM7 7h.01M7 17h.01',dashboard:'M3 13h7V3H3v10zm0 8h7v-6H3v6zm11 0h7V11h-7v10zm0-18v6h7V3h-7z',tickets:'M4 4h16v4a2 2 0 0 0 0 4v4H4v-4a2 2 0 0 0 0-4V4zm6 2v2m0 3v2m0 3v2',equipment:'M4 18h16M6 18V9l6-4 6 4v9M10 18v-5h4v5',contracts:'M7 3h7l5 5v13H7V3zm7 0v5h5M10 13h6M10 17h6',parts:'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zm0 9l8-4.5M12 12v9M12 12L4 7.5',organisation:'M4 21V7l8-4 8 4v14M9 21v-6h6v6M8 10h.01M12 10h.01M16 10h.01',providers:'M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0M19 8h3m-1.5-1.5v3',settings:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2-1.2L14.5 3h-4l-.4 2.6a7.6 7.6 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7.6 7.6 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z',integrations:'M7 7h10v10H7zM3 10h4M3 14h4M17 10h4M17 14h4M10 3v4M14 3v4M10 17v4M14 17v4',audit:'M9 11l2 2 4-4M5 4h14v16H5z',account:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0'};
+const ICONS={traceHub:'M10 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm9 15l-4.5-4.5',processControl:'M3 17l5-6 4 3 5-7 4 4M3 21h18',dispatch:'M3 7h11v9H3zM14 10h4l3 3v3h-7M7 19a2 2 0 1 0 0-.01M17 19a2 2 0 1 0 0-.01',fieldReturns:'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',vision:'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',visionCameras:'M3 7h11v10H3zM14 10l7-4v12l-7-4',visionIncidents:'M12 3l9 16H3L12 3zm0 6v4m0 3v.5',visionNodes:'M4 4h16v6H4zM4 14h16v6H4zM7 7h.01M7 17h.01',dashboard:'M3 13h7V3H3v10zm0 8h7v-6H3v6zm11 0h7V11h-7v10zm0-18v6h7V3h-7z',tickets:'M4 4h16v4a2 2 0 0 0 0 4v4H4v-4a2 2 0 0 0 0-4V4zm6 2v2m0 3v2m0 3v2',equipment:'M4 18h16M6 18V9l6-4 6 4v9M10 18v-5h4v5',contracts:'M7 3h7l5 5v13H7V3zm7 0v5h5M10 13h6M10 17h6',parts:'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zm0 9l8-4.5M12 12v9M12 12L4 7.5',organisation:'M4 21V7l8-4 8 4v14M9 21v-6h6v6M8 10h.01M12 10h.01M16 10h.01',providers:'M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0M19 8h3m-1.5-1.5v3',settings:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2-1.2L14.5 3h-4l-.4 2.6a7.6 7.6 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7.6 7.6 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z',integrations:'M7 7h10v10H7zM3 10h4M3 14h4M17 10h4M17 14h4M10 3v4M14 3v4M10 17v4M14 17v4',audit:'M9 11l2 2 4-4M5 4h14v16H5z',account:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0'};
 Object.assign(ICONS,{condition:'M3 12h4l3-8 4 16 3-8h4',energy:'M13 2L4 14h7l-1 8 9-12h-7l1-8z',floor:'M3 21V10l5 3V10l5 3V7l8 4v10H3zM7 17h2M12 17h2M17 17h2',oee:'M12 3a9 9 0 1 0 9 9M12 3v9l6.4 6.4M21 12h-9',alerts:'M6 17V11a6 6 0 1 1 12 0v6l2 2H4l2-2zm4 4h4',products:'M4 7l8-4 8 4-8 4-8-4zm0 5l8 4 8-4M4 17l8 4 8-4',trace:'M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1',quality:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',safety:'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3zm-3 9l2 2 4-4',assets:'M12 21s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12zm0-9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'});
 const icon=name=>`<svg viewBox="0 0 24 24" class="nav-icon" aria-hidden="true"><path d="${ICONS[name]}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const NAV_GROUPS=[['Maintenance',['dashboard','tickets','equipment','contracts','parts']],['Smart factory',['floor','oee','condition','energy','quality','trace','safety','assets','alerts','products']],['Vision AI',['vision','visionCameras','visionIncidents','visionNodes']],['Administration',['organisation','providers','settings','integrations','audit']],['',['account']]];
+const NAV_GROUPS=[['Production (IMM)',['floor','oee','products','alerts']],['Vision inspection & quality',['vision','quality','visionIncidents','visionCameras','visionNodes']],['Traceability',['traceHub','trace','processControl','dispatch','fieldReturns']],['Maintenance',['dashboard','tickets','equipment','condition','contracts','parts','assets']],['Energy (EMS)',['energy']],['Safety',['safety']],['Administration',['organisation','providers','settings','integrations','audit']],['',['account']]];
 const visionViewer=()=>customer()||is('platform_admin','dispatcher');
-const visible=p=>({vision:visionViewer(),visionCameras:visionViewer(),visionIncidents:visionViewer(),visionNodes:visionViewer(),quality:factoryViewer(),trace:factoryViewer(),safety:factoryViewer(),assets:factoryViewer(),floor:factoryViewer(),oee:factoryViewer(),condition:factoryViewer(),energy:factoryViewer(),alerts:factoryViewer(),products:factoryViewer(),organisation:manager()||is('provider_admin'),providers:internal()||provider(),settings:internal(),integrations:deviceAdmin(),audit:manager()})[p]??true;
+const visible=p=>({traceHub:factoryViewer(),processControl:factoryViewer(),dispatch:factoryViewer(),fieldReturns:factoryViewer(),vision:visionViewer(),visionCameras:visionViewer(),visionIncidents:visionViewer(),visionNodes:visionViewer(),quality:factoryViewer(),trace:factoryViewer(),safety:factoryViewer(),assets:factoryViewer(),floor:factoryViewer(),oee:factoryViewer(),condition:factoryViewer(),energy:factoryViewer(),alerts:factoryViewer(),products:factoryViewer(),organisation:manager()||is('provider_admin'),providers:internal()||provider(),settings:internal(),integrations:deviceAdmin(),audit:manager()})[p]??true;
 function layout(content){
   const nav=NAV_GROUPS.map(([title,pages])=>{ const items=pages.filter(visible); return items.length?`${title?`<div class="nav-group">${esc(title)}</div>`:'<div class="nav-sep"></div>'}${items.map(p=>`<button class="nav ${state.page===p&&!state.detail?'active':''}" data-nav="${p}" ${state.page===p&&!state.detail?'aria-current="page"':''}>${icon(p)}<span>${esc(t('nav.'+p))}</span></button>`).join('')}`:''; }).join('');
   const crumbs=state.detail?`<nav class="crumbs" aria-label="Breadcrumb"><a data-action="back">${esc(t('nav.'+state.page))}</a> › <span>${esc(state.detail.type==='ticket'?state.detail.value.title:assetName(state.detail.value.id)||state.detail.value.model)}</span></nav>`:'';
@@ -92,13 +93,13 @@ function layout(content){
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{state.page=el.dataset.nav;state.detail=null;state.error='';render();$('#main')?.focus?.();});
   document.querySelectorAll('[data-action]').forEach(el=>el.onclick=()=>action(el.dataset.action,el.dataset.id));
   $('#locale').onchange=e=>api('/me','PATCH',{locale:e.target.value}).then(me=>{state.user=me;setLocale(me.preferences.locale);render()}).catch(fail);
-  bindTables(render); bindCharts(); bindInlineForms(); ops.bind(); vision.bind(); vision.startAlarms(); loadAuthImages(document,state.token); bindAssistant();
+  bindTables(render); bindCharts(); bindInlineForms(); ops.bind(); trace.bind(); vision.bind(); vision.startAlarms(); loadAuthImages(document,state.token); bindAssistant();
   document.querySelectorAll('[data-nav-to]').forEach(el=>el.onclick=()=>{state.page=el.dataset.navTo;state.detail=null;render()});
   const plantSel=$('#floor-plant'); if (plantSel) plantSel.onchange=()=>{state.floorPlant=plantSel.value;state.floor=undefined;render()};
   document.querySelectorAll('[data-energy]').forEach(el=>el.onchange=()=>{state.energyFilter[el.dataset.energy]=el.value;if(el.dataset.energy==='plantId')state.energyFilter.equipmentId='';state.energy=undefined;render()});
   document.querySelectorAll('[data-oee]').forEach(el=>el.onchange=()=>{state.oeeFilter[el.dataset.oee]=el.value;if(el.dataset.oee==='plantId')state.oeeFilter.equipmentId='';state.oee=undefined;render()});
 }
-function render(){if(!state.user)return loginView();const content=state.detail?.type==='ticket'?ticketDetail():state.detail?.type==='equipment'?assetDetail():({dashboard:overview,tickets,equipment,contracts,parts,organisation,providers,settings:settingsView,integrations:integrationsView,audit:auditView,account,floor:floorView,oee:oeeView,condition:conditionView,energy:energyView,alerts:alertsView,products:productsView,...ops.views,...vision.views}[state.page]||overview)();layout(content);scheduleFloor();}
+function render(){if(!state.user)return loginView();const content=state.detail?.type==='ticket'?ticketDetail():state.detail?.type==='equipment'?assetDetail():({dashboard:overview,tickets,equipment,contracts,parts,organisation,providers,settings:settingsView,integrations:integrationsView,audit:auditView,account,floor:floorView,oee:oeeView,condition:conditionView,energy:energyView,alerts:alertsView,products:productsView,...ops.views,...trace.views,...vision.views}[state.page]||overview)();layout(content);scheduleFloor();}
 const header=(title,sub,actions='')=>`<div class="page-head"><p class="muted">${esc(sub)}</p><div class="row">${actions}</div></div>`;
 
 // ---------- Overview ----------
@@ -501,6 +502,7 @@ async function action(name,id){
   if(name==='logout'){vision.stopAlarms();vision.reset();state.token=null;state.user=null;state.detail=null;state.page='dashboard';clearSession();return boot()}
   if(name==='back'){state.detail=null;return render()}
   if(ops.ACTIONS.includes(name))return ops.action(name,id);
+  if(trace.ACTIONS.includes(name))return trace.action(name,id);
   if(vision.ACTIONS.includes(name))return vision.action(name,id);
   if(name==='ticket'||name==='equipment')return loadDetail(name,id).then(v=>{state.detail={type:name,value:v};render();window.scrollTo(0,0)}).catch(fail);
   if(name==='done'||name==='undo')return api('/checklist/'+id,'PATCH',{done:name==='done'}).then(()=>refresh()).catch(fail);
@@ -570,6 +572,7 @@ async function loadDetail(type,id){ if (type==='equipment') return api('/equipme
 async function refresh(){if(state.detail)state.detail.value=await loadDetail(state.detail.type,state.detail.value.id).catch(()=>{state.detail=null});await load();}
 const fileBase64=file=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(file)});
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-download]');if(!a)return;e.preventDefault();try{const r=await fetch(a.href,{headers:{authorization:`Bearer ${state.token}`}});if(!r.ok)throw Error('Unable to download');const url=URL.createObjectURL(await r.blob()),link=document.createElement('a');link.href=url;link.download=a.textContent;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(err){toast(err.message,'error')}});
+const trace=createTrace({state,api,render,fail,when,header,factoryManager,admin:()=>admin(),customer:()=>customer()});
 const vision=createVision({state,api,render,fail,when,header,is,customer:()=>customer(),admin:()=>admin(),raiseTicket:(equipmentId,prefill)=>ticketForm(equipmentId,null,prefill)});
 const ops=createOps({state,api,save,render,fail,when,assetName,header,RANGES,pctText,since,factoryManager,admin,is,customer,t,refresh,action});
 boot();

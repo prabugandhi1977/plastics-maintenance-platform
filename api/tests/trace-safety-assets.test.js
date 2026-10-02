@@ -37,14 +37,31 @@ test('traceability: lots and batches are tenant-scoped; batch start validates mo
   assert.match((await call('/trace/batches','POST',{...body,processParams:{...capParams,cycleTimeS:undefined}},tokens.acme)).data.error,/Cycle time/i);
   assert.match((await call('/trace/batches','POST',{...body,lots:[{lotId:'lot-npp'}]},tokens.acme)).data.error,/unknown lot/);
   assert.match((await call('/trace/batches','POST',{...body,lots:[]},tokens.acme)).data.error,/at least one material lot/);
+  // FIFO: the older lot PP-24-0815 still has stock, so taking the newer one needs a reason.
+  assert.match((await call('/trace/batches','POST',body,tokens.maint)).data.error,/FIFO: use older lot PP-24-0815/);
+  body.fifoOverride='Older lot reserved for the medical order';
   const started=await call('/trace/batches','POST',body,tokens.maint);
-  assert.equal(started.status,201); assert.equal(started.data.batch_number,'B-CAP-NEW-1'); assert.equal(started.data.process_params.cycleTimeS,4.9);
+  assert.equal(started.status,201); assert.match(one('SELECT * FROM batches WHERE id=?',started.data.id).fifo_override,/reserved.*skipped PP-24-0815/); assert.equal(one('SELECT * FROM batches WHERE id=?',started.data.id).started_by,'u-acme-maint'); assert.equal(started.data.batch_number,'B-CAP-NEW-1'); assert.equal(started.data.process_params.cycleTimeS,4.9);
   assert.match((await call('/trace/batches','POST',body,tokens.acme)).data.error,/already exists/);
   const done=await call(`/trace/batches/${started.data.id}/complete`,'POST',{goodQty:900,scrapQty:12},tokens.maint);
   assert.deepEqual([done.data.status,done.data.good,done.data.scrap],['completed',900,12]);
   assert.equal((await call(`/trace/batches/${started.data.id}/status`,'POST',{status:'released'},tokens.maint)).status,403);
   assert.match((await call(`/trace/batches/${started.data.id}/status`,'POST',{status:'on_hold'},tokens.acme)).data.error,/reason/);
-  assert.equal((await call(`/trace/batches/${started.data.id}/status`,'POST',{status:'released'},tokens.acme)).data.status,'released');
+  // Quality gates: release is blocked until every gate with a check sheet has passed.
+  const bid=started.data.id, check=(gate,answers,tok=tokens.maint)=>call(`/trace/batches/${bid}/checks`,'POST',{gate,answers},tok);
+  assert.match((await call(`/trace/batches/${bid}/status`,'POST',{status:'released'},tokens.acme)).data.error,/First-article inspection not done.*Final QC not done/);
+  assert.match((await check('final_qc',[{ok:true}])).data.error,/Answer all 3 items/);
+  const fail=await check('first_article',[{ok:true},{value:2.35},{ok:true}]);
+  assert.deepEqual([fail.status,fail.data.result,fail.data.answers[1].ok],[201,'fail',false]);
+  assert.equal(one('SELECT status FROM batches WHERE id=?',bid).status,'on_hold');
+  assert.ok(one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status='open'",`gate:${bid}:first_article`));
+  assert.equal((await check('first_article',[{ok:true},{value:2.1},{ok:true}])).data.result,'pass');
+  assert.ok(!one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status='open'",`gate:${bid}:first_article`));
+  assert.equal((await check('final_qc',[{ok:true},{value:1.6},{value:0}])).data.result,'pass');
+  assert.equal((await check('packaging',[{ok:true},{ok:true}])).data.result,'pass');
+  const rel=await call(`/trace/batches/${bid}/status`,'POST',{status:'released'},tokens.acme);
+  assert.equal(rel.data.status,'released',JSON.stringify(rel.data));
+  assert.equal(one('SELECT released_by FROM batches WHERE id=?',bid).released_by,'u-acme');
 });
 
 test('traceability: quarantining a lot holds exactly the batches that used it, then genealogy shows the context',async()=>{
@@ -55,7 +72,7 @@ test('traceability: quarantining a lot holds exactly the batches that used it, t
   assert.equal(q.lot.status,'quarantined'); assert.deepEqual(q.affected.map(b=>b.previousStatus).sort(),['completed','released']);
   assert.equal(one("SELECT status FROM batches WHERE id='b-btl3'").status,'running','batch using only the other lot is untouched');
   assert.ok(one("SELECT 1 FROM alerts WHERE dedupe_key='lot-quarantine:lot-hd1' AND module='quality'"));
-  assert.match((await call('/trace/batches/b-btl1/status','POST',{status:'released'},tokens.acme)).data.error,/still quarantined/);
+  assert.match((await call('/trace/batches/b-btl1/status','POST',{status:'released'},tokens.acme)).data.error,/material lot of this batch is quarantined/);
   run("UPDATE batches SET status='completed',ended_at=? WHERE id='b-btl3'",new Date().toISOString());
   assert.match((await call('/trace/batches','POST',{productId:'pr-btl',equipmentId:'eq-bm',batchNumber:'X1',operatorName:'A',plannedQty:10,lots:[{lotId:'lot-hd1'}],processParams:{parisonTempC:195,blowPressureBar:7,cycleTimeS:14}},tokens.acme)).data.error,/quarantined and cannot be used/);
   await call('/trace/lots/lot-hd1/release','POST',{},tokens.acme);

@@ -381,6 +381,35 @@ Same access as the other factory data: the customer's own staff and the platform
 - occasional safety-camera detections; older ones are already closed
 - tag sightings every 30 minutes from 2 days back: assets move between the zones their kind uses, trolleys sometimes go outside, and one gauge goes silent to show the "missing" alert
 
+## Traceability suite
+
+Same access as the other factory data. Customer staff record (labels, checks, shipments, returns, readings); customer admins and plant managers decide (product rules, deviations, return decisions, cancelling a shipment).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/trace/find?code=` | Any code (label serial, pallet, batch, lot, delivery note, return reference) → `{found, chain:{lots, batches (with gates and deviations), units, shipments, returns, focusUnit}, traceMs}`; suggestions when nothing matches |
+| `GET` | `/trace/kpis` | Compliance readiness, first-time quality, open deviations, failed gates, quarantined lots, labels in stock, shipments, open returns, field ppm, average recall-scope reduction (last 90 days) |
+| `GET`/`PUT` | `/trace/products`, `/trace/products/:id` | Product rules: `customer`, `warrantyMonths`, `packQty`, `holdOnDeviation`, `processWindow:{setting:{min,max}}`, `checkSheets:{first_article\|in_process\|final_qc\|packaging:[{label,type:ok}\|{label,type:measure,min,max,unit}]}` |
+| `GET` | `/trace/batches/:id/quality` | Gates (required, attempts, latest result), deviations, SPC per setting, release blockers, labels |
+| `POST` | `/trace/batches/:id/checks` | `{gate, answers:[{ok}\|{value}], note}`: one answer per check-sheet item; result pass/fail. A fail raises an alert and puts a completed or released batch on hold |
+| `POST` | `/trace/batches/:id/readings` | `{readings:[{parameter, value, observedAt?}]}` for a running batch. Out-of-window readings open (or extend) a deviation and raise an alert (critical when the product holds on deviation) |
+| `POST` | `/trace/deviations/:id/decision` | `{decision: accepted\|rejected, disposition}`. A rejected deviation blocks release |
+| `GET` | `/trace/deviations`, `/trace/spc?productId&days` | Deviation list; SPC (n, mean, σ, Cp, Cpk, UCL/LCL, readings) per setting for a product |
+| `GET` | `/trace/fifo?lotIds=` | Older lots of the same material with stock left |
+| `POST` | `/trace/batches/:id/units` | `{kind: box\|part, count, perUnit}` → serialised labels. Never more than the batch's good (or, while running, planned) quantity |
+| `POST` | `/trace/pallets` | `{serials:[box labels]}` → pallet label |
+| `GET` | `/trace/units/:serial`, `/trace/stock` | A label (with pallet contents); finished goods in stock |
+| `GET`/`POST` | `/trace/shipments` | Shipments: `customer`, `channel` (oem, tier1, distributor, aftermarket, internal), `destination`, `customerPo`, `shipmentNumber` (auto `DN-YYYY-nnnnn`) |
+| `POST` | `/trace/shipments/:id/scan`, `/remove`, `/ship`, `/cancel` | Load a label (checks: packed, not on a pallet, batch released with no blockers, product's customer) → `{shipment, warnings}` (FIFO); remove; ship (re-checked); cancel |
+| `GET` | `/trace/recall?lotId=\|batchId=` | Batches, labels in stock, quantities per customer and shipment, and the scope without lot records |
+| `GET` | `/trace/authenticate?serial&customer` | Warranty authentication: `genuine`, `suspicious` or `not_found`, with each check |
+| `GET`/`POST`/`PATCH` | `/trace/returns`, `/trace/returns/:id` | Field returns: `kind` (complaint, warranty_claim, field_failure), `customer`, `serial` or `batchNumber`, `defect`, `quantity`, `description`; decisions `status`, `rootCause`, `correctiveAction` |
+| `GET` | `/trace/correlation`, `/trace/suppliers` | Returns per 1,000 shipped by lot, supplier, machine, mould, operator, product and setting; supplier scorecards |
+
+Batch rules added to `/trace/batches`: settings outside the product's window are refused; skipping an older lot with stock needs `fifoOverride` (recorded with the batch); the signed-in user is recorded as `started_by`. Completing with undecided deviations puts the batch on hold when the product says so. Releasing requires every gate passed, every deviation decided (none rejected) and no quarantined lot.
+
+**Intake:** `{type:'process', deviceId, at, values:{meltTempC:231.5, holdPressureBar:640, …}}` records the settings of the batch running on the mapped machine.
+
 ## Vision AI
 
 Details and the requirement mapping: `docs/VISION.md`. Edge node: `edge/README.md`.

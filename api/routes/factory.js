@@ -1,4 +1,5 @@
 // Smart factory: live floor, OEE analytics, products, shifts, alerts, machine-data intake and the simulator.
+import { recordReadings } from '../factory/traceability.js';
 import { timingSafeEqual } from 'node:crypto';
 import { id, now, one, all, run, transaction } from '../db.js';
 import { isCustomer, isPlatform } from '../security.js';
@@ -166,7 +167,11 @@ export function register(r) {
         const defects=ev.defects??{}; if (typeof defects!=='object'||Array.isArray(defects)) bad('defects must be an object of defect → count'); const allowed=DEFECT_TYPES[e.machine_type]||[]; for (const [k,v] of Object.entries(defects)) { if (!allowed.includes(k)) bad(`defect must be one of: ${allowed.join(', ')}`); n(v,`defects.${k}`); }
         return {index,status:recordVision(e,{station:required(ev.station??'Camera 1','station',60),periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,inspected,rejected,defects},'device')}; }
       if (ev.type==='safety') return safetyEvent(ev,{companyId:e.company_id,plantId:e.plant_id,equipmentId:e.id},index);
-      bad('type must be state, count, condition, energy, vision, safety or sighting');
+      // Process settings per shot/cycle (e.g. from an OPC UA / Euromap 77 gateway) go to the batch running on the machine.
+      if (ev.type==='process') { const b=one("SELECT * FROM batches WHERE equipment_id=? AND status='running'",e.id); if (!b) bad('No batch is running on this machine');
+        if (!ev.values||typeof ev.values!=='object'||Array.isArray(ev.values)) bad('values must be an object of setting → number'); const at=instant(ev.at,'at');
+        const r=recordReadings(b,Object.entries(ev.values).map(([parameter,value])=>({parameter,value,observedAt:at})),'machine',{inTransaction:true}); return {index,status:'accepted',batch:b.batch_number,deviations:r.deviations.length}; }
+      bad('type must be state, count, condition, energy, vision, safety, process or sighting');
     } catch(err) { if (err instanceof HttpError) return {index,status:'rejected',error:err.message}; throw err; } }));
     const count=s=>results.filter(x=>x.status===s).length;
     return {accepted:count('accepted'),unchanged:count('unchanged'),duplicates:count('duplicate'),rejected:count('rejected'),results};

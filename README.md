@@ -57,9 +57,33 @@ The seed sets up two customers and two approved providers:
 - **Acme** has an injection moulding machine and a mould in Chicago, an annual contract with an 8-hour response target, an earlier completed repeat of the same hydraulic fault, and a quoted spare part.
 - **Nova** has an extrusion line in Cologne and a contract due for renewal within 90 days.
 
+## Menu
+
+The menu follows the plant's functions:
+
+| Group | Pages |
+| --- | --- |
+| **Production (IMM)** | Live shop floor, OEE performance, Products & cycle times, Machine alerts |
+| **Vision inspection & quality** | Vision overview, Inspection results (FPY, PPM), Vision incidents, Cameras & AI modules, Edge nodes & licences |
+| **Traceability** | Trace search & genealogy, Batches & material lots, Process control (SPC), Dispatch & shipments, Field returns & warranty |
+| **Maintenance** | Maintenance overview, Breakdown tickets, Equipment register, Condition monitoring, Service contracts, Spare parts requests, Asset tracking |
+| **Energy (EMS)** | Energy & CO₂ |
+| **Safety** | Safety events (camera PPE, fire and intrusion alarms come from Vision AI) |
+| **Administration** | Companies, plants & users, Service providers, Settings, Machine data (IoT), Audit trail |
+
+## Traceability: forward, backward and real time
+
+Built on the practice of leading MES traceability products (genealogy, process windows with SPC, quality gates, scan-verified dispatch, warranty authentication). See [docs/TRACEABILITY.md](docs/TRACEABILITY.md) for each requirement and how it is met.
+
+- **Trace search & genealogy:** scan or type any code (box or pallet label, part serial, batch, material lot, delivery note, return reference) and see the whole chain in one view: material lots and suppliers → batch (machine, mould, operator, settings) → quality gates and deviations → labels → shipments and customers → field returns. Headline figures: compliance readiness (batches with a complete record), first-time quality, open deviations, field ppm, recall scope narrowed.
+- **Backward:** FIFO check when a batch starts (older lots of the same material must be used first, or the override is recorded with a reason); the signed-in person is recorded with the operator; supplier scorecards (lots, quarantines, batches held, deviations and field returns caused).
+- **Real time:** each product has a validated **process window**. A batch cannot start outside it. Live readings from the machine (`process` events on the machine-data intake, e.g. from an OPC UA / Euromap 77 gateway) outside the window open a **deviation** with an alert, which a manager accepts or rejects. **Quality gates** (first article, in-process, final QC, packaging) are digital check sheets with OK/Not OK items and measured values with limits; a failed gate puts a finished batch on hold. A batch is released only when every gate passed, every deviation is decided, and no material lot is quarantined. **SPC:** Cp/Cpk per setting and control charts with UCL/LCL and the window.
+- **Forward:** box labels and serialised parts with QR codes (printable labels), pallets, and **dispatch** by scanning labels onto a delivery note. Loading refuses labels of batches not released, parts made for another customer, and boxes already on a pallet or shipment; it warns when older stock should go first. **Recall scope** of a lot or batch: batches, labels still in stock, quantities at each customer and delivery note, compared with recalling the whole production.
+- **Field returns & warranty:** complaints, warranty claims and field failures recorded by label serial (or batch number). Each claim is authenticated: label printed by us, shipped, to this customer, within warranty, not claimed before. **Field correlation** ranks lots, suppliers, machines, moulds, operators and process settings by returns per 1,000 shipped.
+
 ## Smart factory
 
-The platform now monitors production as well as maintaining machines, under the **Smart factory** menu:
+The platform monitors production as well as maintaining machines:
 
 - **Live floor:** every machine's state and this shift's OEE. It refreshes every 30 seconds.
 - **OEE:** results by period, plant and machine, with a chart of where time was lost and a short guide to the calculation.
@@ -68,7 +92,7 @@ The platform now monitors production as well as maintaining machines, under the 
 - **Condition:** each machine's health from sensor readings against warning and critical limits, with trend charts and a limits editor. A critical reading raises a maintenance ticket automatically.
 - **Energy:** kWh, kWh per kg, wasted energy, CO₂ (supplier factor or national average) and cost (set the electricity price under *Organisation*).
 - **Quality:** camera inspection results. Shows first-pass yield, rejects per million (PPM) and a defect Pareto by machine. A rising reject rate raises an alert.
-- **Traceability:** material lots → batches → output. Each batch records its lots, machine, mould, operator and process settings. A batch's *genealogy* also shows the stops, alerts, maintenance and camera rejects on its machine while it ran. Quarantining a lot puts exactly the batches that used it on hold.
+- **Batches & material lots:** material lots → batches → output. Each batch records its lots, machine, mould, operator and process settings. A batch's *genealogy* also shows the stops, alerts, maintenance and camera rejects on its machine while it ran. Quarantining a lot puts exactly the batches that used it on hold.
 - **Safety:** events detected by cameras, wearables and sensors, and reported by people (also from the mobile app, offline). Each event is investigated and closed with a root cause and a corrective action. The page shows days without a lost-time injury and the near-miss count.
 - **Asset tracking:** moulds, tools, gauges and trolleys located by zone from BLE beacons or RFID tags. Alerts for a guarded asset in a restricted or outside zone, a tag not heard for too long, and a low tag battery. Each asset has a 48-hour location history.
 - **Shifts:** set under *Companies, plants & users → Plants → Edit shifts*.

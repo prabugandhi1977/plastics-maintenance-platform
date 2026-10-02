@@ -23,12 +23,13 @@ import * as factory from './routes/factory.js';
 import * as factoryOps from './routes/factory-ops.js';
 import * as assistant from './routes/assistant.js';
 import * as vision from './routes/vision.js';
+import * as traceability from './routes/traceability.js';
 import { checkNodes, pruneMedia } from './vision.js';
 import { simulateAll, simulatorEnabled } from './factory/simulator.js';
 import { checkMissing } from './factory/assets.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,factory,factoryOps,assistant,vision]) area.register(router);
+for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,factory,factoryOps,traceability,assistant,vision]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};

@@ -220,3 +220,19 @@ button.chip{cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink);font-w
 @keyframes va-pulse{50%{box-shadow:0 0 0 6px #ff5a4f66,0 10px 30px #0005}}
 @media (prefers-reduced-motion:reduce){.vision-alarm{animation:none}}
 [hidden]{display:none!important}
+/* Traceability suite */
+.trace-search .scan-input{flex:1 1 380px} a.trace-code{cursor:pointer;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+.tflow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:12px}
+.tcol{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:0;position:relative}
+.tcol:not(:last-child)::after{content:'→';position:absolute;right:-10px;top:12px;color:var(--muted);font-weight:700}
+.tcol-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px}
+.tnode{background:var(--surface,#fff);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px;overflow-wrap:anywhere}
+.tnode.focus{border:2px solid var(--brand,#0f766e)} .tnode .mini{margin-top:2px}
+.check-row{flex-direction:row!important;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--line);padding:6px 0}
+.chart-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;margin-top:12px}
+.notice.ok{background:var(--good-wash);color:var(--good)}
+.inline-filter{display:flex;gap:8px;align-items:center;font-weight:600}
+@media (max-width:1100px){.tflow{grid-template-columns:repeat(2,minmax(0,1fr))} .tcol::after{display:none}}
+@media (max-width:640px){.tflow{grid-template-columns:1fr} .chart-grid{grid-template-columns:1fr}}
+/* Phones: the alarm sits at the bottom (menu stays reachable) and wraps its buttons instead of overflowing. */
+@media (max-width:640px){.vision-alarm{top:auto;bottom:12px;flex-wrap:wrap;gap:8px 10px;padding:10px 12px}.vision-alarm .va-text{flex:1 1 calc(100% - 80px);min-width:0;overflow-wrap:anywhere}.vision-alarm .va-x{position:absolute;top:6px;right:6px}.vision-alarm button:not(.va-x){flex:1 1 auto}}
