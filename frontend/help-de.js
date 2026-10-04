@@ -91,7 +91,8 @@ export const HELP_DE={
     tips:['Die Disposition kann ohne Scan fortfahren, wenn sie einen Grund angibt; er bleibt an der Störmeldung.']},
   equipment:{what:'Maschinen, Werkzeuge und Peripheriegeräte mit technischen Parametern, Dokumenten und Historie.',who:'Kunden-Admins und Plattform-Admins legen an; die Disposition kann bearbeiten.',
     tasks:[['Eine Anlage anlegen',['<b>Add equipment</b> anklicken: Werk, Maschinentyp, Inventarnummer, Hersteller, Modell, Seriennummer, Baujahr.','Kritikalität, Status und Standort festlegen, dann die Pflichtparameter für diesen Maschinentyp ausfüllen.']],
-      ['Eine Maschine finden',['Die Liste durchsuchen oder filtern, dann die Inventarnummer anklicken.']]],
+      ['Eine Maschine finden',['Die Liste durchsuchen oder filtern, dann die Inventarnummer anklicken.']],
+      ['Eine Maschine korrigieren',['In ihrer Zeile (oder im Maschinendatensatz) <b>Bearbeiten</b> anklicken, um alle Felder zu prüfen und zu ändern: Werk, Maschinentyp, Inventarnummer, QR-Etikett, RFID-Tag, Hersteller, Modell, Seriennummer, Einstufung und technische Parameter.','Bei einem neuen Maschinentyp werden die technischen Parameter für diesen Typ abgefragt.']]],
     tips:['„Incomplete“ kennzeichnet Maschinen, bei denen Pflichtparameter fehlen.']},
   equipmentRecord:{title:'Maschinendatensatz',what:'Alles zu einer Maschine: Kennzeichnung, Parameter, Live-Daten, Dokumente, Etikett und Störmeldungen.',
     tasks:[['Häufige Aktionen',['<b>Bearbeiten</b>, um Angaben zu ändern.','<b>Störung melden</b> für diese Maschine.','<b>Attach manual or document</b> (PDF oder Bild).','<b>Connect IoT device</b>: die externe Geräte-ID aus Ihrem Maschinendatensystem eintragen und festlegen, wann die Daten als veraltet gelten.','Das <b>Equipment label</b> (QR) drucken und an der Maschine anbringen, damit an der Maschine gescannt werden kann.']]]},
@@ -106,7 +107,8 @@ export const HELP_DE={
     tasks:[['Ein Teil anfordern',['In der Störmeldung <b>Ersatzteil anfordern</b> anklicken: Teilenummer, Hersteller, Beschreibung, Menge, Einheit und Dringlichkeit.']],
       ['Anbieten und freigeben',['Der Partner verwendet <b>Angebot senden</b>: Preis, Währung, Lieferzeit und Gültigkeit.','Der Kunde öffnet <b>Angebote</b> und gibt eines frei, bevor es abläuft.']]]},
   assets:{what:'Wo sich Werkzeuge, Vorrichtungen, Messmittel und Wagen befinden – über BLE-Beacons und RFID-Tags.',who:'Kundenrollen, Disposition und Plattform-Admins; Verantwortliche legen Zonen und Assets an.',
-    tasks:[['Ortung einrichten',['<b>Add location zone</b>: Werk, Name, Art und die Leser- bzw. Gateway-ID.','<b>Add tracked asset</b>: Name, Art, Tag-ID und Technik, Heimatzone, verknüpfte Anlage und ab wann es als vermisst gemeldet wird.']],
+    tasks:[['Ortung einrichten',['<b>Add location zone</b>: Werk, Name, Art und die Leser- bzw. Gateway-ID.','<b>Add tracked asset</b>: Name, Art, Technik, Heimatzone, verknüpfte Anlage und ab wann es als vermisst gemeldet wird. Für die <b>Tag ID</b> den Code auf dem Beacon mit <b>Scan QR</b> lesen, auf einem Android-Telefon mit NFC <b>Read RFID/NFC tag</b> verwenden, ein Handlesegerät benutzen oder sie eintippen.']],
+      ['Tag oder Lesegerät ersetzen',['Das Asset bzw. die Zone <b>Bearbeiten</b> und die neue Tag- oder Lesegeräte-ID scannen oder eintippen. Der Ortungsverlauf bleibt erhalten.']],
       ['Ein Asset finden',['Die Liste durchsuchen; <b>Location history</b> zeigt, wo es war.']]]},
 
   // ---------- Energie, Sicherheit ----------

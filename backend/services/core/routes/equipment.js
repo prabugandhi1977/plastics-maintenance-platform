@@ -62,10 +62,18 @@ export function register(r) {
     const rfid=body.rfidTag===undefined?e.rfid_tag:uniqueRfid(rfidTag(body.rfidTag),e.id);
     // A replaced label: send its code. Empty keeps the current one.
     const qr=body.qrCode==null||String(body.qrCode).trim()===''?e.qr_code:uniqueQr(qrLabel(body.qrCode),e.id);
-    const specs=body.specs==null?e.specs:JSON.stringify(validateSpecs(e.machine_type,body.specs,sameCompanyAsset(e.company_id)));
+    // A wrong machine type can be corrected; its technical parameters are then validated for the new type. A machine
+    // that auxiliary units serve cannot become a mould or auxiliary unit itself while they still point at it.
+    const type=body.machineType==null?e.machine_type:choice(body.machineType,'machineType',MACHINE_TYPES);
+    if (type!==e.machine_type) {
+      if (body.specs==null) bad('Give the technical parameters for the new machine type');
+      if (['mould','auxiliary'].includes(type)) { const served=one("SELECT asset_tag FROM equipment WHERE company_id=? AND id<>? AND json_extract(specs,'$.linkedEquipmentId')=? LIMIT 1",e.company_id,e.id,e.id);
+        if (served) bad(`${served.asset_tag||'An auxiliary unit'} serves this machine; link it elsewhere before changing the type to ${type}`); }
+    }
+    const specs=body.specs==null?e.specs:JSON.stringify(validateSpecs(type,body.specs,sameCompanyAsset(e.company_id)));
     if (body.specs?.linkedEquipmentId===e.id) bad('An auxiliary unit cannot serve itself');
-    run('UPDATE equipment SET plant_id=?,make=?,model=?,serial_number=?,location=?,asset_tag=?,criticality=?,status=?,year_built=?,commissioned_at=?,warranty_until=?,specs=?,rfid_tag=?,qr_code=? WHERE id=?',
-      plantId,value('make','make',100),value('model','model',100),value('serialNumber','serial_number',100),value('location','location',160),tag,
+    run('UPDATE equipment SET machine_type=?,plant_id=?,make=?,model=?,serial_number=?,location=?,asset_tag=?,criticality=?,status=?,year_built=?,commissioned_at=?,warranty_until=?,specs=?,rfid_tag=?,qr_code=? WHERE id=?',
+      type,plantId,value('make','make',100),value('model','model',100),value('serialNumber','serial_number',100),value('location','location',160),tag,
       body.criticality==null?e.criticality:choice(body.criticality,'criticality',CRITICALITY),body.status==null?e.status:choice(body.status,'status',EQUIPMENT_STATUS),
       body.yearBuilt==null?e.year_built:yearBuilt(body.yearBuilt),body.commissionedAt===undefined?e.commissioned_at:optionalDate(body.commissionedAt,'commissionedAt'),body.warrantyUntil===undefined?e.warranty_until:optionalDate(body.warrantyUntil,'warrantyUntil'),specs,rfid,qr,e.id);
     audit(u,'equipment.update','equipment',e.id,e.company_id,{fields:Object.keys(body)}); return present(byId('equipment',e.id));
