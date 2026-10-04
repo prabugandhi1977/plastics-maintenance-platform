@@ -264,9 +264,11 @@ backend/scripts/                seed, demo data, first-admin bootstrap, IoT sync
 backend/tests/                  API workflow, IoT and platform tests
 frontend/                       Desktop web workspace (served as the site root)
 frontend/mobile/                Installable field app with offline queue and signature capture
+frontend/mobile/help*.js        Field app help in English and German: topics from the header's ? button, available offline
 frontend/ops.js                 Smart factory pages: traceability, quality, safety, asset tracking
 frontend/ui.js                  Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
 frontend/charts.js              Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
+frontend/help.js, help-de.js     In-app help in English and German: purpose, roles and step-by-step tasks for every page (Help button or ? key)
 frontend/shared/                Translations and formatting, signature pad (used by both clients)
 frontend/scripts/               Development helpers (app icon generator); not shipped in the image
 edge/                           Python vision edge agent
