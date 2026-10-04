@@ -264,6 +264,7 @@ backend/scripts/                seed, demo data, first-admin bootstrap, IoT sync
 backend/tests/                  API workflow, IoT and platform tests
 frontend/                       Desktop web workspace (served as the site root)
 frontend/mobile/                Installable field app with offline queue and signature capture
+frontend/mobile/help.js         Field app help: collapsible topics from the header's ? button, available offline
 frontend/ops.js                 Smart factory pages: traceability, quality, safety, asset tracking
 frontend/ui.js                  Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
 frontend/charts.js              Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
