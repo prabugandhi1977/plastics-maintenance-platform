@@ -6,12 +6,12 @@ The MVP covers the core service workflows. This document plans what comes next a
 
 | Need | Where it plugs in |
 | --- | --- |
-| New feature area (API) | Add `api/routes/<area>.js` exporting `register(router)` and list it in `api/server.js`. Handlers receive `{u, body, params, query}` and use `api/access.js` for tenant-scoped lookups. |
-| New machine-data source | Add `api/iot/adapters/<name>.js` implementing `fetchBatch` and `toCanonical`, then register it in `adapters/index.js`. Ingest, deduplication, quarantine and freshness are shared. |
+| New feature area (API) | Add `backend/services/<area>/routes/<area>.js` exporting `register(router)`, export it from that service's `index.js`, and list it in `backend/server.js`. Handlers receive `{u, body, params, query}` and use `backend/common/access.js` for tenant-scoped lookups. |
+| New machine-data source | Add `backend/services/iot/adapters/<name>.js` implementing `fetchBatch` and `toCanonical`, then register it in `adapters/index.js`. Ingest, deduplication, quarantine and freshness are shared. |
 | Work-order history | `ticket_events` is the ticket timeline. Remote sessions, AI suggestions and alerts add event types to it, so every feature shares one history. |
 | Evidence and documents | `attachments` already holds private manuals, photos, evidence and signatures, all checked by file type. AI retrieval reads only from approved documents here. |
 | Field use with poor connectivity | Field-app actions use `{offline:true}` routes with idempotent replay. |
-| Languages | Add a catalogue to `web/shared/i18n.js` and its code to `LOCALES` in `api/routes/auth.js`. |
+| Languages | Add a catalogue to `frontend/shared/i18n.js` and its code to `LOCALES` in `backend/services/core/routes/auth.js`. |
 
 ## Phase 0: production hardening (before the first live customer)
 

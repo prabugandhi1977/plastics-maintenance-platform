@@ -8,7 +8,7 @@ Base URL: `http://localhost:3100/api`. All request and response bodies are JSON.
 - **Dates and times in requests:** a date-only value (`2026-01-01`) means UTC midnight. A date-time must carry a UTC offset (`Z` or `+05:30`) and is rejected without one. The one exception is a contract visit's `dueAt`: a time with no offset, such as `2026-11-15T08:00`, is read in the asset's plant time zone.
 - **Money** is stored in minor units (`amountMinor`) with an ISO 4217 currency code.
 
-Route handlers live in `api/routes/`, one module per area. `api/access.js` holds the tenant-scoped lookups that every module uses.
+Route handlers live in `backend/services/<area>/routes/`, one module per area. `backend/common/access.js` holds the tenant-scoped lookups that every module uses.
 
 ## Access model
 
@@ -184,7 +184,7 @@ Each record type has a mandatory set of parameters, based on industry practice:
 - **EN 13306 / EN 15341** (maintenance terms and key performance indicators) for KPI definitions.
 - **Machine-builder data sheets** for machine parameters.
 
-The catalogue in `api/catalog.js` is the single source: the API validates against it, and `GET /catalog` gives the same lists and parameter sets to both apps, so they build their forms from it.
+The catalogue in `backend/common/catalog.js` is the single source: the API validates against it, and `GET /catalog` gives the same lists and parameter sets to both apps, so they build their forms from it.
 
 Records created before a field became mandatory are still accepted. They come back with a `missing` list and are flagged "Incomplete" in the apps, so they can be completed rather than blocking work.
 
@@ -238,7 +238,7 @@ The monitoring modules live in the same platform as maintenance, so a problem a 
 | `POST` | `/integrations/factory/events` | Machine-data intake (server-to-server, `X-Integration-Key`) |
 | `GET, POST` | `/factory/simulator`, `/factory/simulator/run` | Platform admin: simulator status and a manual run |
 
-**How OEE is calculated** (`api/factory/production.js`). Everything is measured only inside planned shift time:
+**How OEE is calculated** (`backend/services/factory/production.js`). Everything is measured only inside planned shift time:
 - **Planned time** = shift time − planned stops − time with no data.
 - **Availability** = running time ÷ planned time.
 - **Performance** = ideal time for the output made ÷ running time, where ideal time = output ÷ ideal rate.
@@ -279,7 +279,7 @@ Counts are idempotent per machine and period start. Without `partNumber`, the pr
 - The lowest emailed severity is the `alert_email_min_severity` setting; the default is `critical`.
 - Sending uses an email API: set `EMAIL_PROVIDER` (`brevo`, `sendgrid` or `resend`), `EMAIL_API_KEY` and `EMAIL_FROM`. Until those are set, messages stay in the outbox as `not_configured`.
 
-**Simulator** (`api/factory/simulator.js`).
+**Simulator** (`backend/services/factory/simulator.js`).
 - Produces realistic 15-minute machine states and output for every in-service production machine, through the same `recordState`/`recordCount` path as real data.
 - Each machine has a stable "character" (reliability, speed, scrap rate).
 - On first start it fills in 7 days of history, then keeps up every minute.
@@ -307,7 +307,7 @@ Counts are idempotent per machine and period start. Without `partNumber`, the pr
 
 The vibration limits follow the ISO 10816 / ISO 20816 zones for medium machines. Tune the rest per machine.
 
-**How a reading is judged** (`api/factory/condition.js`). Each reading is compared with its machine's limit for that parameter:
+**How a reading is judged** (`backend/services/factory/condition.js`). Each reading is compared with its machine's limit for that parameter:
 - **Normal:** resolves any open alert for that machine and parameter.
 - **Warning:** raises one alert.
 - **Critical:** upgrades the alert to critical, which emails it.
@@ -315,7 +315,7 @@ The vibration limits follow the ISO 10816 / ISO 20816 zones for medium machines.
 
 A machine's health is its worst parameter. A parameter with no reading in the last hour is `stale`.
 
-**Energy** (`api/factory/energy.js`):
+**Energy** (`backend/services/factory/energy.js`):
 - **SEC** (specific energy consumption) = kWh ÷ kg produced. Parts are converted with the product's part weight; metres are left out.
 - **Wasted energy** = kWh used in intervals when the machine wasn't running.
 - **CO₂** = kWh × the company's grid emission factor (`gridCo2KgPerKwh`), or its country's average if none is set.
@@ -357,7 +357,7 @@ Same access as the other factory data: the customer's own staff and the platform
 | `GET`/`POST`/`PATCH` | `/assets`, `/assets/:id` | Tracked assets: `plantId`, `name`, `kind`, `tagId` (unique), `tagType` (ble, rfid, uwb), `homeZoneId`, `equipmentId`, `missingAfterHours`. The list includes the current zone and the missing and away-from-home flags |
 | `GET` | `/assets/:id/history?hours=48` | Stays per zone, newest first |
 
-**Rules** (`api/factory/quality.js`, `safety.js`, `assets.js`, `trace.js`):
+**Rules** (`backend/services/factory/quality.js`, `safety.js`, `assets.js`; `backend/services/traceability/trace.js`):
 - **Reject rate** over at least 50 inspected parts: a warning at 3 %, critical (emailed) at 8 %, cleared below 1.5 %. One alert per machine and station.
 - **Safety:** warning and critical events raise an alert. Critical types are guard bypassed, injury, man down, and fire or smoke.
 - **Assets:** a mould, tool, gauge or fixture seen in a restricted or outside zone raises a warning. A tag not heard for `missingAfterHours` is marked missing; this is checked every 5 minutes and when the list is opened. A battery below 15 % raises an info alert. Each alert clears once its cause is gone. A late, out-of-order sighting is kept in the history but does not move the asset.
@@ -464,7 +464,7 @@ external system ──push──▶ POST /integrations/iot/records ────�
                                   rejected at any step ─▶ iot_rejections (quarantine, platform-admin review)
 ```
 
-Code lives in `api/iot/`: `contract.js` (canonical record and validation), `ingest.js` (mapping, dedupe, flags, alarms, freshness queries), `sync.js` (pull runner, cursors, run history), `adapters/` (adapter interface, `mock.js`).
+Code lives in `backend/services/iot/`: `contract.js` (canonical record and validation), `ingest.js` (mapping, dedupe, flags, alarms, freshness queries), `sync.js` (pull runner, cursors, run history), `adapters/` (adapter interface, `mock.js`).
 
 ### Canonical record
 
@@ -535,7 +535,7 @@ It also returns `metrics.<name>` = `{ value, observedAt, status }` for each metr
 
 ### Pull adapters
 
-An adapter implements `{ name, fetchBatch(cursor) → { records, nextCursor, hasMore }, toCanonical(raw) }`; the full contract is in `api/iot/adapters/index.js`. The runner ingests each batch and stores `nextCursor` in the same transaction, so delivery is at-least-once and deduplication makes it idempotent. If `toCanonical` throws for one record, that record is quarantined and the rest of the batch continues. Each run is recorded in `integration_runs` with its counts and any error.
+An adapter implements `{ name, fetchBatch(cursor) → { records, nextCursor, hasMore }, toCanonical(raw) }`; the full contract is in `backend/services/iot/adapters/index.js`. The runner ingests each batch and stores `nextCursor` in the same transaction, so delivery is at-least-once and deduplication makes it idempotent. If `toCanonical` throws for one record, that record is quarantined and the rest of the batch continues. Each run is recorded in `integration_runs` with its counts and any error.
 
 - Run once: `npm run iot:sync`, or **Run sync now** on the web IoT integration page.
 - Poll continuously: start the server with `IOT_SYNC_INTERVAL_SECONDS=60` (minimum 15).
@@ -545,4 +545,4 @@ The **mock adapter** emits a vendor-style payload (`device.id`, `ts`, `metrics.r
 
 ### Connecting the real API
 
-Add `api/iot/adapters/http.js` exporting `(env) => adapter`, register it in `adapters/index.js`, and put credentials in server environment variables only. To build it I need: API documentation, sample reading and alarm payloads (including error and empty responses), the authentication method and token lifetime, rate limits and pagination/cursor semantics, the device identifier format, units per field, timestamp and time-zone behaviour, and whether counters can reset.
+Add `backend/services/iot/adapters/http.js` exporting `(env) => adapter`, register it in `adapters/index.js`, and put credentials in server environment variables only. To build it I need: API documentation, sample reading and alarm payloads (including error and empty responses), the authentication method and token lifetime, rate limits and pagination/cursor semantics, the device identifier format, units per field, timestamp and time-zone behaviour, and whether counters can reset.

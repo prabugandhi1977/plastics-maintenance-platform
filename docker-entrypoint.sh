@@ -8,6 +8,6 @@ if [ "$(id -u)" = "0" ]; then
   chown -R node:node "$DATA_DIR"
   exec su-exec node "$0" "$@"
 fi
-if [ "$MOULDCARE_SEED_DEMO" = "true" ]; then node api/seed.js; fi
-node api/bootstrap-admin.js
-exec node api/server.js
+if [ "$MOULDCARE_SEED_DEMO" = "true" ]; then node backend/scripts/seed.js; fi
+node backend/scripts/bootstrap-admin.js
+exec node backend/server.js
