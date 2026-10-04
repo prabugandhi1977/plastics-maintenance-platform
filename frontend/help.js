@@ -145,7 +145,7 @@ export const HELP={
       ['Check the connection',['<b>Sync now</b> pulls new data immediately.','<b>Recent sync runs</b> shows counts and errors; <b>Quarantined records</b> shows data that could not be read.']]]},
   audit:{what:'Every change, who made it and when.',who:'Platform admins and customer admins.',tasks:[['Find a change',['Search by action, record or user name, or filter by record type.']]]},
   account:{what:'Your profile, language and password.',who:'Everyone.',
-    tasks:[['Change password',['Enter your current password and the new one under <b>Change password</b>.']],['Change language',['Use the language selector under your name in the menu.']]]},
+    tasks:[['Change password',['Enter your current password and the new one under <b>Change password</b>.']],['Change language',['Use the <b>Language</b> selector in the top bar.']],['Change the colour theme',['In the top bar choose <b>Light</b>, <b>Dark</b> or <b>Auto</b> (follows your computer or phone). It is remembered on this browser.']]]},
 };
 
 const UI={en:{help:'Help',topic:'Topic',who:'Who can use it:',tips:'Tips'},de:{help:'Hilfe',topic:'Thema',who:'Wer kann das nutzen:',tips:'Tipps'}};

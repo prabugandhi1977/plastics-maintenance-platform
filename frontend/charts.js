@@ -4,8 +4,12 @@
 // table view for every chart. Text uses ink tokens, never the series colour.
 import { esc } from './ui.js';
 
-const INK={primary:'#142e3d',secondary:'#52514e',muted:'#898781',grid:'#e1e0d9',axis:'#c3c2b7'};
-const SERIES='#2a78d6';
+// Ink and series colours come from the theme (style.css --chart-*), read each time a chart is drawn, so light and
+// dark each use their own validated steps: series blue #2a78d6 light / #3987e5 dark; status colours are the same in both.
+const themed=(name,fallback)=>getComputedStyle(document.documentElement).getPropertyValue(name).trim()||fallback;
+const INK={get primary(){ return themed('--chart-ink','#142e3d'); },get secondary(){ return themed('--chart-ink-2','#52514e'); },get muted(){ return themed('--chart-muted','#898781'); },
+  get grid(){ return themed('--chart-grid','#e1e0d9'); },get axis(){ return themed('--chart-axis','#c3c2b7'); }};
+const series=()=>themed('--chart-series','#2a78d6');
 // 4px rounded data-end, square at the baseline.
 const columnPath=(x,y,w,h,r=4)=>{ r=Math.min(r,h,w/2); return `M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`; };
 const barPath=(x,y,w,h,r=4)=>{ r=Math.min(r,w,h/2); return `M${x},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h-r}Q${x+w},${y+h} ${x+w-r},${y+h}H${x}Z`; };
@@ -24,7 +28,7 @@ export function columnChart(id,{title,subtitle,points,valueLabel,formatValue=fmt
   const marks=points.map((p,i)=>{
     const cx=L+band*i+band/2, h=Math.max(0,(p.value/top)*ph), showLabel=p.value>0&&(i===last||i===peak);
     const tick=i%2===0||i===last?`<text x="${cx}" y="${H-8}" text-anchor="middle" class="tick">${esc(xLabel(p))}</text>`:'';
-    return `<g class="mark" tabindex="0" role="img" aria-label="${esc(`${p.tip}: ${formatValue(p.value)} ${valueLabel}`)}" data-tip-value="${esc(formatValue(p.value))}" data-tip-label="${esc(`${valueLabel} · ${p.tip}`)}"><rect class="hit" x="${L+band*i}" y="${T}" width="${band}" height="${ph}" fill="transparent"/>${h>0?`<path d="${columnPath(cx-bw/2,y(p.value),bw,h)}" fill="${SERIES}"/>`:''}${showLabel?`<text x="${cx}" y="${y(p.value)-6}" text-anchor="middle" class="value">${esc(formatValue(p.value))}</text>`:''}${tick}</g>`;
+    return `<g class="mark" tabindex="0" role="img" aria-label="${esc(`${p.tip}: ${formatValue(p.value)} ${valueLabel}`)}" data-tip-value="${esc(formatValue(p.value))}" data-tip-label="${esc(`${valueLabel} · ${p.tip}`)}"><rect class="hit" x="${L+band*i}" y="${T}" width="${band}" height="${ph}" fill="transparent"/>${h>0?`<path d="${columnPath(cx-bw/2,y(p.value),bw,h)}" fill="${series()}"/>`:''}${showLabel?`<text x="${cx}" y="${y(p.value)-6}" text-anchor="middle" class="value">${esc(formatValue(p.value))}</text>`:''}${tick}</g>`;
   }).join('');
   const svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="group" aria-label="${esc(title)}">${grid}${marks}</svg>`;
   return frame(id,title,subtitle,svg,tableView(id,['Period',valueLabel],points.map(p=>[p.tip,formatValue(p.value)])));
@@ -35,7 +39,7 @@ export function barChart(id,{title,subtitle,rows,valueLabel,formatValue=fmt,empt
   if (!rows.length) return `<figure class="chart" id="${id}"><figcaption><div><h2>${esc(title)}</h2>${subtitle?`<p class="muted">${esc(subtitle)}</p>`:''}</div></figcaption><p class="muted">${esc(empty)}</p></figure>`;
   const W=640,L=200,R=72,row=36,bh=18,H=rows.length*row+8, max=Math.max(...rows.map(r=>r.value)), x=v=>(v/max)*(W-L-R);
   const marks=rows.map((r,i)=>{ const y=4+i*row, w=Math.max(2,x(r.value)), name=r.label.length>28?r.label.slice(0,27)+'…':r.label;
-    return `<g class="mark" tabindex="0" role="img" aria-label="${esc(`${r.label}: ${formatValue(r.value)}`)}" data-tip-value="${esc(formatValue(r.value))}" data-tip-label="${esc(`${valueLabel} · ${r.label}`)}"><rect class="hit" x="0" y="${y}" width="${W}" height="${row}" fill="transparent"/><text x="${L-10}" y="${y+row/2+4}" text-anchor="end" class="label">${esc(name)}</text><path d="${barPath(L,y+(row-bh)/2,w,bh)}" fill="${SERIES}"/><text x="${L+w+8}" y="${y+row/2+4}" class="value">${esc(formatValue(r.value))}</text></g>`; }).join('');
+    return `<g class="mark" tabindex="0" role="img" aria-label="${esc(`${r.label}: ${formatValue(r.value)}`)}" data-tip-value="${esc(formatValue(r.value))}" data-tip-label="${esc(`${valueLabel} · ${r.label}`)}"><rect class="hit" x="0" y="${y}" width="${W}" height="${row}" fill="transparent"/><text x="${L-10}" y="${y+row/2+4}" text-anchor="end" class="label">${esc(name)}</text><path d="${barPath(L,y+(row-bh)/2,w,bh)}" fill="${series()}"/><text x="${L+w+8}" y="${y+row/2+4}" class="value">${esc(formatValue(r.value))}</text></g>`; }).join('');
   const svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="group" aria-label="${esc(title)}"><line x1="${L}" x2="${L}" y1="0" y2="${H}" stroke="${INK.axis}" stroke-width="1"/>${marks}</svg>`;
   return frame(id,title,subtitle,svg,tableView(id,['Item',valueLabel],rows.map(r=>[r.label,formatValue(r.value)])));
 }
@@ -53,7 +57,7 @@ export function lineChart(id,{title,subtitle,points,unit,limits=[],formatTime}) 
   const path=points.map((p,i)=>`${i?'L':'M'}${x(ts[i]).toFixed(1)},${y(p.v).toFixed(1)}`).join(''), last=points[points.length-1];
   const xt=[0,Math.floor(points.length/2),points.length-1].map(i=>`<text x="${x(ts[i])}" y="${H-6}" text-anchor="middle" class="tick">${esc(formatTime(points[i].t))}</text>`).join('');
   const data=esc(JSON.stringify(points.map((p,i)=>[x(ts[i]),y(p.v),p.v,formatTime(p.t)])));
-  const svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg line-chart" role="img" aria-label="${esc(title)}: latest ${esc(fmt(last.v))} ${esc(unit)}" tabindex="0" data-points="${data}" data-unit="${esc(unit)}" data-label="${esc(title)}">${ticks}${refs}<path d="${path}" fill="none" stroke="${SERIES}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${x(ts[ts.length-1])}" cy="${y(last.v)}" r="4.5" fill="${SERIES}" stroke="#fff" stroke-width="2"/><text x="${x(ts[ts.length-1])+8}" y="${y(last.v)-8}" class="value">${esc(fmt(last.v))} ${esc(unit)}</text>${xt}<line class="xhair" x1="0" x2="0" y1="${T}" y2="${T+ph}" stroke="${INK.axis}" visibility="hidden"/><circle class="xdot" r="4.5" fill="${SERIES}" stroke="#fff" stroke-width="2" visibility="hidden"/><rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="transparent" class="hit"/></svg>`;
+  const svg=`<svg viewBox="0 0 ${W} ${H}" class="chart-svg line-chart" role="img" aria-label="${esc(title)}: latest ${esc(fmt(last.v))} ${esc(unit)}" tabindex="0" data-points="${data}" data-unit="${esc(unit)}" data-label="${esc(title)}">${ticks}${refs}<path d="${path}" fill="none" stroke="${series()}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${x(ts[ts.length-1])}" cy="${y(last.v)}" r="4.5" fill="${series()}" stroke="#fff" stroke-width="2"/><text x="${x(ts[ts.length-1])+8}" y="${y(last.v)-8}" class="value">${esc(fmt(last.v))} ${esc(unit)}</text>${xt}<line class="xhair" x1="0" x2="0" y1="${T}" y2="${T+ph}" stroke="${INK.axis}" visibility="hidden"/><circle class="xdot" r="4.5" fill="${series()}" stroke="#fff" stroke-width="2" visibility="hidden"/><rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="transparent" class="hit"/></svg>`;
   return frame(id,title,subtitle,svg,tableView(id,['Time',`Value (${unit})`],points.map(p=>[formatTime(p.t),fmt(p.v)])));
 }
 

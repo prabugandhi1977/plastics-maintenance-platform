@@ -50,10 +50,13 @@ function clearSession(){storage.remove('localStorage',SESSION_KEY);storage.remov
 function saveSession(token,remember=storage.get('localStorage',SESSION_KEY)!=null){clearSession();storage.set(remember?'localStorage':'sessionStorage',SESSION_KEY,token);}
 const storedSession=()=>storage.get('sessionStorage',SESSION_KEY)||storage.get('localStorage',SESSION_KEY);
 const DEMO_EMAILS=['admin@demo.test','dispatch@demo.test','engineer@demo.test','acme@demo.test','maint@demo.test','nova@demo.test','atlas-admin@demo.test','atlas@demo.test','euro@demo.test'];
+const DEMO_PASSWORD='DemoPass123!';
+// "Viewing as" (demo copies only): each demo account by role and organisation.
+const DEMO_ACCOUNTS=[['admin@demo.test','platform_admin',''],['dispatch@demo.test','dispatcher',''],['engineer@demo.test','engineer',''],['acme@demo.test','customer_admin','Acme'],['maint@demo.test','maintenance','Acme'],['nova@demo.test','customer_admin','Nova'],['atlas-admin@demo.test','provider_admin','Atlas'],['atlas@demo.test','provider_engineer','Atlas'],['euro@demo.test','provider_engineer','EuroTech']];
 function loginView(){
   const lastEmail=state.loginEmail??storage.get('localStorage',EMAIL_KEY)??'', remember=storage.get('localStorage',REMEMBER_KEY)==='1';
   const demo=state.demoAccounts?`<div class="demo-accounts"><p class="muted">Demo accounts on this copy (password <code>DemoPass123!</code>). Click one to fill in:</p>${DEMO_EMAILS.map(e=>`<button type="button" class="secondary demo-fill" data-email="${e}">${e.replace('@demo.test','')}</button>`).join('')}</div>`:'';
-  $('#app').innerHTML=`<main class="login"><div class="brand" style="color:#12323d">Mould<span>Care</span></div><h1>Service operations</h1><p class="muted">Sign in with the email and password your administrator gave you.</p><form id="login" novalidate><label for="login-email">${t('label.email')}</label><input id="login-email" name="email" type="email" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email" value="${esc(lastEmail)}"><label for="login-password">${t('label.password')}</label><div class="pw-row"><input id="login-password" name="password" type="password" required autocomplete="current-password"><button type="button" class="secondary" id="toggle-pw" aria-label="Show password">Show</button></div><label class="remember"><input type="checkbox" name="remember" ${remember?'checked':''}> Keep me signed in on this device</label><button id="login-submit">${t('action.signIn')}</button></form>${state.error?`<p class="notice error" role="alert">${esc(state.error)}</p>`:''}${demo}</main>`;
+  $('#app').innerHTML=`<main class="login"><div class="brand">Mould<span>Care</span></div><h1>Service operations</h1><p class="muted">Sign in with the email and password your administrator gave you.</p><form id="login" novalidate><label for="login-email">${t('label.email')}</label><input id="login-email" name="email" type="email" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email" value="${esc(lastEmail)}"><label for="login-password">${t('label.password')}</label><div class="pw-row"><input id="login-password" name="password" type="password" required autocomplete="current-password"><button type="button" class="secondary" id="toggle-pw" aria-label="Show password">Show</button></div><label class="remember"><input type="checkbox" name="remember" ${remember?'checked':''}> Keep me signed in on this device</label><button id="login-submit">${t('action.signIn')}</button></form>${state.error?`<p class="notice error" role="alert">${esc(state.error)}</p>`:''}${demo}</main>`;
   const form=$('#login'), emailEl=$('#login-email'), pw=$('#login-password'), submitBtn=$('#login-submit');
   (lastEmail?pw:emailEl).focus();
   $('#toggle-pw').onclick=()=>{const show=pw.type==='password';pw.type=show?'text':'password';$('#toggle-pw').textContent=show?'Hide':'Show';pw.focus();};
@@ -76,8 +79,8 @@ function loginView(){
 // Start: resume a saved session if the server still accepts it, otherwise show sign-in.
 async function boot(){
   const token=storedSession();
-  if(token){state.token=token;try{const me=await api('/me');state.user=me;setLocale(me.preferences.locale);if(me.mustChangePassword){state.page='account';toast(t('msg.mustChange'))}return await load();}catch{state.token=null;state.user=null;clearSession();state.error='';}}
   try{state.demoAccounts=(await api('/config')).demoAccounts}catch{state.demoAccounts=false}
+  if(token){state.token=token;try{const me=await api('/me');state.user=me;setLocale(me.preferences.locale);if(me.mustChangePassword){state.page='account';toast(t('msg.mustChange'))}return await load();}catch{state.token=null;state.user=null;clearSession();state.error='';}}
   render();
 }
 
@@ -88,6 +91,28 @@ const icon=name=>`<svg viewBox="0 0 24 24" class="nav-icon" aria-hidden="true"><
 const NAV_GROUPS=[['Production (IMM)',['floor','oee','products','alerts']],['Vision inspection & quality',['vision','quality','visionIncidents','visionCameras','visionNodes']],['Traceability',['traceHub','trace','processControl','dispatch','fieldReturns']],['Maintenance',['dashboard','tickets','equipment','condition','contracts','parts','assets']],['Energy (EMS)',['energy']],['Safety',['safety']],['Administration',['organisation','providers','settings','integrations','audit']],['',['account']]];
 const visionViewer=()=>customer()||is('platform_admin','dispatcher');
 const visible=p=>({traceHub:factoryViewer(),processControl:factoryViewer(),dispatch:factoryViewer(),fieldReturns:factoryViewer(),vision:visionViewer(),visionCameras:visionViewer(),visionIncidents:visionViewer(),visionNodes:visionViewer(),quality:factoryViewer(),trace:factoryViewer(),safety:factoryViewer(),assets:factoryViewer(),floor:factoryViewer(),oee:factoryViewer(),condition:factoryViewer(),energy:factoryViewer(),alerts:factoryViewer(),products:factoryViewer(),organisation:manager()||is('provider_admin'),providers:internal()||provider(),settings:internal(),integrations:deviceAdmin(),audit:manager()})[p]??true;
+// Top bar across every page: environment, date; Viewing as (demo copies), the signed-in user, language, colour theme,
+// Help, alerts and Sign out.
+function topbar(){
+  const theme=window.mcTheme?.get()||'light', a=state.data.alertSummary;
+  const demoUser=state.demoAccounts&&DEMO_ACCOUNTS.some(([e])=>e===state.user.email);
+  const env=state.demoAccounts?`<span class="env demo" title="${esc(t('env.demoHelp'))}">${esc(t('env.demo'))}</span>`:`<span class="env live" title="${esc(t('env.liveHelp'))}">${esc(t('env.live'))}</span>`;
+  const viewAs=demoUser?`<label class="tb-field">${esc(t('label.viewingAs'))} <select id="view-as">${DEMO_ACCOUNTS.map(([e,role,org])=>`<option value="${e}" ${e===state.user.email?'selected':''}>${esc(label('role',role))}${org?` · ${esc(org)}`:''}</option>`).join('')}</select></label>`:'';
+  const themes=['light','dark','auto'].map(k=>`<button type="button" data-theme-set="${k}" aria-pressed="${theme===k}">${{light:'☀ ',dark:'☾ ',auto:''}[k]}${esc(t('theme.'+k))}</button>`).join('');
+  return `<header class="topbar"><div class="topbar-left">${env}<span class="muted tb-date">${formatDate(new Date().toISOString(),prefs().timezone)} · ${esc(prefs().timezone)}</span></div><div class="topbar-tools">${viewAs}`
+    +`<span class="tb-user"><b>${esc(state.user.name)}</b><small>${esc(label('role',state.user.role))}</small></span>`
+    +`<label class="tb-field" title="${esc(t('label.language'))}"><span class="sr-only">${esc(t('label.language'))}</span><select id="locale" aria-label="${esc(t('label.language'))}">${Object.entries(LOCALES).map(([k,v])=>`<option value="${k}" ${prefs().locale===k?'selected':''}>${v}</option>`).join('')}</select></label>`
+    +`<div class="theme-switch" role="group" aria-label="${esc(t('theme.label'))}">${themes}</div>`
+    +`<button type="button" class="bell" id="help-btn" aria-label="${helpLabel()}" title="${helpLabel()} (?)"><span aria-hidden="true">?</span> ${helpLabel()}</button>`
+    +(factoryViewer()&&a?.critical!=null?`<button type="button" class="bell ${a.critical?'critical':a.warning?'warning':''}" data-nav-to="alerts" aria-label="Open alerts: ${a.critical} critical, ${a.warning} warning"><span aria-hidden="true">🔔</span> ${a.critical+a.warning} ${a.critical?`<b>· ${a.critical} critical</b>`:''}</button>`:'')
+    +`<a class="click signout" data-action="logout">${t('action.signOut')}</a></div></header>`;
+}
+// Viewing as: sign in as the chosen demo account and start fresh, so no page keeps the previous account's data.
+async function viewAs(email){
+  try { const r=await api('/auth/login','POST',{email,password:DEMO_PASSWORD}); saveSession(r.token); location.reload(); }
+  catch (err) { toast(`Could not switch to ${email}: ${err.message}`,'error'); render(); }
+}
+window.addEventListener('mc-theme',()=>{ if (state.user) render(); });
 let lastShown='';
 const pageIcon=()=>state.detail?.type==='ticket'?'tickets':state.detail?.type==='equipment'?'equipment':ICONS[state.page]?state.page:'dashboard';
 function layout(content){
@@ -95,7 +120,7 @@ function layout(content){
   const crumbs=state.detail?`<nav class="crumbs" aria-label="Breadcrumb"><a data-action="back">${esc(t('nav.'+state.page))}</a> › <span>${esc(state.detail.type==='ticket'?state.detail.value.title:assetName(state.detail.value.id)||state.detail.value.model)}</span></nav>`:'';
   // The menu keeps its own scroll position while the page is redrawn; a full browser reload starts it at the top.
   const side=$('.side'), menuScroll=side?[side.scrollTop,side.scrollLeft]:[0,0];
-  $('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand">Mould<span>Care</span></div><nav aria-label="Main">${nav}</nav><div class="profile"><b>${esc(state.user.name)}</b><br>${esc(label('role',state.user.role))}<br><label class="lang">${t('label.language')} <select id="locale">${Object.entries(LOCALES).map(([k,v])=>`<option value="${k}" ${prefs().locale===k?'selected':''}>${v}</option>`).join('')}</select></label><a class="click" data-action="logout">${t('action.signOut')}</a></div></aside><main class="main" id="main"><div class="top"><div class="title-block"><span class="page-icon" aria-hidden="true">${icon(pageIcon())}</span><div>${crumbs}<h1>${esc(state.detail?(state.detail.type==='ticket'?state.detail.value.title:`${state.detail.value.make} ${state.detail.value.model}`):t('nav.'+state.page))}</h1>${page.sub?`<p class="muted page-sub">${esc(page.sub)}</p>`:''}</div></div><div class="top-right"><div class="top-tools"><button type="button" class="bell" id="help-btn" aria-label="${helpLabel()}" title="${helpLabel()} (?)"><span aria-hidden="true">?</span> ${helpLabel()}</button>${factoryViewer()&&state.data.alertSummary?.critical!=null?`<button type="button" class="bell ${state.data.alertSummary.critical?'critical':state.data.alertSummary.warning?'warning':''}" data-nav-to="alerts" aria-label="Open alerts: ${state.data.alertSummary.critical} critical, ${state.data.alertSummary.warning} warning"><span aria-hidden="true">🔔</span> ${state.data.alertSummary.critical+state.data.alertSummary.warning} ${state.data.alertSummary.critical?`<b>· ${state.data.alertSummary.critical} critical</b>`:''}</button>`:''}<div class="muted">${formatDate(new Date().toISOString(),prefs().timezone)} · ${esc(prefs().timezone)}</div></div>${page.actions?`<div class="page-actions">${page.actions}</div>`:''}</div></div>${state.error?`<div class="notice error" role="alert">${esc(state.error)}</div>`:''}${content}</main></div>`;
+  $('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand">Mould<span>Care</span></div><div class="brand-line">${esc(t('app.brandLine'))}</div><nav aria-label="Main">${nav}</nav></aside><div class="workspace">${topbar()}<main class="main" id="main"><div class="top"><div class="title-block"><span class="page-icon" aria-hidden="true">${icon(pageIcon())}</span><div>${crumbs}<h1>${esc(state.detail?(state.detail.type==='ticket'?state.detail.value.title:`${state.detail.value.make} ${state.detail.value.model}`):t('nav.'+state.page))}</h1>${page.sub?`<p class="muted page-sub">${esc(page.sub)}</p>`:''}</div></div><div class="top-right">${page.actions?`<div class="page-actions">${page.actions}</div>`:''}</div></div>${state.error?`<div class="notice error" role="alert">${esc(state.error)}</div>`:''}${content}</main></div></div>`;
   const newSide=$('.side'); if (newSide) [newSide.scrollTop,newSide.scrollLeft]=menuScroll;
   document.querySelectorAll('[data-nav]').forEach(el=>el.onclick=()=>{state.page=el.dataset.nav;state.detail=null;state.error='';render();$('#main')?.focus?.();});
   document.querySelectorAll('[data-action]').forEach(el=>el.onclick=()=>action(el.dataset.action,el.dataset.id));
@@ -103,6 +128,8 @@ function layout(content){
   bindTables(render); bindCharts(); bindInlineForms(); ops.bind(); trace.bind(); vision.bind(); vision.startAlarms(); loadAuthImages(document,state.token); bindAssistant();
   document.querySelectorAll('[data-nav-to]').forEach(el=>el.onclick=()=>{state.page=el.dataset.navTo;state.detail=null;render()});
   $('#help-btn').onclick=showHelp;
+  document.querySelectorAll('[data-theme-set]').forEach(b=>b.onclick=()=>window.mcTheme?.set(b.dataset.themeSet));
+  const viewSel=$('#view-as'); if (viewSel) viewSel.onchange=()=>viewAs(viewSel.value);
   const shown=`${state.page}|${state.detail?.type||''}|${state.detail?.value?.id||''}`; if (shown!==lastShown) { lastShown=shown; window.scrollTo(0,0); }
   document.querySelectorAll('#main .empty').forEach(el=>{ if (!el.querySelector('.empty-icon')) el.insertAdjacentHTML('afterbegin',`<span class="empty-icon" aria-hidden="true">${icon(pageIcon())}</span>`); });
   const plantSel=$('#floor-plant'); if (plantSel) plantSel.onchange=()=>{state.floorPlant=plantSel.value;state.floor=undefined;render()};

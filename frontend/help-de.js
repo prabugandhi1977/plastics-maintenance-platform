@@ -139,5 +139,5 @@ export const HELP_DE={
       ['Die Anbindung prüfen',['<b>Jetzt synchronisieren</b> holt neue Daten sofort.','<b>Recent sync runs</b> zeigt Zähler und Fehler; <b>Quarantined records</b> zeigt Daten, die nicht gelesen werden konnten.']]]},
   audit:{what:'Jede Änderung, wer sie vorgenommen hat und wann.',who:'Plattform-Admins und Kunden-Admins.',tasks:[['Eine Änderung finden',['Nach Aktion, Datensatz oder Benutzername suchen oder nach Datensatztyp filtern.']]]},
   account:{what:'Ihr Profil, Ihre Sprache und Ihr Passwort.',who:'Alle.',
-    tasks:[['Passwort ändern',['Unter <b>Change password</b> das aktuelle und das neue Passwort eingeben.']],['Sprache ändern',['Die Sprachauswahl unter Ihrem Namen im Menü verwenden.']]]},
+    tasks:[['Passwort ändern',['Unter <b>Change password</b> das aktuelle und das neue Passwort eingeben.']],['Sprache ändern',['Die Auswahl <b>Sprache</b> in der oberen Leiste verwenden.']],['Farbschema ändern',['In der oberen Leiste <b>Hell</b>, <b>Dunkel</b> oder <b>Auto</b> (folgt Computer oder Telefon) wählen. Die Wahl bleibt in diesem Browser gespeichert.']]]},
 };
