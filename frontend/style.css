@@ -45,7 +45,19 @@ fieldset.section{border:1px solid var(--line);border-radius:var(--radius);paddin
 .nav-group:hover{background:var(--side-hover);color:var(--side-ink)} .nav-group:focus-visible{outline:2px solid var(--side-accent);outline-offset:-2px}
 .nav-group .chev{flex:none;transition:transform .15s} .nav-group[aria-expanded=false] .chev{transform:rotate(-90deg)}
 .nav-items[hidden]{display:none} .nav-sep{border-top:1px solid var(--side-line);margin:14px 6px}
-.menu-btn{display:none}
+.menu-btn,.rail-btn{display:none}
+/* Icon-only rail: wide screens only (on a phone the Menu button is used instead). */
+@media(min-width:901px){
+  .shell{transition:grid-template-columns .15s} .shell.rail{grid-template-columns:68px minmax(0,1fr)}
+  .rail-btn{display:inline-flex;align-items:center;justify-content:center;position:absolute;top:24px;right:10px;width:28px;height:28px;border-radius:8px;background:var(--side-hover);color:var(--side-ink);padding:0}
+  .rail-btn:hover{background:var(--side-active)} .rail-btn:focus-visible{outline:2px solid var(--side-accent);outline-offset:2px}
+  .side{position:sticky} .shell.rail .side{padding:22px 8px 14px}
+  .rail .brand{font-size:0;margin:4px 0 14px;text-align:center} .rail .brand::first-letter{font-size:26px;color:var(--side-accent)}
+  .rail .rail-btn{position:static;margin:0 auto 12px} .rail .brand-line,.rail .nav-group,.rail .nav span{display:none}
+  .rail .side nav,.rail nav{margin:0 -8px;padding:4px 8px 8px;overflow-x:hidden}
+  .rail .nav{justify-content:center;padding:10px 0} .rail .nav-items[hidden]{display:block}
+  .rail .nav-group+.nav-items{border-top:1px solid var(--side-line);margin-top:6px;padding-top:6px} .rail .nav-group:first-child+.nav-items{border-top:0;margin-top:0}
+}
 .nav{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:transparent;border-radius:8px;color:var(--side-ink);margin:2px 0;padding:8px 10px;font-weight:600;font-size:14.5px;line-height:1.25}
 .nav:hover{background:var(--side-hover);color:var(--side-ink)} .nav.active{background:var(--side-active);color:var(--side-active-ink);box-shadow:inset 3px 0 0 var(--side-accent)}
 .nav-icon{width:18px;height:18px;flex:none}
