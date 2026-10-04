@@ -267,6 +267,7 @@ frontend/mobile/                Installable field app with offline queue and sig
 frontend/ops.js                 Smart factory pages: traceability, quality, safety, asset tracking
 frontend/ui.js                  Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
 frontend/charts.js              Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
+frontend/help.js                In-app help: purpose, roles and step-by-step tasks for every page (Help button or the ? key)
 frontend/shared/                Translations and formatting, signature pad (used by both clients)
 frontend/scripts/               Development helpers (app icon generator); not shipped in the image
 edge/                           Python vision edge agent
