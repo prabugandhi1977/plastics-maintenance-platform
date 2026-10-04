@@ -16,7 +16,7 @@ MouldCare is a local, working demo of a multi-tenant maintenance platform for pl
 
 Security notes for the clients:
 
-- The web app keeps its sign-in token only in memory.
+- The web app keeps its sign-in token in session storage, or in local storage when *Keep me signed in on this device* is ticked. Tokens expire after 8 hours and are removed on sign-out.
 - The field app keeps its token in session storage. Cached work and queued actions stay on the device until they are synced or the user signs out.
 - Use managed devices and HTTPS for field rollout.
 
@@ -148,7 +148,7 @@ Every record has mandatory, industry-standard data (see *Mandatory master data* 
    - Complete the job, then use **Customer sign-off** to capture the customer's signature on the screen.
 4. **Spare parts.** As Acme, request a part. As the dispatcher, quote it in euros or dollars. Acme approves or rejects it. The dispatcher then marks it ordered, shipped and fulfilled, with PO and tracking references.
 5. **Contracts.** Add a visit in plant-local time, or change the renewal date and response target.
-6. **Language and time zones.** Sign in as Nova to see the German interface and times in Cologne time (MESZ). Switch language from the sidebar; the choice is saved per user.
+6. **Language and time zones.** Sign in as Nova to see the German interface and times in Cologne time (MESZ). Switch language from the top bar; the choice is saved per user.
 7. **Isolation.** Sign in as Nova or EuroTech to confirm they cannot see Acme's records.
 8. **Users.** As Acme, deactivate and reactivate Lee Maintenance on the **Companies, plants & users** page. A deactivated user is signed out on their next request.
 9. **Machine data.** As admin, open **Equipment register → Coperion ZSK 58**. Its data is stale, with a critical alarm. Then open **Machine data (IoT)** for sync runs and the quarantined records.
@@ -191,7 +191,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 47 tests in seven files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `backend/tests/fixtures.js`.
+There are 109 tests in fourteen files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `backend/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -255,6 +255,37 @@ There are 47 tests in seven files. Each file uses its own temporary database and
 - parts fulfilment stages
 - dashboard figures limited to each tenant's own data
 
+**`edits.test.js`**
+- correcting contracts, visits, users, device mappings, a machine's type, and replaced asset tags or readers, with the rules that protect scheduled work
+
+**`scan.test.js`**
+- resolving a machine from its QR label or RFID tag within tenant limits
+- scan at the machine to raise and to close a ticket, the dispatcher override, and the platform scan policy
+- optional, platform-unique RFID tags and existing QR labels, both replaceable
+
+**`assistant.test.js`**
+- equipment pictures, the AI assistant chat grounded in the ticket, manuals and history, ticket photos, and the repair guide with and without AI
+
+**`ml.test.js`**
+- median, MAD and linear fit; normal, unusual, degrading and still-learning signals
+- predictive and scrap alerts raised once and cleared; OEE loss drivers and the shift forecast
+- the feature export and the optional ML service client; *Explain with AI* with and without an API key
+
+**`traceability.test.js`**
+- trace search backward and forward, process windows and deviations, labels and dispatch, recall scope, warranty authentication and supplier scorecards
+
+**`vision.test.js`**
+- licences, edge nodes and cameras, module routing, geofences, edge heartbeat, detections, evidence and incidents
+- the vision dashboard, housekeeping of silent nodes and evidence, and the automotive quality preset
+
+**`vision-ai.test.js`**
+- false-alarm analytics and threshold advice
+- the opt-in AI second opinion: manual and automatic review, never on fire or critical incidents, and its agreement with people
+
+## Architecture
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes how the parts fit together: the clients, the server and its services, where data is stored, the request and offline-sync flows, machine data intake, security and deployment.
+
 ## Structure
 
 ```text
@@ -271,6 +302,7 @@ backend/services/               One folder per feature area; each index.js expor
   traceability/                   lots, batches, genealogy, FIFO, release blockers, deviations
   vision/                         edge nodes, cameras, detections, inspection media
   assistant/                      AI breakdown assistant and equipment guides
+  ml/                             learned baselines, predictive and scrap insights, Explain with AI, ML service client
 backend/migrations/             Versioned SQL migrations, one numbered series for all services
 backend/scripts/                seed, demo data, first-admin bootstrap, IoT sync
 backend/tests/                  API workflow, IoT and platform tests
@@ -284,7 +316,9 @@ frontend/help.js, help-de.js     In-app help in English and German: purpose, rol
 frontend/shared/                Translations and formatting, signature pad (used by both clients)
 frontend/scripts/               Development helpers (app icon generator); not shipped in the image
 edge/                           Python vision edge agent
+ml/                             Optional Python service for trained breakdown-risk, scrap and anomaly models
 API.md                          Endpoints, workflow rules, IoT interface
+docs/ARCHITECTURE.md            How the system fits together and where data is stored
 docs/ROADMAP.md                 Production hardening and later phases (IoT alerts, video, AI, predictive, AR)
 ```
 
