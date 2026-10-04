@@ -15,8 +15,9 @@ let client=null;
 export function setAiClient(c) { client=c; }
 export const aiEnabled=()=>!!client||!!(process.env.ANTHROPIC_API_KEY||process.env.ANTHROPIC_AUTH_TOKEN);
 const ai=()=>client??=new Anthropic();
+export const aiClient=ai;
 // Server-side fallback: if a safety classifier declines, the API re-runs the request on its recommended fallback model.
-const FALLBACK={betas:['server-side-fallback-2026-07-01'],fallbacks:'default'};
+export const FALLBACK={betas:['server-side-fallback-2026-07-01'],fallbacks:'default'};
 
 const INSTRUCTIONS=`You help maintenance technicians diagnose and repair breakdowns on plastics processing equipment: injection moulding machines, blow moulding machines, extruders, moulds and auxiliary equipment (dryers, chillers, temperature control units, loaders, blenders). You work inside a maintenance platform. Each conversation is about one breakdown ticket, and the current ticket record is given to you in a system message before each reply.
 
