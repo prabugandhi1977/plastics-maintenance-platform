@@ -144,6 +144,7 @@ dialog.confirm .modal-body h2{margin:0 0 8px;font-size:18px}
 .health-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}
 .health-card{border-left:5px solid #c3c2b7;margin:0} .health-card.ok{border-left-color:#0ca30c} .health-card.warning{border-left-color:#fab219} .health-card.critical{border-left-color:#d03b3b}
 .health-card table td{padding:8px} .health-card .section-actions{margin:8px 0 0}
+.ml-line{margin:10px 0 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.92em}
 @media(max-width:560px){.health-grid{grid-template-columns:1fr}}
 /* Tabs (traceability, asset tracking) */
 .tabs{display:flex;gap:4px;margin:4px 0 10px;border-bottom:1px solid var(--line);overflow-x:auto}

@@ -4,3 +4,7 @@ node_modules/
 mobile/.expo/
 __pycache__/
 *.pyc
+ml/.venv/
+ml/models/
+ml/ml-features.json
+ml/ml-scrap.json

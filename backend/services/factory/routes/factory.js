@@ -8,6 +8,10 @@ import { created } from '../../../common/http.js';
 import { HttpError, bad, choice, deny, instant, missing, required, array } from '../../../common/validate.js';
 import { PRODUCTION_MACHINES, LIVE_STATES, DOWNTIME_REASONS, PRODUCT_UNITS, CONDITION_PARAMETERS, parametersFor, DEFECT_TYPES, SAFETY_EVENTS } from '../../../common/catalog.js';
 import { recordCondition, machineHealth, trend, limitsFor } from '../condition.js';
+import { machineInsights, oeeInsights, shiftForecast } from '../../ml/insights.js';
+import { scoreMachine, mlConfigured } from '../../ml/remote.js';
+import { assessScrap, explainScrap } from '../../ml/quality.js';
+import { explainMachine, aiHttpError } from '../../ml/explain.js';
 import { recordEnergy, energyReport } from '../energy.js';
 import { recordState, recordCount, machineOee, combine, dailyOee, lossList, currentProduct, plantOf, stateAlerts } from '../production.js';
 import { currentShift, shiftsFor } from '../time.js';
@@ -70,6 +74,18 @@ export function register(r) {
 
   // Condition monitoring: health of every machine, the readings behind it, and limits.
   r.get('/factory/condition',({u,query})=>machinesFor(u,{plantId:query.get('plantId')||null}).map(e=>({id:e.id,assetTag:e.asset_tag,make:e.make,model:e.model,machineType:e.machine_type,plantName:plantOf(e).name,location:e.location,companyId:e.company_id,...machineHealth(e),openAlerts:one("SELECT count(*) n FROM alerts WHERE equipment_id=? AND module='condition' AND status<>'resolved'",e.id).n})));
+  // Learned-baseline insights: unusual or degrading signals and the time left before a limit.
+  r.get('/factory/condition-insights',({u,query})=>Object.fromEntries(machinesFor(u,{plantId:query.get('plantId')||null}).map(e=>[e.id,machineInsights(e)])));
+  // Predictions from the trained models in the Python ML service (empty when it is not configured).
+  r.get('/factory/ml-predictions',async({u,query})=>mlConfigured()?Object.fromEntries(await Promise.all(machinesFor(u,{plantId:query.get('plantId')||null}).map(async e=>[e.id,await scoreMachine(e)]))):{});
+  r.get('/factory/scrap-insights',({u,query})=>Object.fromEntries(machinesFor(u,{plantId:query.get('plantId')||null}).map(e=>{ const a=assessScrap(e); return [e.id,{...a,explanation:explainScrap(a)}]; })));
+  // Claude's evidence-based explanation of one machine (a rule-built summary when no API key is set).
+  r.post('/factory/machines/:id/explain',async({u,params})=>{
+    const [e]=machinesFor(u,{equipmentId:params.id}); if (!e) missing();
+    const locale=u.locale||one('SELECT locale FROM companies WHERE id=?',e.company_id)?.locale||'en', predictions=mlConfigured()?await scoreMachine(e):null;
+    try { const out=await explainMachine(e,{predictions,locale}); audit(u,'machine.explain','equipment',e.id,e.company_id,{source:out.source}); return out; } catch (err) { throw aiHttpError(err); }
+  });
+  r.get('/factory/oee-insights',({u,query})=>{ const ms=machinesFor(u,{plantId:query.get('plantId')||null}), forecasts=Object.fromEntries(ms.map(e=>[e.id,shiftForecast(e)])); return oeeInsights(ms).map(o=>({...o,forecast:forecasts[o.equipmentId]})); });
   r.get('/factory/condition/:id/trend',({u,params,query})=>{
     const [e]=machinesFor(u,{equipmentId:params.id}); if (!e) missing();
     const parameter=choice(query.get('parameter'),'parameter',Object.keys(CONDITION_PARAMETERS)), hours=Number(query.get('hours')||24); if (![24,168].includes(hours)) bad('hours must be 24 or 168');

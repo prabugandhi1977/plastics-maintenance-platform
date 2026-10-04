@@ -13,7 +13,7 @@ import { recordSafety } from './safety.js';
 import { recordSighting } from './assets.js';
 import { DEFECT_TYPES } from '../../common/catalog.js';
 
-export const SLOT_MIN=15, SLOT=SLOT_MIN*60000, BACKFILL_DAYS=7;
+export const SLOT_MIN=15, SLOT=SLOT_MIN*60000, BACKFILL_DAYS=Math.max(7,Number(process.env.FACTORY_BACKFILL_DAYS)||7);
 export const simulatorEnabled=()=>process.env.FACTORY_SIMULATOR==='true';
 // Small deterministic hash → [0,1).
 export function rand(...parts) { let h=2166136261; for (const ch of parts.join('|')) { h^=ch.charCodeAt(0); h=Math.imul(h,16777619); } h^=h>>>13; h=Math.imul(h,0x5bd1e995); h^=h>>>15; return (h>>>0)/4294967296; }
@@ -35,11 +35,13 @@ const SIGNALS={hydraulic_oil_temp:[46,3,1.2,30,24],pump_vibration:[2.1,0.2,0.35,
 // Some machines have one slowly failing part: its signal drifts over a repeating 10-day cycle (then is "repaired"),
 // so the demo shows readings crossing warning and critical limits and tickets being raised.
 const degrading=e=>{ const params=parametersFor(e.machine_type); return rand(e.id,'degr')<0.6&&params.length?params[Math.floor(rand(e.id,'dparam')*params.length)%params.length].key:null; };
+// How far a machine's failing part has drifted (0 = fresh, 1 = about to be repaired); 0 for machines without one.
+const driftPhase=(e,t)=>degrading(e)?(((t/86400000)+rand(e.id,'phase')*10)%10)/10:0;
 function signal(e,key,t,state) {
   const [mean,swing,noiseAmp,off,span]=SIGNALS[key], on=['running','setup','idle'].includes(state), noise=(rand(e.id,key,String(t))-0.5)*2;
   if (!on) return Math.round((off+noise*noiseAmp*0.5)*100)/100;
   let v=mean+swing*Math.sin(2*Math.PI*((t/3600000)%24)/24)+noise*noiseAmp;
-  if (degrading(e)===key) { const phase=(((t/86400000)+rand(e.id,'phase')*10)%10)/10; v+=span*phase*phase; }
+  if (degrading(e)===key) { const phase=driftPhase(e,t); v+=span*phase*phase; }
   return Math.round(v*100)/100;
 }
 
@@ -81,7 +83,8 @@ export function simulateMachine(e,until=Date.now()) {
       if (state==='running') {
         const rate=product.ideal_rate_per_hour*ch.speed*(0.96+rand(e.id,slot,'rate')*0.06), totalRaw=rate*SLOT_MIN/60;
         const total=product.unit==='parts'?Math.round(totalRaw):Math.round(totalRaw*10)/10;
-        const scrapShare=ch.scrap*(0.5+rand(e.id,slot,'scrap'))+(afterSetup?0.05:0);
+        // A worn part makes more scrap as it drifts (hot oil, loose bearing: the quality link the platform should find).
+        const scrapShare=ch.scrap*(0.5+rand(e.id,slot,'scrap'))*(1+4*driftPhase(e,t)**2)+(afterSetup?0.05:0);
         const scrap=product.unit==='parts'?Math.round(total*scrapShare):Math.round(total*scrapShare*10)/10;
         // Camera station at the machine outlet: parts are inspected one by one; extruded product by an inline gauge
         // taking a measurement every 15 seconds. Rejects are split over the defects typical for the process.

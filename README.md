@@ -71,6 +71,16 @@ The menu follows the plant's functions:
 | **Safety** | Safety events (camera PPE, fire and intrusion alarms come from Vision AI) |
 | **Administration** | Companies, plants & users, Service providers, Settings, Machine data (IoT), Audit trail |
 
+## AI insights (learned baselines)
+
+Pure-Node statistics in `backend/services/ml/`, with no extra dependencies and no training step:
+
+- **Condition monitoring:** for each machine and signal the platform learns what is normal while the machine runs (median and MAD over the past week) and marks the signal **Normal**, **Unusual** (recent level far from its own normal) or **Degrading** (a steady trend towards a limit, with an estimate of the time left). Unusual and degrading signals still inside their fixed limits raise an advisory **Predictive** alert (no automatic ticket). A machine shows **Learning** until it has about a day of data. `GET /api/factory/condition-insights`.
+- **OEE:** a machine's latest day is compared with its own previous days; a drop is flagged with the biggest loss behind it and the losses that grew most ("breakdown +115 min"). A **shift forecast** projects output for the shift in progress (output so far plus the recent pace, stops included) against the machine's typical output for the same shift. `GET /api/factory/oee-insights`.
+- **Scrap and quality:** a machine's recent scrap rate is compared with its own hourly history. When it is elevated the insight names the defect types growing in the camera results and the condition signals that are unusual at the same time, and raises a **Predictive: scrap rate rising** quality alert. `GET /api/factory/scrap-insights`.
+- Every result carries the numbers behind it (score, baseline, trend), so it can be explained and checked. - **Trained models (optional):** the Python service in [ml/](ml/README.md) trains per-company breakdown-risk and anomaly models from `npm run ml:export` and serves them; the Condition page shows each prediction with its model version. It also predicts a **scrap spike in the next 4 hours** (`npm run ml:export -- --task scrap`).
+- **Explain with AI:** the button on each Condition card sends everything the platform found for that machine (signal baselines and trends, scrap and defects, OEE losses, forecast, model predictions with their measured quality, open alerts, recent tickets) to Claude and shows a short explanation: what is going on, likely causes with the evidence and a confidence for each, what to do and how urgently, and what data is missing. Claude only reasons and words it; every number comes from the platform, ticket text is treated as data, and the answer is validated and clamped. Answers are cached for 10 minutes per machine and language. Needs `ANTHROPIC_API_KEY`; without it the same facts come back as a rule-built summary. `POST /api/factory/machines/:id/explain`.
+
 ## Traceability: forward, backward and real time
 
 Built on the practice of leading MES traceability products (genealogy, process windows with SPC, quality gates, scan-verified dispatch, warranty authentication). See [docs/TRACEABILITY.md](docs/TRACEABILITY.md) for each requirement and how it is met.
