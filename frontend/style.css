@@ -34,7 +34,7 @@ fieldset.section{border:1px solid var(--line);border-radius:var(--radius);paddin
 
 /* Shell */
 .shell{display:grid;grid-template-columns:262px minmax(0,1fr);min-height:100vh}
-.side{background:var(--nav);color:#fff;padding:22px 14px;display:flex;flex-direction:column}
+.side{background:var(--nav);color:#fff;padding:22px 14px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;overscroll-behavior:contain}
 .brand{font-size:24px;font-weight:800;letter-spacing:-.7px;margin:4px 8px 22px} .brand span{color:#65d7ca}
 .nav-group{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:#8fb0b4;margin:16px 10px 6px} .nav-sep{border-top:1px solid #2f5560;margin:14px 6px}
 .nav{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:transparent;border-radius:8px;color:#d6e8e9;margin:2px 0;padding:8px 10px;font-weight:600;font-size:14.5px;line-height:1.25}
@@ -115,7 +115,7 @@ dialog.confirm .modal-body h2{margin:0 0 8px;font-size:18px}
 .demo-accounts{margin-top:18px} .demo-accounts button{width:auto;margin:4px 4px 0 0;padding:6px 10px;font-size:13px}
 
 /* Responsive */
-@media(max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{flex-direction:row;align-items:center;gap:8px;overflow-x:auto;padding:10px}.side nav{display:flex;gap:4px}.brand{margin:0 10px 0 0;font-size:19px;white-space:nowrap}.nav-group,.nav-sep{display:none}.nav{width:auto;white-space:nowrap;padding:8px 10px}.profile{display:none}.main{padding:18px}.detail{grid-template-columns:1fr}}
+@media(max-width:900px){.shell{grid-template-columns:minmax(0,1fr)}.side{flex-direction:row;align-items:center;gap:8px;overflow-x:auto;overflow-y:hidden;padding:10px;height:auto;z-index:5}.side nav{display:flex;gap:4px}.brand{margin:0 10px 0 0;font-size:19px;white-space:nowrap}.nav-group,.nav-sep{display:none}.nav{width:auto;white-space:nowrap;padding:8px 10px}.profile{display:none}.main{padding:18px}.detail{grid-template-columns:1fr}}
 @media(max-width:560px){.form-grid{grid-template-columns:1fr}.top{display:block}.main{padding:14px}.stat strong{font-size:22px}.tt-search{max-width:none}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 
