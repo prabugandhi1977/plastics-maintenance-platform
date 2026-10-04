@@ -6,10 +6,10 @@ WORKDIR /app
 ENV NODE_ENV=production PORT=3100 MOULDCARE_DATA_DIR=/data
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY api ./api
-COPY web ./web
+COPY backend ./backend
+COPY frontend ./frontend
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN rm -rf api/tests && chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /data && chown node:node /data
+RUN rm -rf backend/tests frontend/scripts && chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /data && chown node:node /data
 EXPOSE 3100
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

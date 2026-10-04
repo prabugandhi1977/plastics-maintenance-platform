@@ -10,7 +10,7 @@ MouldCare is a local, working demo of a multi-tenant maintenance platform for pl
 
 ## Stack and rationale
 
-- **Node.js 22.13+ HTTP API with no dependencies.** One runtime and one API serve both clients. Feature areas are separate route modules in `api/routes/`, and machine-data sources plug in through `api/iot/adapters/`.
+- **Node.js 22.13+ HTTP API with no dependencies.** One runtime and one API serve both clients. Feature areas are separate route modules in `backend/services/` (shared code in `backend/common/`), and machine-data sources plug in through `backend/services/iot/adapters/`.
 - **SQLite for the local MVP.** It gives transactional migrations, foreign keys and a portable demo database. Node's built-in SQLite module is experimental in Node 22, so move to PostgreSQL before production; see [docs/ROADMAP.md](docs/ROADMAP.md).
 - **Web app and installable mobile web app (PWA).** The field app caches its own code, assigned work and opened tickets on the device. It queues changes in IndexedDB, shows them straight away, and syncs them safely when the connection returns. A native app (Expo) can use the same API later if device features require it.
 
@@ -36,7 +36,7 @@ npm start
 
 Open **http://localhost:3100/** for the web workspace and **http://localhost:3100/mobile/** for the field app. `localhost` works for desktop testing; to install the field app on a phone, serve it over HTTPS.
 
-The database and uploads are stored under `data/`, which Git ignores. Both `npm run seed` and `npm run iot:sync` are safe to repeat: the seed skips data that already exists, and sync carries on from where it stopped without duplicating readings. Database migrations in `api/migrations/` run automatically, each in its own transaction, so an existing demo database upgrades in place. The richer demo history is only added to a new database: to start fresh, stop the server, delete `data/`, and run the two commands above again.
+The database and uploads are stored under `data/`, which Git ignores. Both `npm run seed` and `npm run iot:sync` are safe to repeat: the seed skips data that already exists, and sync carries on from where it stopped without duplicating readings. Database migrations in `backend/migrations/` run automatically, each in its own transaction, so an existing demo database upgrades in place. The richer demo history is only added to a new database: to start fresh, stop the server, delete `data/`, and run the two commands above again.
 
 Demo password for all accounts: `DemoPass123!`.
 
@@ -99,7 +99,7 @@ The platform monitors production as well as maintaining machines:
 
 Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
-An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `node api/seed.js` runs. A database without the stage 1 demo products is left unchanged.
+An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `npm run seed` runs. A database without the stage 1 demo products is left unchanged.
 
 ## Vision AI: PPE, fire and smoke, restricted areas, quality inspection
 
@@ -179,7 +179,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 47 tests in seven files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `api/tests/fixtures.js`.
+There are 47 tests in seven files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `backend/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -246,26 +246,32 @@ There are 47 tests in seven files. Each file uses its own temporary database and
 ## Structure
 
 ```text
-api/server.js        HTTP entry: static files with security headers, router, offline replay, IoT poller
-api/http.js          Router, JSON replies, body parsing
-api/access.js        Tenant-scoped lookups and permission helpers shared by all routes
-api/catalog.js       Master-data catalogue: mandatory parameter sets and ISO 14224 code lists
-api/factory/         Smart factory: shifts, OEE, alerts and email, condition, energy, quality, traceability, safety, asset tracking, simulator
-api/routes/          auth, org, equipment, iot, contracts, tickets, parts, dashboard, settings, factory, factory-ops
-api/files.js         Private file storage with file-type checks
-api/security.js      Passwords, signed access tokens, role checks
-api/validate.js      Input validation, time-zone conversion
-api/iot/             Standard record format, ingest/freshness, sync runner, adapters (mock)
-api/migrations/      Versioned SQL migrations (001 base … 008 traceability, quality, safety, assets)
-api/tests/           API workflow, IoT and platform tests
-web/                 Desktop web workspace
-web/mobile/          Installable field app with offline queue and signature capture
-web/ops.js           Smart factory pages: traceability, quality, safety, asset tracking
-web/ui.js            Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
-web/charts.js        Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
-web/shared/          Translations and formatting, signature pad (used by both clients)
-API.md               Endpoints, workflow rules, IoT interface
-docs/ROADMAP.md      Production hardening and later phases (IoT alerts, video, AI, predictive, AR)
+backend/server.js               HTTP entry: static files with security headers, router, offline replay, background jobs
+backend/common/                 Shared by every service:
+  db.js, http.js                  database, migrations runner, router, JSON replies, body parsing
+  security.js, access.js          passwords, signed tokens, roles; tenant-scoped lookups and permission helpers
+  validate.js, files.js           input validation, time zones; private file storage with file-type checks
+  catalog.js, scan.js             master-data catalogue (ISO 14224 code lists); QR/scan verification
+backend/services/               One folder per feature area; each index.js exports its route modules
+  core/                           auth, org, equipment, contracts, tickets, parts, dashboard, settings
+  iot/                            standard record format, ingest/freshness, sync runner, adapters (mock)
+  factory/                        shifts, OEE, alerts and email, condition, energy, quality, safety, asset tracking, simulator
+  traceability/                   lots, batches, genealogy, FIFO, release blockers, deviations
+  vision/                         edge nodes, cameras, detections, inspection media
+  assistant/                      AI breakdown assistant and equipment guides
+backend/migrations/             Versioned SQL migrations, one numbered series for all services
+backend/scripts/                seed, demo data, first-admin bootstrap, IoT sync
+backend/tests/                  API workflow, IoT and platform tests
+frontend/                       Desktop web workspace (served as the site root)
+frontend/mobile/                Installable field app with offline queue and signature capture
+frontend/ops.js                 Smart factory pages: traceability, quality, safety, asset tracking
+frontend/ui.js                  Shared UI: filterable tables, catalogue-driven forms, dialogs, confirmations, toasts
+frontend/charts.js              Dashboard charts and KPI tiles (data-visualisation method: validated colour, table view, tooltips)
+frontend/shared/                Translations and formatting, signature pad (used by both clients)
+frontend/scripts/               Development helpers (app icon generator); not shipped in the image
+edge/                           Python vision edge agent
+API.md                          Endpoints, workflow rules, IoT interface
+docs/ROADMAP.md                 Production hardening and later phases (IoT alerts, video, AI, predictive, AR)
 ```
 
 ## Globalisation
@@ -274,7 +280,7 @@ docs/ROADMAP.md      Production hardening and later phases (IoT alerts, video, A
 - **Plant-local input:** visit times entered without a time zone are read as plant-local time.
 - **Money:** amounts are stored in minor units and shown in each currency's own format. Quotes are entered in major units.
 - **Units:** temperatures follow the company's metric or imperial setting.
-- **Languages:** English and German so far. The German translation is a first draft, to be reviewed by a native speaker. Adding a language means adding a catalogue in `web/shared/i18n.js`.
+- **Languages:** English and German so far. The German translation is a first draft, to be reviewed by a native speaker. Adding a language means adding a catalogue in `frontend/shared/i18n.js`.
 
 ## Before live customers
 
