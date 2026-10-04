@@ -75,3 +75,31 @@ test('device mapping: move to another machine of the same company and change sta
   assert.match((await call('/devices/map-a','PATCH',{equipmentId:'eq-n'},tokens.acme)).data.error,/same company/);
   assert.equal((await call('/devices/map-a','PATCH',{staleAfterMinutes:10},tokens.nova)).status,403);
 });
+
+test('equipment: a wrong machine type can be corrected, with parameters for the new type',async()=>{
+  const { SPECS }=await import('./fixtures.js');
+  assert.match((await call('/equipment/eq-bm','PATCH',{machineType:'injection'},tokens.acme)).data.error,/technical parameters for the new machine type/);
+  assert.equal((await call('/equipment/eq-bm','PATCH',{machineType:'injection',specs:SPECS.blow},tokens.acme)).status,400);
+  const r=await call('/equipment/eq-bm','PATCH',{machineType:'injection',specs:SPECS.injection},tokens.acme);
+  assert.equal(r.status,200);
+  assert.deepEqual({...db.prepare('SELECT machine_type,specs FROM equipment WHERE id=?').get('eq-bm')},{machine_type:'injection',specs:JSON.stringify({...SPECS.injection})});
+  // eq-c (a chiller) serves eq-a, so eq-a cannot become a mould or auxiliary unit
+  assert.match((await call('/equipment/eq-a','PATCH',{machineType:'mould',specs:SPECS.mould},tokens.acme)).data.error,/serves this machine/);
+  assert.equal(db.prepare('SELECT machine_type FROM equipment WHERE id=?').get('eq-a').machine_type,'injection');
+  assert.equal((await call('/equipment/eq-bm','PATCH',{machineType:'blow',specs:SPECS.blow},tokens.nova)).status,403);
+});
+
+test('asset tracking: a replaced tag or reader gets its new ID, duplicates are refused',async()=>{
+  const z1=await call('/zones','POST',{plantId:'plant-a',name:'Tool room',kind:'storage',readerId:'GW-EDIT-1'},tokens.acme);
+  const z2=await call('/zones','POST',{plantId:'plant-a',name:'Dock 2',kind:'storage',readerId:'GW-EDIT-2'},tokens.acme);
+  assert.equal(z1.status,201,JSON.stringify(z1.data)); assert.equal(z2.status,201);
+  assert.equal((await call(`/zones/${z1.data.id}`,'PATCH',{readerId:'GW-EDIT-1B'},tokens.acme)).data.reader_id,'GW-EDIT-1B');
+  assert.match((await call(`/zones/${z1.data.id}`,'PATCH',{readerId:'GW-EDIT-2'},tokens.acme)).data.error,/already covers another zone/);
+  const body={plantId:'plant-a',name:'Mould trolley 7',kind:'trolley',tagType:'ble',missingAfterHours:24};
+  const a1=await call('/assets','POST',{...body,tagId:'BLE-EDIT-1'},tokens.acme), a2=await call('/assets','POST',{...body,name:'Mould trolley 8',tagId:'BLE-EDIT-2'},tokens.acme);
+  assert.equal(a1.status,201,JSON.stringify(a1.data)); assert.equal(a2.status,201);
+  const moved=await call(`/assets/${a1.data.id}`,'PATCH',{tagId:'BLE-EDIT-1B'},tokens.acme);
+  assert.equal(moved.status,200); assert.equal(db.prepare('SELECT tag_id FROM tracked_assets WHERE id=?').get(a1.data.id).tag_id,'BLE-EDIT-1B');
+  assert.match((await call(`/assets/${a1.data.id}`,'PATCH',{tagId:'BLE-EDIT-2'},tokens.acme)).data.error,/already on another asset/);
+  assert.equal((await call(`/assets/${a1.data.id}`,'PATCH',{tagId:'BLE-X'},tokens.nova)).status,403);
+});

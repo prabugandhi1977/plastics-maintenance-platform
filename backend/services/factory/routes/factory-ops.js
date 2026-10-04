@@ -126,8 +126,10 @@ export function register(r) {
     const key=id(); run('INSERT INTO zones (id,company_id,plant_id,name,kind,reader_id,created_at) VALUES (?,?,?,?,?,?,?)',key,plant.company_id,plant.id,required(body.name,'name',80),choice(body.kind,'kind',ZONE_KINDS),reader,now());
     audit(u,'zone.create','zone',key,plant.company_id); return created(byId('zones',key));
   });
+  // A replaced reader or gateway gets its new ID here; sightings already recorded stay with the zone.
   r.patch('/zones/:id',({u,body,params})=>{ const z=owned(u,byId('zones',params.id)); if (!canManage(u,z.company_id)) deny();
-    run('UPDATE zones SET name=?,kind=? WHERE id=?',body.name==null?z.name:required(body.name,'name',80),body.kind==null?z.kind:choice(body.kind,'kind',ZONE_KINDS),z.id); audit(u,'zone.update','zone',z.id,z.company_id); return byId('zones',z.id); });
+    const reader=body.readerId==null?z.reader_id:required(body.readerId,'readerId',60); if (reader!==z.reader_id&&one('SELECT 1 FROM zones WHERE reader_id=? AND id<>?',reader,z.id)) bad(`Reader ${reader} already covers another zone`);
+    run('UPDATE zones SET name=?,kind=?,reader_id=? WHERE id=?',body.name==null?z.name:required(body.name,'name',80),body.kind==null?z.kind:choice(body.kind,'kind',ZONE_KINDS),reader,z.id); audit(u,'zone.update','zone',z.id,z.company_id,reader!==z.reader_id?{readerId:reader}:{}); return byId('zones',z.id); });
   r.get('/assets',({u})=>{ view(u); checkMissing(); const [w,a]=companyFilter(u); return all(`SELECT * FROM tracked_assets WHERE ${w} ORDER BY name`,...a).map(assetView); });
   const assetBody=(u,body,existing)=>{
     const plant=byId('plants',body.plantId??existing?.plant_id); if (!plant) bad('Unknown plant'); if (!canManage(u,plant.company_id)) deny(); if (existing&&plant.company_id!==existing.company_id) bad('An asset cannot move to another company');
@@ -138,9 +140,11 @@ export function register(r) {
   r.post('/assets',({u,body})=>{ const a=assetBody(u,body), tag=required(body.tagId,'tagId',60); if (one('SELECT 1 FROM tracked_assets WHERE tag_id=?',tag)) bad(`Tag ${tag} is already on another asset`);
     const key=id(); run('INSERT INTO tracked_assets (id,company_id,plant_id,tag_id,tag_type,kind,name,equipment_id,home_zone_id,missing_after_hours,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,a.plant.company_id,a.plant.id,tag,a.tagType,a.kind,a.name,a.equipmentId,a.home,Math.round(a.missingAfter),now());
     audit(u,'asset.create','tracked_asset',key,a.plant.company_id); return created(assetView(byId('tracked_assets',key))); });
+  // A replaced tag (lost or flat beacon) gets its new ID here; the location history stays with the asset.
   r.patch('/assets/:id',({u,body,params})=>{ const existing=owned(u,byId('tracked_assets',params.id)), a=assetBody(u,body,existing);
-    run('UPDATE tracked_assets SET plant_id=?,name=?,kind=?,tag_type=?,equipment_id=?,home_zone_id=?,missing_after_hours=? WHERE id=?',a.plant.id,a.name,a.kind,a.tagType,a.equipmentId,a.home,Math.round(a.missingAfter),existing.id);
-    audit(u,'asset.update','tracked_asset',existing.id,existing.company_id); return assetView(byId('tracked_assets',existing.id)); });
+    const tag=body.tagId==null?existing.tag_id:required(body.tagId,'tagId',60); if (tag!==existing.tag_id&&one('SELECT 1 FROM tracked_assets WHERE tag_id=? AND id<>?',tag,existing.id)) bad(`Tag ${tag} is already on another asset`);
+    run('UPDATE tracked_assets SET plant_id=?,name=?,kind=?,tag_id=?,tag_type=?,equipment_id=?,home_zone_id=?,missing_after_hours=? WHERE id=?',a.plant.id,a.name,a.kind,tag,a.tagType,a.equipmentId,a.home,Math.round(a.missingAfter),existing.id);
+    audit(u,'asset.update','tracked_asset',existing.id,existing.company_id,tag!==existing.tag_id?{tagId:tag}:{}); return assetView(byId('tracked_assets',existing.id)); });
   // Where an asset has been: consecutive sightings in the same zone are merged into stays.
   r.get('/assets/:id/history',({u,params,query})=>{ view(u); const a=owned(u,byId('tracked_assets',params.id)), hours=Number(query.get('hours')||48); if (!(hours>0&&hours<=720)) bad('hours must be 1-720');
     const stays=[]; for (const s of all('SELECT s.seen_at,s.zone_id,z.name,z.kind FROM asset_sightings s JOIN zones z ON z.id=s.zone_id WHERE s.asset_id=? AND s.seen_at>=? ORDER BY s.seen_at',a.id,new Date(Date.now()-hours*3600000).toISOString())) { const last=stays[stays.length-1]; if (last&&last.zoneId===s.zone_id) last.to=s.seen_at; else stays.push({zoneId:s.zone_id,zone:s.name,kind:s.kind,from:s.seen_at,to:s.seen_at}); }

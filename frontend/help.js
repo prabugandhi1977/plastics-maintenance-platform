@@ -97,7 +97,8 @@ export const HELP={
     tips:['A dispatcher can proceed without a scan by giving a reason, which stays on the ticket.']},
   equipment:{what:'Machines, moulds and auxiliary equipment with their technical parameters, documents and history.',who:'Customer admins and platform admins add; dispatchers can edit.',
     tasks:[['Add equipment',['Click <b>Add equipment</b>: plant, machine type, asset tag, make, model, serial number, year.','Set criticality, status and location, then fill in the mandatory technical parameters for that machine type.']],
-      ['Find a machine',['Search or filter the list, then click the asset tag.']]],
+      ['Find a machine',['Search or filter the list, then click the asset tag.']],
+      ['Correct a machine',['Click <b>Edit</b> on its row (or on the machine record) to review and change every field: plant, machine type, asset tag, QR label, RFID tag, make, model, serial number, classification and technical parameters.','Changing the machine type asks for the technical parameters of the new type.']]],
     tips:['"Incomplete" marks machines missing mandatory parameters.']},
   equipmentRecord:{title:'Machine record',what:'Everything about one machine: identification, parameters, live data, documents, label and tickets.',
     tasks:[['Common actions',['<b>Edit</b> to change details.','<b>Report breakdown</b> for this machine.','<b>Attach manual or document</b> (PDF or picture).','<b>Connect IoT device</b>: enter the external device ID from your machine-data system and when to mark it stale.','Print the <b>Equipment label</b> (QR) and fix it to the machine for scan-at-machine.']]]},
@@ -112,7 +113,8 @@ export const HELP={
     tasks:[['Request a part',['On the ticket, click <b>Request spare part</b>: part number, manufacturer, description, quantity, unit and urgency.']],
       ['Quote and approve',['The provider uses <b>Send quote</b>: price, currency, lead time and valid-until date.','The customer opens <b>View quotes</b> and approves one before it expires.']]]},
   assets:{what:'Where moulds, tools, gauges and trolleys are, from BLE beacons and RFID tags.',who:'Customer roles, dispatchers and platform admins; managers add zones and assets.',
-    tasks:[['Set up tracking',['<b>Add location zone</b>: plant, name, type and the reader or gateway ID.','<b>Add tracked asset</b>: name, type, tag ID and technology, home zone, linked equipment, and when to report it missing.']],
+    tasks:[['Set up tracking',['<b>Add location zone</b>: plant, name, type and the reader or gateway ID.','<b>Add tracked asset</b>: name, type, technology, home zone, linked equipment and when to report it missing. For the <b>Tag ID</b>, use <b>Scan QR</b> for the code on a beacon, <b>Read RFID/NFC tag</b> on an Android phone with NFC, a handheld RFID reader, or type it.']],
+      ['Replace a tag or reader',['<b>Edit</b> the asset or zone and scan or type the new tag or reader ID. Its location history is kept.']],
       ['Find an asset',['Search the list; <b>Location history</b> shows where it has been.']]]},
 
   // ---------- Energy, safety ----------
