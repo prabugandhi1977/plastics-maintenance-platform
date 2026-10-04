@@ -13,6 +13,7 @@ import { auth, org, equipment, contracts, tickets, parts, dashboard, settings } 
 import { iot, runSync, createAdapter } from './services/iot/index.js';
 import { scanPredictive } from './services/ml/insights.js';
 import { scanQuality } from './services/ml/quality.js';
+import { reviewPending } from './services/vision/review.js';
 import { factory, factoryOps, simulateAll, simulatorEnabled, checkMissing } from './services/factory/index.js';
 import { traceability } from './services/traceability/index.js';
 import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
@@ -80,6 +81,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   setInterval(()=>{ try { checkMissing(); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
   // Machine learning: predictive alerts from learned baselines (degrading or unusual signals).
   setInterval(()=>{ try { scanPredictive(); scanQuality(); } catch(e) { console.error('Predictive scan failed:',e.message); } },10*60000).unref();
+  // Vision AI second opinions for companies that opted in to automatic review (a few non-critical incidents per minute).
+  setInterval(()=>{ reviewPending().catch(e=>console.error('Vision AI review failed:',e.message)); },60000).unref();
   // Vision: silent edge nodes raise an alert; closed, unlocked evidence past its retention is deleted (locked never).
   setInterval(()=>{ try { checkNodes(); } catch(e) { console.error('Vision node check failed:',e.message); } },60000).unref();
   setInterval(()=>{ try { const n=pruneMedia(); if (n) console.log(`Vision: pruned ${n} media files past retention`); } catch(e) { console.error('Vision pruning failed:',e.message); } },6*3600000).unref();

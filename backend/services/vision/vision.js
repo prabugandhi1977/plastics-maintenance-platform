@@ -64,7 +64,7 @@ export const visionCatalog=()=>({modules:Object.fromEntries(Object.entries(MODUL
   ppeGear:PPE_GEAR,qualityPresets:QUALITY_PRESETS,defectInfo:DEFECT_INFO,cameraVendors:CAMERA_VENDORS,sourceTypes:SOURCE_TYPES,duties:DUTIES,zoneKinds:ZONE_KINDS,sensitivity:SENSITIVITY,outputProtocols:OUTPUT_PROTOCOLS,systemEvents:SYSTEM_EVENTS});
 
 export function visionSettings() {
-  const base={mediaRetentionDays:30,qualityAlertRatePct:2,clipSeconds:10,preEventSeconds:5,diskPrunePct:90,broadcastGroup:'239.10.10.10',broadcastPort:5005};
+  const base={mediaRetentionDays:30,qualityAlertRatePct:2,falseAlarmTargetPct:10,clipSeconds:10,preEventSeconds:5,diskPrunePct:90,broadcastGroup:'239.10.10.10',broadcastPort:5005};
   try { return {...base,...JSON.parse(one("SELECT value FROM settings WHERE key='vision_settings'")?.value||'{}')}; } catch { return base; }
 }
 

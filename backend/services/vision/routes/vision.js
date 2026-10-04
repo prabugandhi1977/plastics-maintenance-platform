@@ -10,7 +10,10 @@ import { HttpError, bad, choice, deny, missing, required } from '../../../common
 import { created } from '../../../common/http.js';
 import { resolveAlertKey } from '../../factory/alerts.js';
 import { CAMERA_VENDORS, MODULES, MODULE_KEYS, PPE_GEAR, QUALITY_PRESETS, SOURCE_TYPES, ZONE_KINDS, bumpCamera, bumpNode, heartbeat, ingestBatch, licence, moduleConfig, newNodeKey,
-  nodeConfig, nodeFromRequest, nodeStatus, readMedia, storeMedia, visionCatalog } from '../vision.js';
+  nodeConfig, nodeFromRequest, nodeStatus, readMedia, storeMedia, visionCatalog, visionSettings } from '../vision.js';
+import { falseAlarmReport } from '../analytics.js';
+import { REVIEW_MODES, reviewEvent, reviewMode, reviewOf, reviewStats } from '../review.js';
+import { aiEnabled } from '../../assistant/assistant.js';
 
 const parse=(v,fallback)=>{ try { return JSON.parse(v); } catch { return fallback; } };
 // Camera URLs often carry a password (rtsp://user:pass@host). People see it masked; the edge node gets it in full.
@@ -33,6 +36,12 @@ const eventOut=e=>({id:e.id,companyId:e.company_id,plantId:e.plant_id,cameraId:e
   occurredAt:e.occurred_at,receivedAt:e.received_at,latencyMs:e.latency_ms,zoneId:e.zone_id,zoneName:e.zone_name,detail:parse(e.detail,{}),boxes:parse(e.boxes,[]),edgeActions:parse(e.edge_actions,{}),
   snapshotMediaId:e.snapshot_media_id,clipMediaId:e.clip_media_id,status:e.status,acknowledgedBy:e.ack_name??null,acknowledgedAt:e.acknowledged_at,resolvedBy:e.res_name??null,resolvedAt:e.resolved_at,
   resolutionNote:e.resolution_note,locked:!!e.locked,retrain:!!e.retrain,alertId:e.alert_id,safetyEventId:e.safety_event_id});
+// The AI second opinion (if any) next to each incident in a list: one query for all of them.
+function withReviews(events) {
+  if (!events.length) return events;
+  const rows=all(`SELECT event_id,verdict,reason,description FROM vision_reviews WHERE event_id IN (${events.map(()=>'?').join(',')})`,...events.map(e=>e.id)), byEvent=new Map(rows.map(r=>[r.event_id,{verdict:r.verdict,reason:r.reason,description:r.description}]));
+  return events.map(e=>({...e,review:byEvent.get(e.id)??null}));
+}
 const EVENT_SELECT=`SELECT e.*,c.name camera_name,c.location,z.name zone_name,ua.name ack_name,ur.name res_name FROM vision_events e JOIN vision_cameras c ON c.id=e.camera_id
   LEFT JOIN vision_zones z ON z.id=e.zone_id LEFT JOIN users ua ON ua.id=e.acknowledged_by LEFT JOIN users ur ON ur.id=e.resolved_by`;
 
@@ -167,7 +176,7 @@ export function register(r) {
     const hours=Number(query.get('hours')||0); if (hours>0) { cond.push('e.occurred_at>=?'); a.push(new Date(Date.now()-Math.min(hours,24*400)*3600000).toISOString()); }
     return [cond.join(' AND '),a]; };
   r.get('/vision/events',({u,query})=>{ const [where,args]=eventQuery(u,query), limit=Math.min(500,Math.max(1,Number(query.get('limit'))||200));
-    return all(`${EVENT_SELECT} WHERE ${where} ORDER BY e.occurred_at DESC LIMIT ?`,...args,limit).map(eventOut); });
+    return withReviews(all(`${EVENT_SELECT} WHERE ${where} ORDER BY e.occurred_at DESC LIMIT ?`,...args,limit).map(eventOut)); });
   // Proof-of-violation log: every matching incident with who handled it and how, as CSV for audits.
   r.get('/vision/events.csv',({u,query,res})=>{ const [where,args]=eventQuery(u,query); const rows=all(`${EVENT_SELECT} WHERE ${where} ORDER BY e.occurred_at DESC LIMIT 20000`,...args).map(eventOut);
     const cell=v=>{ const s=String(v??''); return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s; };
@@ -177,7 +186,7 @@ export function register(r) {
     audit(u,'vision.export','vision_event','csv',isCustomer(u)?u.company_id:null,{rows:rows.length});
     res.writeHead(200,{'content-type':'text/csv; charset=utf-8','content-disposition':`attachment; filename="vision-incidents-${now().slice(0,10)}.csv"`,'cache-control':'no-store'});
     res.end('﻿'+[head.join(','),...lines].join('\r\n')); });
-  r.get('/vision/events/:id',({u,params})=>{ getEvent(u,params.id); return eventOut(one(`${EVENT_SELECT} WHERE e.id=?`,params.id)); });
+  r.get('/vision/events/:id',({u,params})=>{ const e=getEvent(u,params.id); return {...eventOut(one(`${EVENT_SELECT} WHERE e.id=?`,params.id)),review:reviewOf(e.id),aiReviewMode:reviewMode(e.company_id),aiEnabled:aiEnabled()}; });
   const close=(e,status,u,note)=>{ run('UPDATE vision_events SET status=?,resolved_by=?,resolved_at=?,resolution_note=?,acknowledged_by=COALESCE(acknowledged_by,?),acknowledged_at=COALESCE(acknowledged_at,?) WHERE id=?',status,u.id,now(),note,u.id,now(),e.id);
     // The last open incident of a kind on a camera closes its alert too.
     if (e.alert_id&&!one("SELECT 1 FROM vision_events WHERE alert_id=? AND status IN ('open','acknowledged')",e.alert_id)) { const a=byId('alerts',e.alert_id); if (a) resolveAlertKey(a.dedupe_key); } };
@@ -198,6 +207,34 @@ export function register(r) {
   r.get('/vision/retraining',({u})=>{ const [where,args]=scopeSql(u,'e.company_id'); if (!isPlatform(u)&&u.role!=='customer_admin') deny();
     return all(`${EVENT_SELECT} WHERE ${where} AND e.retrain=1 ORDER BY e.occurred_at DESC LIMIT 5000`,...args).map(eventOut).map(e=>({id:e.id,module:e.module,type:e.type,label:'false_positive',
       occurredAt:e.occurredAt,camera:e.cameraName,note:e.resolutionNote,boxes:e.boxes,detail:e.detail,snapshot:e.snapshotMediaId?`/api/vision/media/${e.snapshotMediaId}`:null,clip:e.clipMediaId?`/api/vision/media/${e.clipMediaId}`:null})); });
+
+  // ---------- AI: false-alarm analytics and second opinions ----------
+  // How often each kind of incident was a false alarm, by confidence, camera and hour, with a threshold that would bring
+  // false alarms under the target (default from settings; 10 % of incidents).
+  r.get('/vision/analytics/false-alarms',({u,query})=>{
+    const ids=companyScope(u), days=[7,30,90,365].includes(Number(query.get('days')))?Number(query.get('days')):30;
+    const t=query.get('targetPct')==null?visionSettings().falseAlarmTargetPct:Number(query.get('targetPct')); if (!Number.isFinite(t)||t<0.1||t>50) bad('targetPct must be from 0.1 to 50');
+    return falseAlarmReport(ids,{days,targetPct:t});
+  });
+  // Per company: whether snapshots may be sent to the AI for a second opinion (off, manual or auto), plus how well it agrees with people.
+  r.get('/vision/ai-review',({u,query})=>{
+    const ids=companyScope(u), days=[7,30,90,365].includes(Number(query.get('days')))?Number(query.get('days')):30;
+    const companies=all(`SELECT id,name,vision_ai_review mode FROM companies ${ids?`WHERE id IN (${ids.map(()=>'?').join(',')})`:''} ORDER BY name`,...(ids||[]));
+    return {aiEnabled:aiEnabled(),modes:REVIEW_MODES,companies:companies.map(c=>({id:c.id,name:c.name,mode:c.mode,canManage:canManageCompany(u,c.id)})),stats:reviewStats(ids,{days})};
+  });
+  r.patch('/vision/ai-review/:companyId',({u,body,params})=>{
+    const c=byId('companies',params.companyId); if (!c) missing(); manage(u,c.id);
+    const mode=choice(body.mode,'mode',REVIEW_MODES); run('UPDATE companies SET vision_ai_review=? WHERE id=?',mode,c.id);
+    audit(u,'vision.ai_review.mode','company',c.id,c.id,{mode}); return {id:c.id,mode};
+  });
+  // One review per incident: asking again returns the stored one unless a refresh is requested.
+  r.post('/vision/events/:id/ai-review',async({u,body,params})=>{
+    const e=getEvent(u,params.id), mode=reviewMode(e.company_id);
+    if (mode==='off') throw new HttpError(403,'AI review is off for this company. A company administrator can turn it on (snapshots are sent to the AI service).');
+    const review=await reviewEvent(e,{source:'manual',userId:u.id,refresh:body?.refresh===true});
+    if (!review.cached) audit(u,'vision.event.ai_review','vision_event',e.id,e.company_id,{verdict:review.verdict});
+    return review;
+  });
 
   // ---------- Dashboards and alarms ----------
   r.get('/vision/overview',({u,query})=>{
