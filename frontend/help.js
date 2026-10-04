@@ -1,7 +1,10 @@
 // In-app help: what each page is for, who can use it, and step-by-step instructions for its tasks.
-// Topics are keyed by the page ids in NAV_GROUPS (app.js), plus 'start', 'ticket' and 'equipmentRecord'.
+// Topics are keyed by the page ids in NAV_GROUPS (app.js), plus 'start', 'ticket' and 'equipmentRecord'. German content
+// is in help-de.js with the same keys; the user's language picks one, and English fills any gap.
 // Content is static and trusted (no user data), so it may contain <b>; menu paths use " › ".
 import { esc, openDialog } from './ui.js';
+import { locale } from './shared/i18n.js';
+import { HELP_DE } from './help-de.js';
 
 const ADMIN='Platform admin';
 export const HELP={
@@ -141,14 +144,19 @@ export const HELP={
     tasks:[['Change password',['Enter your current password and the new one under <b>Change password</b>.']],['Change language',['Use the language selector under your name in the menu.']]]},
 };
 
+const UI={en:{help:'Help',topic:'Topic',who:'Who can use it:',tips:'Tips'},de:{help:'Hilfe',topic:'Thema',who:'Wer kann das nutzen:',tips:'Tipps'}};
+const content=()=>locale()==='de'?HELP_DE:HELP;
+export const helpLabel=()=>(UI[locale()]||UI.en).help;
+
 export function openHelp(topic,{groups,visible,title}) {
-  const options=[['start','Getting started'],...groups.flatMap(([, pages])=>pages.filter(p=>visible(p)&&HELP[p]).map(p=>[p,title(p)]))];
+  const L=UI[locale()]||UI.en, all=content(), get=k=>all[k]||HELP[k];
+  const options=[['start',get('start').title],...groups.flatMap(([, pages])=>pages.filter(p=>visible(p)&&HELP[p]).map(p=>[p,title(p)]))];
   const known=HELP[topic]?topic:'start';
-  if (!options.some(o=>o[0]===known)) options.splice(1,0,[known,HELP[known].title||title(known)]);
-  const body=k=>{ const h=HELP[k];
-    return `<p>${h.what}</p>${h.who?`<p class="muted"><b>Who can use it:</b> ${h.who}</p>`:''}`
+  if (!options.some(o=>o[0]===known)) options.splice(1,0,[known,get(known).title||title(known)]);
+  const body=k=>{ const h=get(k);
+    return `<p>${h.what}</p>${h.who?`<p class="muted"><b>${L.who}</b> ${h.who}</p>`:''}`
       +h.tasks.map(([name,steps],i)=>`<details class="help-task" ${i===0?'open':''}><summary>${name}</summary><ol>${steps.map(s=>`<li>${s}</li>`).join('')}</ol></details>`).join('')
-      +(h.tips?.length?`<div class="help-tips"><b>Tips</b><ul>${h.tips.map(s=>`<li>${s}</li>`).join('')}</ul></div>`:''); };
-  openDialog('Help',`<div class="fld wide"><label for="help-topic">Topic</label><select id="help-topic">${options.map(([k,v])=>`<option value="${k}" ${k===known?'selected':''}>${esc(v)}</option>`).join('')}</select></div><div id="help-body">${body(known)}</div>`,
+      +(h.tips?.length?`<div class="help-tips"><b>${L.tips}</b><ul>${h.tips.map(s=>`<li>${s}</li>`).join('')}</ul></div>`:''); };
+  openDialog(L.help,`<div class="fld wide"><label for="help-topic">${L.topic}</label><select id="help-topic">${options.map(([k,v])=>`<option value="${k}" ${k===known?'selected':''}>${esc(v)}</option>`).join('')}</select></div><div id="help-body">${body(known)}</div>`,
     {onOpen:d=>{ d.querySelector('#help-topic').onchange=e=>{ d.querySelector('#help-body').innerHTML=body(e.target.value); }; }});
 }

@@ -1,5 +1,8 @@
 // Field app help: one screen of collapsible topics, opened from the header's "?" button. The topic for the screen the
 // user came from opens first. Content is static and trusted, so it may contain <b>. Cached by sw.js for offline use.
+// German text is in help-de.js by topic id; the user's language picks it, and English fills any gap.
+import { locale } from '/shared/i18n.js';
+import { TOPICS_DE } from '/mobile/help-de.js';
 const TOPICS=[
   {id:'list',title:'Your work list',steps:[
     '<b>Assigned work</b> lists the breakdown tickets assigned to you, newest first. Tap one to open it.',
@@ -44,8 +47,13 @@ const TOPICS=[
     'Start it from the home-screen icon. It then works offline as described above.']},
 ];
 
+const UI={en:{help:'Help',intro:'Tap a topic to open it. Your administrator can help with access and roles.',tips:'Tips'},
+  de:{help:'Hilfe',intro:'Ein Thema antippen, um es zu öffnen. Bei Zugang und Rollen hilft Ihr Administrator.',tips:'Tipps'}};
+export const helpLabel=()=>(UI[locale()]||UI.en).help;
+
 export function helpView(openId,{canSeeVision}) {
-  const topics=TOPICS.filter(x=>!x.vision||canSeeVision);
-  return `<div class="card"><h2>Help</h2><p class="muted">Tap a topic to open it. Your administrator can help with access and roles.</p></div>`
-    +topics.map(x=>`<details class="card help-topic" ${x.id===openId?'open':''}><summary>${x.title}</summary><ol>${x.steps.map(s=>`<li>${s}</li>`).join('')}</ol>${x.tips?`<div class="help-tips"><b>Tips</b><ul>${x.tips.map(s=>`<li>${s}</li>`).join('')}</ul></div>`:''}</details>`).join('');
+  const L=UI[locale()]||UI.en, de=locale()==='de';
+  const topics=TOPICS.filter(x=>!x.vision||canSeeVision).map(x=>de&&TOPICS_DE[x.id]?{...x,...TOPICS_DE[x.id]}:x);
+  return `<div class="card"><h2>${L.help}</h2><p class="muted">${L.intro}</p></div>`
+    +topics.map(x=>`<details class="card help-topic" ${x.id===openId?'open':''}><summary>${x.title}</summary><ol>${x.steps.map(s=>`<li>${s}</li>`).join('')}</ol>${x.tips?`<div class="help-tips"><b>${L.tips}</b><ul>${x.tips.map(s=>`<li>${s}</li>`).join('')}</ul></div>`:''}</details>`).join('');
 }
