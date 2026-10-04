@@ -206,6 +206,25 @@ export function createVision(ctx) {
   // ---------- Incidents ----------
   async function loadEvents(){ await loadCat(); const f=state.vEventFilter||(state.vEventFilter={module:'',severity:'',status:'',hours:'168'});
     const q=new URLSearchParams(Object.entries(f).filter(([,v])=>v)); state.vevents=await api(`/vision/events?${q}`); }
+  const VERDICT={confirmed:['✓','AI: confirmed','approved','The picture supports the detection.'],doubtful:['?','AI: doubtful','pending','The picture does not clearly show it.'],unclear:['○','AI: unclear','inactive','The picture cannot settle it.']};
+  const aiVerdict=r=>{ if (!r) return '<span class="muted">—</span>'; const [i,l,tone,tip]=VERDICT[r.verdict]||VERDICT.unclear; return `<span class="pill ${tone}" title="${esc(r.reason||tip)}"><span aria-hidden="true">${i}</span> ${l}</span>`; };
+  async function loadVai(){ const d=state.vaiDays||30; [state.vfa,state.vai]=await Promise.all([api(`/vision/analytics/false-alarms?days=${d}`),api(`/vision/ai-review?days=${d}`)]); }
+  const MODE_LABEL={off:'Off – nothing is sent to the AI',manual:'Manual – a button on each incident',auto:'Automatic – also new non-critical incidents'};
+  function aiPanel(){
+    if (state.vfa===undefined) { loadVai().then(render).catch(e=>{ state.vfa=null; fail(e); }); return '<div class="panel empty">Analysing closed incidents…</div>'; }
+    if (!state.vfa||!state.vai) return '';
+    const fa=state.vfa, cfg=state.vai, st=cfg.stats, rows=fa.modules.filter(m=>m.decided>0);
+    const advice=m=>{ const r=m.recommendation; if (m.status==='not_enough_data') return `<span class="muted">${esc(m.note)}</span>`; if (!r) return ''; const hint=r.status==='raise'&&m.module==='ppe'?' Set it under Cameras & AI modules → PPE → minimum confidence.':'';
+      return `<span class="${r.status==='ok'?'muted':''}">${esc(r.note)}${esc(hint)}</span>`; };
+    const noisy=fa.modules.flatMap(m=>(m.byCamera||[]).filter(c=>c.falsePct>=fa.targetPct).map(c=>({...c,module:m.label}))).sort((a,b)=>b.falsePct-a.falsePct).slice(0,5);
+    const days=`<select data-vai-days class="tt-filter" aria-label="Period">${[[7,'Last 7 days'],[30,'Last 30 days'],[90,'Last 90 days'],[365,'Last year']].map(([v,l])=>`<option value="${v}" ${(state.vaiDays||30)===v?'selected':''}>${l}</option>`).join('')}</select>`;
+    const falsePart=rows.length?simpleTable(['Module','Closed','False alarms','Advice'],rows.map(m=>`<tr><td>${esc(m.label)}</td><td>${formatNumber(m.decided,0)}</td><td>${m.falsePct==null?'—':`<b>${pct(m.falsePct)}</b> <span class="muted">(${m.falseAlarms})</span>`}</td><td>${advice(m)}</td></tr>`)):'<p class="muted">No closed incidents in this period yet. Resolve incidents or mark false alarms, and advice appears here.</p>';
+    const noisyPart=noisy.length?`<h3>Noisiest cameras</h3>${simpleTable(['Camera','Module','False alarms'],noisy.map(c=>`<tr><td>${esc(c.camera)}</td><td>${esc(c.module)}</td><td><b>${pct(c.falsePct)}</b> <span class="muted">of ${c.decided} closed</span></td></tr>`))}`:'';
+    const settingRows=cfg.companies.map(c=>`<tr><td>${esc(c.name)}</td><td>${c.canManage?`<select data-vai-mode="${esc(c.id)}" class="tt-filter" aria-label="AI second opinion for ${esc(c.name)}">${cfg.modes.map(m=>`<option value="${m}" ${c.mode===m?'selected':''}>${esc(MODE_LABEL[m])}</option>`).join('')}</select>`:esc(MODE_LABEL[c.mode])}</td></tr>`);
+    const agree=st.closedReviewed?`<p>Of ${formatNumber(st.closedReviewed,0)} closed incidents the AI reviewed, it agreed with people on <b>${st.agreementPct==null?'—':pct(st.agreementPct)}</b> of the decisive ones (${st.confirmedReal} confirmed and real, ${st.doubtfulFalse} doubted and false). <b>${st.realIncidentsCalledDoubtful}</b> real incident${st.realIncidentsCalledDoubtful===1?' was':'s were'} called doubtful${st.enoughData?'':'; too few so far to trust these figures'}.</p>`:'<p class="muted">No AI-reviewed incident has been closed yet, so there is nothing to compare.</p>';
+    return `<div class="panel"><div class="spread"><h2>AI insight: false alarms</h2>${days}</div><p class="muted">Based on incidents people closed: resolved means real, false alarm means false. The target is ${fa.targetPct} % of incidents; the advice shows what a higher minimum confidence would remove and what real incidents it would lose.</p>${falsePart}${noisyPart}</div>
+      <div class="panel"><h2>AI second opinion on snapshots</h2><p class="muted">Claude looks at an incident's snapshot and says whether it supports the detection. It is advice only: it never closes or changes an incident, and fire and critical incidents are never reviewed automatically. Snapshots can show employees and are sent to the AI service, so each company chooses.${cfg.aiEnabled?'':' <b>The AI service is not set up on this server (no API key).</b>'}</p>${simpleTable(['Company','Mode'],settingRows)}${agree}</div>`;
+  }
   function incidentsView(){
     if (!state.vevents) { loadEvents().then(render).catch(fail); return '<div class="panel empty">Loading incidents…</div>'; }
     const f=state.vEventFilter, sel=(key,label,opts,all=`All ${label.toLowerCase()}s`)=>tool('data-vevent',key,label,opts,f[key],all);
@@ -213,9 +232,15 @@ export function createVision(ctx) {
     const table=dataTable('vevents',{rows:state.vevents,search:e=>`${e.cameraName} ${e.type} ${e.zoneName||''} ${eventDetail(e)} ${e.resolutionNote}`,empty:'No incidents in this period.',
       columns:[{title:'When',cell:e=>when(e.occurredAt)},{title:'Incident',cell:e=>`<a data-action="vEvent" data-id="${esc(e.id)}"><b>${esc(typeLabel(e.type))}</b></a><div class="muted mini">${esc(mod(e.module))} · ${esc(eventDetail(e))}</div>`},
         {title:'Camera',cell:e=>`${esc(e.cameraName)}<div class="muted mini">${esc(e.location||'')}</div>`},{title:'Severity',cell:e=>sevPill(e.severity)},{title:'Evidence',cell:e=>`${e.snapshotMediaId?'📷':''}${e.clipMediaId?' 🎞':''}${e.locked?' 🔒':''}`},
-        {title:'Status',cell:e=>`${statusPill(e.status)}${e.retrain?' <span class="pill pending">Retraining</span>':''}`},{title:'',cls:'row',cell:e=>e.status==='open'?btn('Acknowledge','vAck','secondary small',e.id):''}]});
+        {title:'AI check',cell:e=>aiVerdict(e.review)},{title:'Status',cell:e=>`${statusPill(e.status)}${e.retrain?' <span class="pill pending">Retraining</span>':''}`},{title:'',cls:'row',cell:e=>e.status==='open'?btn('Acknowledge','vAck','secondary small',e.id):''}]});
     const q=new URLSearchParams(Object.entries(f).filter(([,v])=>v));
-    return header('Vision incidents','Every detection with its photo and 10-second clip: proof-of-violation and audit log',`<a class="btn-link" data-vcsv="${esc(q.toString())}">⬇ Export CSV</a>`)+filters+`<div class="panel">${table}</div>`;
+    return header('Vision incidents','Every detection with its photo and 10-second clip: proof-of-violation and audit log',`<a class="btn-link" data-vcsv="${esc(q.toString())}">⬇ Export CSV</a>`)+filters+`<div class="panel">${table}</div>`+aiPanel();
+  }
+  function aiBlock(e) {
+    const r=e.review, can=e.aiReviewMode!=='off'&&e.snapshotMediaId;
+    if (r) return `<div class="notice"><p>${aiVerdict(r)} <span class="muted">second opinion by ${esc(r.model||'AI')} – advice only</span></p><p>${esc(r.reason)}</p>${r.description?`<p class="muted">Scene: ${esc(r.description)}</p>`:''}${can?btn('Ask again','vAiReview','secondary small',e.id+'|refresh'):''}</div>`;
+    if (can) return `<div class="notice"><p>Not reviewed by the AI yet.</p>${btn('AI second opinion','vAiReview','secondary small',e.id)}</div>`;
+    return e.aiReviewMode==='off'?'<p class="muted">AI second opinion is off for this company (see Vision incidents → AI second opinion on snapshots).</p>':'';
   }
   async function eventDialog(eventId){
     const e=await api(`/vision/events/${eventId}`), cam=camById(e.cameraId), zones=cam?await api(`/vision/cameras/${e.cameraId}/zones`).catch(()=>[]):[];
@@ -226,7 +251,7 @@ export function createVision(ctx) {
     const open=!['resolved','false_alarm'].includes(e.status);
     const d=openDialog(`${typeLabel(e.type)} – ${e.cameraName}`,`<div class="vevent">${frame({mediaId:e.snapshotMediaId,boxes:e.boxes,zones:zones.filter(z=>z.id===e.zoneId),cls:'large',alt:'Snapshot at detection'})}
       ${e.clipMediaId?`<video controls playsinline preload="metadata" data-vclip="${esc(e.clipMediaId)}" aria-label="10-second clip around the detection"></video>`:''}
-      <table class="kv">${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('')}</table>
+      <table class="kv">${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join('')}</table>${aiBlock(e)}
       <div class="row">${e.status==='open'?btn('Acknowledge','vAck','secondary',e.id):''}${open?btn('Resolve','vResolve','primary',e.id)+btn('False alarm','vFalse','secondary',e.id):''}${e.locked?(canManage(e.companyId)?btn('Unlock evidence','vUnlock','secondary small',e.id):''):btn('Lock evidence','vLock','secondary small',e.id)}${e.module==='quality'&&cam?.equipmentId&&raiseTicket?btn('Report breakdown on this machine','vTicket','secondary small',e.id):''}</div></div>`,{wide:true});
     d.querySelectorAll('.vevent [data-action]').forEach(b=>b.onclick=()=>vAction(b.dataset.action,b.dataset.id));
     loadMedia(d);
@@ -314,6 +339,7 @@ export function createVision(ctx) {
     if (name==='vGoCameras') { state.page='visionCameras'; return render(); }
     if (name==='vGoIncidents') { state.page='visionIncidents'; return render(); }
     if (name==='vEvent') return eventDialog(id).catch(fail);
+    if (name==='vAiReview') { const [eid,flag]=id.split('|'); toast('Asking the AI…'); return api(`/vision/events/${eid}/ai-review`,'POST',flag==='refresh'?{refresh:true}:{}).then(()=>{ state.vevents=undefined; state.vfa=undefined; return eventDialog(eid); }).catch(fail); }
     if (name==='vAck') return api(`/vision/events/${id}/acknowledge`,'POST',{}).then(()=>{ closeDialog(); toast('Acknowledged'); refreshAll(); pollAlarms(); render(); }).catch(fail);
     if (name==='vResolve') { closeDialog(); return closeForm(id,'resolve'); }
     if (name==='vFalse') { closeDialog(); return closeForm(id,'false'); }
@@ -342,6 +368,8 @@ export function createVision(ctx) {
     document.querySelectorAll('[data-vtab]').forEach(el=>el.onclick=()=>{ const [k,t]=el.dataset.vtab.split(':'); state[k+'Tab']=t; render(); });
     document.querySelectorAll('[data-vfilter]').forEach(el=>el.onchange=()=>{ state.visionFilter[el.dataset.vfilter]=el.value; state.vo=undefined; render(); });
     document.querySelectorAll('[data-vevent]').forEach(el=>el.onchange=()=>{ state.vEventFilter[el.dataset.vevent]=el.value; state.vevents=undefined; render(); });
+    document.querySelectorAll('[data-vai-days]').forEach(el=>el.onchange=()=>{ state.vaiDays=Number(el.value); state.vfa=undefined; render(); });
+    document.querySelectorAll('[data-vai-mode]').forEach(el=>el.onchange=()=>api(`/vision/ai-review/${el.dataset.vaiMode}`,'PATCH',{mode:el.value}).then(()=>{ toast('AI second opinion setting saved'); state.vfa=undefined; render(); }).catch(fail));
     document.querySelectorAll('[data-vcsv]').forEach(el=>el.onclick=()=>downloadCsv(el.dataset.vcsv==='ppe'?'module=ppe&hours=8760':el.dataset.vcsv));
     // Drag a module card onto a camera's module cell to assign it.
     document.querySelectorAll('.module-card[draggable]').forEach(c=>c.ondragstart=e=>{ e.dataTransfer.setData('text/plain',`${c.dataset.module}|${c.dataset.company}`); e.dataTransfer.effectAllowed='copy'; });
@@ -355,6 +383,6 @@ export function createVision(ctx) {
     loadMedia(); drawBanner();
   }
   const views={vision:overviewView,visionCameras:camerasView,visionIncidents:incidentsView,visionNodes:nodesView};
-  const reset=()=>{ state.vo=undefined; state.vcams=undefined; state.vevents=undefined; state.vnodesLoaded=false; };
-  return {views,action:vAction,bind,reset,startAlarms,stopAlarms,canSeeVision,ACTIONS:['vTicket','vGoCameras','vGoIncidents','vEvent','vAck','vResolve','vFalse','vLock','vUnlock','vNewCamera','vEditCamera','vZones','vModule','vAddModule','vRemoveModule','vNewNode','vEditNode','vNodeKey','vNodeConfig','vLicence']};
+  const reset=()=>{ state.vfa=undefined; state.vo=undefined; state.vcams=undefined; state.vevents=undefined; state.vnodesLoaded=false; };
+  return {views,action:vAction,bind,reset,startAlarms,stopAlarms,canSeeVision,ACTIONS:['vTicket','vGoCameras','vGoIncidents','vEvent','vAck','vResolve','vFalse','vLock','vUnlock','vNewCamera','vEditCamera','vZones','vModule','vAddModule','vRemoveModule','vNewNode','vEditNode','vNodeKey','vNodeConfig','vLicence','vAiReview']};
 }
