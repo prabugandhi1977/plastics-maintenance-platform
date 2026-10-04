@@ -57,20 +57,34 @@ export function register(r) {
     });
     audit(u,'contract.create','contract',key,companyId); return created(withSchedule(byId('contracts',key)));
   });
-  // Renewal: extend renewsAt (or lapse/cancel via status) and adjust terms; existing visits must stay in the period.
+  // Edit or renew: title, period, covered machines, terms and status. Scheduled visits must stay inside the period and
+  // on covered machines, so moving the dates or removing a machine is refused until those visits are moved or cancelled.
   r.patch('/contracts/:id',({u,body,params})=>{
     const c=byId('contracts',params.id); if (!c) missing(); if (!canManageContract(u,c.company_id)) deny();
-    const renewsAt=body.renewsAt==null?c.renews_at:date(body.renewsAt,'renewsAt'); if (renewsAt<=c.starts_at) bad('Renewal must be after start');
+    const startsAt=body.startsAt==null?c.starts_at:date(body.startsAt,'startsAt');
+    const renewsAt=body.renewsAt==null?c.renews_at:date(body.renewsAt,'renewsAt'); if (renewsAt<=startsAt) bad('Renewal must be after start');
     if (one("SELECT 1 FROM visits WHERE contract_id=? AND status='scheduled' AND due_at>=?",c.id,renewsAt)) bad('Scheduled visits fall after the new renewal date');
+    if (one("SELECT 1 FROM visits WHERE contract_id=? AND status='scheduled' AND due_at<?",c.id,startsAt)) bad('Scheduled visits fall before the new start date');
+    let equipmentIds=null;
+    if (body.equipmentIds!=null) {
+      equipmentIds=[...new Set(array(body.equipmentIds,'equipmentIds'))]; if (!equipmentIds.length) bad('At least one covered asset is required');
+      for (const key of equipmentIds) { const e=byId('equipment',key); if (!e||e.company_id!==c.company_id) bad('Covered asset belongs to another company'); }
+      const orphan=one(`SELECT e.asset_tag FROM visits v JOIN equipment e ON e.id=v.equipment_id WHERE v.contract_id=? AND v.status='scheduled' AND v.equipment_id NOT IN (${equipmentIds.map(()=>'?').join(',')}) LIMIT 1`,c.id,...equipmentIds);
+      if (orphan) bad(`${orphan.asset_tag||'A machine'} still has scheduled visits; cancel or complete them before removing it`);
+    }
+    const title=body.title==null?c.title:required(body.title,'title',160);
     const status=body.status==null?c.status:choice(body.status,'status',['active','expired','cancelled']);
     const responseHours=body.responseHours==null||body.responseHours===''?c.response_hours:hours(body.responseHours,'responseHours');
     const restoreHours=body.restoreHours===undefined?c.restore_hours:body.restoreHours===null||body.restoreHours===''?null:hours(body.restoreHours,'restoreHours');
     if (restoreHours!=null&&responseHours!=null&&restoreHours<responseHours) bad('Restore target cannot be shorter than the response target');
     let number=c.contract_number; if (body.contractNumber!=null) { number=contractNumber(body.contractNumber); if (one('SELECT 1 FROM contracts WHERE company_id=? AND contract_number=? AND id<>?',c.company_id,number,c.id)) bad(`Contract number ${number} is already used for this company`); }
-    run('UPDATE contracts SET renews_at=?,status=?,response_hours=?,restore_hours=?,commitments=?,exclusions=?,contract_number=?,coverage_hours=?,visits_per_year=?,notice_days=? WHERE id=?',
-      renewsAt,status,responseHours,restoreHours,body.commitments==null?c.commitments:required(body.commitments,'commitments',2000),body.exclusions==null?c.exclusions:required(body.exclusions,'exclusions',2000),number,
-      body.coverageHours==null?c.coverage_hours:choice(body.coverageHours,'coverageHours',COVERAGE_HOURS),body.visitsPerYear==null||body.visitsPerYear===''?c.visits_per_year:whole(body.visitsPerYear,'visitsPerYear',0,52),body.noticeDays==null||body.noticeDays===''?c.notice_days:whole(body.noticeDays,'noticeDays',0,365),c.id);
-    audit(u,'contract.update','contract',c.id,c.company_id,{renewsAt,status,responseHours}); return withSchedule(byId('contracts',c.id));
+    transaction(()=>{
+      run('UPDATE contracts SET title=?,starts_at=?,renews_at=?,status=?,response_hours=?,restore_hours=?,commitments=?,exclusions=?,contract_number=?,coverage_hours=?,visits_per_year=?,notice_days=? WHERE id=?',
+        title,startsAt,renewsAt,status,responseHours,restoreHours,body.commitments==null?c.commitments:required(body.commitments,'commitments',2000),body.exclusions==null?c.exclusions:required(body.exclusions,'exclusions',2000),number,
+        body.coverageHours==null?c.coverage_hours:choice(body.coverageHours,'coverageHours',COVERAGE_HOURS),body.visitsPerYear==null||body.visitsPerYear===''?c.visits_per_year:whole(body.visitsPerYear,'visitsPerYear',0,52),body.noticeDays==null||body.noticeDays===''?c.notice_days:whole(body.noticeDays,'noticeDays',0,365),c.id);
+      if (equipmentIds) { run('DELETE FROM contract_equipment WHERE contract_id=?',c.id); for (const e of equipmentIds) run('INSERT INTO contract_equipment (contract_id,equipment_id) VALUES (?,?)',c.id,e); }
+    });
+    audit(u,'contract.update','contract',c.id,c.company_id,{title,startsAt,renewsAt,status,responseHours,...(equipmentIds?{equipmentIds}:{})}); return withSchedule(byId('contracts',c.id));
   });
   r.post('/contracts/:id/visits',({u,body,params})=>{
     const c=byId('contracts',params.id); if (!c) missing(); if (!canManageContract(u,c.company_id)) deny();
@@ -79,10 +93,13 @@ export function register(r) {
     const key=id(); run('INSERT INTO visits (id,contract_id,company_id,equipment_id,due_at,status,notes) VALUES (?,?,?,?,?,?,?)',key,c.id,c.company_id,body.equipmentId,visitTime(c,body),'scheduled',String(body.notes||'').slice(0,1000));
     audit(u,'visit.create','visit',key,c.company_id); return created(byId('visits',key));
   });
+  // Complete, cancel or reschedule a visit. Only a scheduled visit can be moved, and only within the contract period.
   r.patch('/visits/:id',({u,body,params})=>{
     const visit=byId('visits',params.id); if (!visit) missing(); if (!canManageContract(u,visit.company_id)) deny();
-    const status=choice(body.status,'status',['scheduled','completed','cancelled']);
-    run('UPDATE visits SET status=?,notes=? WHERE id=?',status,String(body.notes??visit.notes).slice(0,1000),visit.id);
-    audit(u,'visit.update','visit',visit.id,visit.company_id,{status}); return byId('visits',visit.id);
+    const status=body.status==null?visit.status:choice(body.status,'status',['scheduled','completed','cancelled']);
+    let dueAt=visit.due_at;
+    if (body.dueAt!=null) { if (visit.status!=='scheduled') bad('Only a scheduled visit can be rescheduled'); dueAt=visitTime(byId('contracts',visit.contract_id),{equipmentId:visit.equipment_id,dueAt:body.dueAt}); }
+    run('UPDATE visits SET status=?,due_at=?,notes=? WHERE id=?',status,dueAt,String(body.notes??visit.notes).slice(0,1000),visit.id);
+    audit(u,'visit.update','visit',visit.id,visit.company_id,{status,...(dueAt!==visit.due_at?{dueAt}:{})}); return byId('visits',visit.id);
   });
 }
