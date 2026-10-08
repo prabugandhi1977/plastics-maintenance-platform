@@ -282,6 +282,18 @@ There are 109 tests in fourteen files. Each file uses its own temporary database
 - false-alarm analytics and threshold advice
 - the opt-in AI second opinion: manual and automatic review, never on fire or critical incidents, and its agreement with people
 
+## Claude Code dev panel
+
+`claude-mods/mouldcare-panel/` is a Claude Code mod: a side panel showing whether the app is running on port 3100, the result of the last test run, the git branch and uncommitted files, with **Run tests** (`t`), **Start demo** (`d`, seeds the demo data and starts the server for the session) and **Refresh** (`r`). It opens by itself in this repository on a wide enough window; `/mouldcare` opens it any time.
+
+Install it in Claude Code (terminal or desktop):
+
+```text
+/plugin install mouldcare-panel --marketplace prabugandhi1977/plastics-maintenance-platform
+```
+
+Answer `y` to add the marketplace, then pick the scope. To try a local copy instead: `claude --plugin-dir claude-mods/mouldcare-panel`. Its tests run with `claude plugin test claude-mods/mouldcare-panel`.
+
 ## Architecture
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes how the parts fit together: the clients, the server and its services, where data is stored, the request and offline-sync flows, machine data intake, security and deployment.
