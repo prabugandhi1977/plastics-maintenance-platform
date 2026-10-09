@@ -69,7 +69,7 @@ export async function openVrGuide({title,machine,guide,image=null,critical=false
     if (critical) { const label='CRITICAL · SAFETY FIRST'; ctx.font='800 28px system-ui, Segoe UI, sans-serif'; const w=ctx.measureText(label).width+36; ctx.fillStyle='#b0413e'; ctx.beginPath(); ctx.roundRect(48,y-44,w,58,12); ctx.fill(); text(ctx,label,66,y-4,{size:28,weight:800,color:'#fff'}); y+=50; }
     const s=steps[index];
     if (!s) { text(ctx,_t('vr.noStepsInThisGuide'),48,y+40,{size:40}); return; }
-    y=text(ctx,`Step ${index+1} of ${steps.length}`,48,y+20,{size:32,weight:700,color:'#7fd6cb'});
+    y=text(ctx,`${_t('vr.stepOf',{value:index+1,length:steps.length})}`,48,y+20,{size:32,weight:700,color:'#7fd6cb'});
     y=text(ctx,s.title,48,y+24,{size:58,weight:800,maxLines:2});
     y=text(ctx,s.instruction,48,y+24,{size:40,maxLines:8});
     if (s.check) { const top=Math.min(y+30,1000-230); ctx.fillStyle='rgba(43,179,163,0.18)'; ctx.beginPath(); ctx.roundRect(40,top,W-80,180,18); ctx.fill(); text(ctx,'✓ Check',64,top+52,{size:30,weight:700,color:'#7fd6cb'}); text(ctx,s.check,64,top+98,{size:32,maxLines:2,width:W-140}); }

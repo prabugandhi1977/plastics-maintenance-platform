@@ -28,7 +28,7 @@ export function bindTables(rerender) {
   document.querySelectorAll('.table-tools[data-table]').forEach(box=>{
     const id=box.dataset.table, st=tableState[id];
     const search=box.querySelector('.tt-search');
-    search.oninput=()=>{ st.q=search.value; const pos=search.selectionStart; rerender(); const again=document.querySelector(`.table-tools[data-table="${id}"] .tt-search`); if (again) { again.focus(); again.setSelectionRange(pos,pos); } };
+    search.oninput=()=>{ st.q=search.value; const pos=search.selectionStart; rerender(); const again=document.querySelector(`${_t('ui.tableToolsDataTableTt',{id:id})}`); if (again) { again.focus(); again.setSelectionRange(pos,pos); } };
     box.querySelectorAll('.tt-filter').forEach(sel=>sel.onchange=()=>{ st.f[sel.dataset.key]=sel.value; rerender(); });
   });
 }
@@ -95,12 +95,12 @@ export function closeDialog() { const d=document.getElementById('modal'); if (d)
 // Client-side check before sending: marks invalid fields and returns the first problem in words.
 function validate(formEl) {
   formEl.querySelectorAll('.invalid').forEach(x=>x.classList.remove('invalid'));
-  for (const g of formEl.querySelectorAll('[data-required-group]')) if (!formEl.querySelector(`[name="${g.dataset.requiredGroup}"]:checked`)) { g.classList.add('invalid'); return `${g.querySelector('legend').textContent.replace('*','').trim()}: please choose at least one option.`; }
+  for (const g of formEl.querySelectorAll('[data-required-group]')) if (!formEl.querySelector(`[name="${g.dataset.requiredGroup}"]:checked`)) { g.classList.add('invalid'); return `${_t('ui.pleaseChooseAtLeastOne',{value:g.querySelector('legend').textContent.replace('*','').trim()})}`; }
   for (const el of formEl.querySelectorAll('input,select,textarea')) {
     if (el.checkValidity()) continue;
     el.closest('.fld')?.classList.add('invalid'); el.focus();
     const name=el.closest('.fld')?.querySelector('label,legend')?.textContent.replace('*','').trim()||el.name;
-    return el.validity.valueMissing?`${name} is required.`:`${name}: ${el.validationMessage}`;
+    return el.validity.valueMissing?`${_t('ui.isRequired',{name:name})}`:`${name}: ${el.validationMessage}`;
   }
   return '';
 }
@@ -118,7 +118,7 @@ export function confirmAction(title,message,{confirmLabel=_t('ui.confirm'),dange
 }
 export function toast(text,kind='ok') {
   let box=document.getElementById('toasts'); if (!box) { box=document.createElement('div'); box.id='toasts'; box.setAttribute('role','status'); box.setAttribute('aria-live','polite'); document.body.append(box); }
-  const el=document.createElement('div'); el.className=`toast ${kind}`; el.innerHTML=`<span aria-hidden="true">${kind==='error'?'⚠':'✓'}</span> `; el.append(document.createTextNode(text));
+  const el=document.createElement('div'); el.className=`${_t('ui.toast',{kind:kind})}`; el.innerHTML=`<span aria-hidden="true">${kind==='error'?'⚠':'✓'}</span> `; el.append(document.createTextNode(text));
   box.append(el); setTimeout(()=>el.classList.add('hide'),kind==='error'?7000:3500); setTimeout(()=>el.remove(),kind==='error'?7600:4100);
 }
 // A small "incomplete" badge listing which mandatory fields a legacy record still lacks.

@@ -27,7 +27,7 @@ async function qrDecoder() {
 }
 const cameraError=e=>Error(e?.name==='NotAllowedError'?_t('scan.cameraAccessWasRefusedAllow')
   :e?.name==='NotFoundError'||e?.name==='OverconstrainedError'?_t('scan.noCameraWasFoundOn')
-  :e?.name==='NotReadableError'?_t('scan.theCameraIsInUse'):`The camera could not start${e?.message?`: ${e.message}`:''}.`);
+  :e?.name==='NotReadableError'?_t('scan.theCameraIsInUse'):`${_t('scan.theCameraCouldNotStart',{value:e?.message?`: ${e.message}`:''})}`);
 
 // Opens the rear camera in a modal and resolves with the first QR code read; rejects on cancel.
 export async function scanQr() {
@@ -56,7 +56,7 @@ export async function readNfc({uid=false}={}) {
   const reader=new NDEFReader(), stop=new AbortController();
   try { await reader.scan({signal:stop.signal}); }
   catch (e) { throw Error(e?.name==='NotAllowedError'?_t('scan.nfcIsSwitchedOffOr')
-    :e?.name==='NotSupportedError'?_t('scan.thisPhoneHasNoNfc'):`NFC could not start${e?.message?`: ${e.message}`:''}.`); }
+    :e?.name==='NotSupportedError'?_t('scan.thisPhoneHasNoNfc'):`${_t('scan.nfcCouldNotStart',{value:e?.message?`: ${e.message}`:''})}`); }
   return new Promise((resolve,reject)=>{
     const fail=message=>{ clearTimeout(timer); stop.abort(); reject(Error(message)); };
     const timer=setTimeout(()=>fail(_t('scan.noTagReadHoldThe')),30000);
