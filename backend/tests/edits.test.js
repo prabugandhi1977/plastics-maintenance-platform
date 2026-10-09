@@ -30,7 +30,7 @@ test('contract: title, start date, covered machines and terms can be edited',asy
   const c=await contract();
   assert.equal(c.title,'Annual care 2026 (extended)'); assert.equal(c.starts_at.slice(0,10),'2026-02-01');
   assert.deepEqual(c.equipmentIds.sort(),['eq-a','eq-b']); assert.equal(c.commitments,'5 preventive visits'); assert.equal(c.exclusions,'Wear parts');
-  assert.ok(one("SELECT 1 FROM audit_events WHERE action='contract.update' AND entity_id='contract-a'"));
+  assert.ok(await one("SELECT 1 FROM audit_events WHERE action='contract.update' AND entity_id='contract-a'"));
 });
 
 test('contract: edits that would strand scheduled visits or cross companies are refused',async()=>{
@@ -61,18 +61,18 @@ test('visit: reschedule within the contract period, edit scope, cancel',async()=
 test('user: details can be edited by those who manage the account',async()=>{
   const r=await call('/users/u-acme-maint','PATCH',{name:'Lee Maintenance-Kim',jobTitle:'Senior technician',phone:'+1 312 555 0111'},tokens.acme);
   assert.equal(r.status,200);
-  const u=one('SELECT name,job_title,phone,role,email FROM users WHERE id=?', 'u-acme-maint');
+  const u=await one('SELECT name,job_title,phone,role,email FROM users WHERE id=?', 'u-acme-maint');
   assert.deepEqual({...u},{name:'Lee Maintenance-Kim',job_title:'Senior technician',phone:'+1 312 555 0111',role:'maintenance',email:'maint@demo.test'});
   assert.equal((await call('/users/u-acme-maint','PATCH',{name:'Hijacked'},tokens.nova)).status,403);
   assert.equal((await call('/users/u-acme-maint','PATCH',{serviceAreas:['US-MW']},tokens.acme)).status,400);
   const eng=await call('/users/u-engineer','PATCH',{name:'Alex Engineer',serviceAreas:['US-MW'],skills:['injection','mould','blow']},tokens.admin);
-  assert.equal(eng.status,200); assert.deepEqual(JSON.parse(one('SELECT skills FROM users WHERE id=?', 'u-engineer').skills),['injection','mould','blow']);
+  assert.equal(eng.status,200); assert.deepEqual(JSON.parse((await one('SELECT skills FROM users WHERE id=?', 'u-engineer')).skills),['injection','mould','blow']);
 });
 
 test('device mapping: move to another machine of the same company and change stale time',async()=>{
   const r=await call('/devices/map-a','PATCH',{equipmentId:'eq-b',staleAfterMinutes:45},tokens.acme);
   assert.equal(r.status,200);
-  assert.deepEqual({...one('SELECT equipment_id,stale_after_minutes FROM device_mappings WHERE id=?', 'map-a')},{equipment_id:'eq-b',stale_after_minutes:45});
+  assert.deepEqual({...await one('SELECT equipment_id,stale_after_minutes FROM device_mappings WHERE id=?', 'map-a')},{equipment_id:'eq-b',stale_after_minutes:45});
   assert.match((await call('/devices/map-a','PATCH',{equipmentId:'eq-n'},tokens.acme)).data.error,/same company/);
   assert.equal((await call('/devices/map-a','PATCH',{staleAfterMinutes:10},tokens.nova)).status,403);
 });
@@ -83,10 +83,10 @@ test('equipment: a wrong machine type can be corrected, with parameters for the 
   assert.equal((await call('/equipment/eq-bm','PATCH',{machineType:'injection',specs:SPECS.blow},tokens.acme)).status,400);
   const r=await call('/equipment/eq-bm','PATCH',{machineType:'injection',specs:SPECS.injection},tokens.acme);
   assert.equal(r.status,200);
-  assert.deepEqual({...one('SELECT machine_type,specs FROM equipment WHERE id=?', 'eq-bm')},{machine_type:'injection',specs:JSON.stringify({...SPECS.injection})});
+  assert.deepEqual({...await one('SELECT machine_type,specs FROM equipment WHERE id=?', 'eq-bm')},{machine_type:'injection',specs:JSON.stringify({...SPECS.injection})});
   // eq-c (a chiller) serves eq-a, so eq-a cannot become a mould or auxiliary unit
   assert.match((await call('/equipment/eq-a','PATCH',{machineType:'mould',specs:SPECS.mould},tokens.acme)).data.error,/serves this machine/);
-  assert.equal(one('SELECT machine_type FROM equipment WHERE id=?', 'eq-a').machine_type,'injection');
+  assert.equal((await one('SELECT machine_type FROM equipment WHERE id=?', 'eq-a')).machine_type,'injection');
   assert.equal((await call('/equipment/eq-bm','PATCH',{machineType:'blow',specs:SPECS.blow},tokens.nova)).status,403);
 });
 
@@ -100,7 +100,7 @@ test('asset tracking: a replaced tag or reader gets its new ID, duplicates are r
   const a1=await call('/assets','POST',{...body,tagId:'BLE-EDIT-1'},tokens.acme), a2=await call('/assets','POST',{...body,name:'Mould trolley 8',tagId:'BLE-EDIT-2'},tokens.acme);
   assert.equal(a1.status,201,JSON.stringify(a1.data)); assert.equal(a2.status,201);
   const moved=await call(`/assets/${a1.data.id}`,'PATCH',{tagId:'BLE-EDIT-1B'},tokens.acme);
-  assert.equal(moved.status,200); assert.equal(one('SELECT tag_id FROM tracked_assets WHERE id=?', a1.data.id).tag_id,'BLE-EDIT-1B');
+  assert.equal(moved.status,200); assert.equal((await one('SELECT tag_id FROM tracked_assets WHERE id=?', a1.data.id)).tag_id,'BLE-EDIT-1B');
   assert.match((await call(`/assets/${a1.data.id}`,'PATCH',{tagId:'BLE-EDIT-2'},tokens.acme)).data.error,/already on another asset/);
   assert.equal((await call(`/assets/${a1.data.id}`,'PATCH',{tagId:'BLE-X'},tokens.nova)).status,403);
 });

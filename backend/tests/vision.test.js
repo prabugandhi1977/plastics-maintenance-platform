@@ -25,7 +25,7 @@ const edge=(path,body,key=ctx.key)=>call(path,body?'POST':'GET',body,null,key?{a
 
 test('setup',async()=>{
   // Start from no vision data (the demo seed adds some).
-  execSql("DELETE FROM vision_events; DELETE FROM vision_media; DELETE FROM vision_stats; DELETE FROM vision_zones; DELETE FROM vision_assignments; DELETE FROM vision_cameras; DELETE FROM vision_nodes; DELETE FROM vision_licences; UPDATE users SET vision_duties='[]'");
+  await execSql("DELETE FROM vision_events; DELETE FROM vision_media; DELETE FROM vision_stats; DELETE FROM vision_zones; DELETE FROM vision_assignments; DELETE FROM vision_cameras; DELETE FROM vision_nodes; DELETE FROM vision_licences; UPDATE users SET vision_duties='[]'");
   for (const [k,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',engineer:'engineer@demo.test'})) tokens[k]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token; });
 
 test('licences are set by the platform admin per company and module',async()=>{
@@ -46,7 +46,7 @@ test('edge nodes and cameras: keys shown once, passwords masked, stream limits',
   assert.match(error(await call('/vision/cameras','POST',cam(3),tokens.acme)),/already runs 2 of its 2/);
   // Saving the masked URL back keeps the real one.
   await call(`/vision/cameras/${ctx.c1}`,'PATCH',{sourceUrl:'rtsp://admin:****@10.0.0.1:554/Streaming/Channels/101',name:'Gate 1'},tokens.acme);
-  assert.match(one('SELECT source_url FROM vision_cameras WHERE id=?', ctx.c1).source_url,/s3cret/);
+  assert.match((await one('SELECT source_url FROM vision_cameras WHERE id=?', ctx.c1)).source_url,/s3cret/);
   assert.match(error(await call('/vision/cameras','POST',{plantId:'plant-a',name:'X',sourceType:'rtsp'},tokens.acme)),/sourceUrl is required/);
 });
 
@@ -98,11 +98,11 @@ test('edge: detections are prioritised, alert people, log safety and lock proof'
   const r=(await edge('/edge/v1/events',{events})).data;
   assert.deepEqual([r.accepted,r.rejected],[4,1]); assert.match(r.results[4].error,/not assigned to this camera/);
   // Critical first: the fire and intrusion were recorded before the quality defect.
-  const order=all("SELECT type FROM vision_events ORDER BY rowid").map(x=>x.type); assert.ok(order.indexOf('fire')<order.indexOf('defect'));
+  const order=(await all("SELECT type FROM vision_events ORDER BY rowid")).map(x=>x.type); assert.ok(order.indexOf('fire')<order.indexOf('defect'));
   assert.equal((await edge('/edge/v1/events',{events:[events[0]]})).data.duplicates,1);
   const alerts=(await call('/alerts','GET',null,tokens.acme)).data.filter(a=>a.module==='vision');
   assert.ok(alerts.some(a=>/Fire detected/.test(a.title)&&a.severity==='critical')); assert.ok(alerts.some(a=>/Person in Press cell/.test(a.title))); assert.ok(alerts.some(a=>/PPE missing/.test(a.title)));
-  const safety=all("SELECT event_type FROM safety_events WHERE source='camera' AND description LIKE '%Cam%' OR description LIKE '%Gate 1%'").map(x=>x.event_type);
+  const safety=(await all("SELECT event_type FROM safety_events WHERE source='camera' AND description ILIKE '%Cam%' OR description ILIKE '%Gate 1%'")).map(x=>x.event_type);
   assert.ok(safety.includes('fire_smoke')&&safety.includes('ppe_missing'));
   const list=(await call('/vision/events','GET',null,tokens.acme)).data; ctx.fire=list.find(e=>e.type==='fire').id; ctx.defect=list.find(e=>e.type==='defect').id; ctx.ppe=list.find(e=>e.type==='ppe_violation').id;
   assert.equal(list.find(e=>e.type==='fire').locked,true); assert.equal(list.find(e=>e.type==='defect').locked,false);
@@ -148,7 +148,7 @@ test('dashboard: PPE compliance and quality rates from edge counters; alarms by 
   assert.equal(o.latency.broadcastP95Ms,180); assert.equal(o.cameras.length,2); assert.ok(o.nodes.length>=1);
   // The maintenance user has no vision duties: critical alarms only. As security they also see warnings in their area.
   const crit=(await call('/vision/alarms','GET',null,tokens.maint)).data; assert.ok(crit.every(e=>e.severity==='critical'));
-  const maintId=one("SELECT id FROM users WHERE email='maint@demo.test'").id;
+  const maintId=(await one("SELECT id FROM users WHERE email='maint@demo.test'")).id;
   assert.equal((await call(`/users/${maintId}`,'PATCH',{visionDuties:['security','guard']},tokens.acme)).status,400);
   assert.deepEqual(JSON.parse((await call(`/users/${maintId}`,'PATCH',{visionDuties:['ehs']},tokens.acme)).data.vision_duties),['ehs']);
   const ehs=(await call('/vision/alarms','GET',null,tokens.maint)).data; assert.ok(ehs.some(e=>e.module==='ppe')); assert.ok(!ehs.some(e=>e.module==='intrusion'));
@@ -156,19 +156,19 @@ test('dashboard: PPE compliance and quality rates from edge counters; alarms by 
 });
 
 test('housekeeping: silent nodes alert; closed unlocked evidence is pruned, locked evidence never',async()=>{
-  run("UPDATE vision_nodes SET last_seen_at=? WHERE id=?", ago(600),ctx.node); checkNodes();
+  await run("UPDATE vision_nodes SET last_seen_at=? WHERE id=?", ago(600),ctx.node); await checkNodes();
   assert.ok((await call('/alerts','GET',null,tokens.acme)).data.some(a=>/edge node offline/.test(a.title)));
   await edge('/edge/v1/heartbeat',{configVersion:ctx.version});
   assert.ok(!(await call('/alerts','GET',null,tokens.acme)).data.some(a=>/edge node offline/.test(a.title)));
   // An old, closed quality defect with a snapshot (not for retraining) is pruned; the old resolved fire (locked) is not.
   await edge('/edge/v1/events',{events:[{externalId:'q-old',cameraId:ctx.c1,module:'quality',type:'defect',occurredAt:ago(5),detail:{preset:'logistics_container',defect:'rust'}}]});
   await edge('/edge/v1/media',{eventId:'q-old',kind:'snapshot',mime:'image/jpeg',base64:JPEG});
-  const old=one("SELECT id FROM vision_events WHERE external_id='q-old'").id;
+  const old=(await one("SELECT id FROM vision_events WHERE external_id='q-old'")).id;
   await call(`/vision/events/${old}/resolve`,'POST',{note:'Container sent back'},tokens.acme);
-  run("UPDATE vision_events SET occurred_at=? WHERE id IN (?,?)", ago(40*86400),old,ctx.fire);
-  assert.equal(pruneMedia(),1);
-  assert.equal(one('SELECT snapshot_media_id s FROM vision_events WHERE id=?', old).s,null);
-  assert.ok(one('SELECT clip_media_id c FROM vision_events WHERE id=?', ctx.fire).c);
+  await run("UPDATE vision_events SET occurred_at=? WHERE id IN (?,?)", ago(40*86400),old,ctx.fire);
+  assert.equal(await pruneMedia(),1);
+  assert.equal((await one('SELECT snapshot_media_id s FROM vision_events WHERE id=?', old)).s,null);
+  assert.ok((await one('SELECT clip_media_id c FROM vision_events WHERE id=?', ctx.fire)).c);
 });
 
 test('automotive plastic parts: preset, PLC trigger within the cycle, A/B/C acceptance, vendor and surface classes',async()=>{
@@ -197,9 +197,9 @@ test('automotive plastic parts: preset, PLC trigger within the cycle, A/B/C acce
   assert.equal(conf.zones.find(z=>z.kind==='inspection_roi').surfaceClass,'A');
   const minute=new Date().toISOString().slice(0,16);
   await edge('/edge/v1/heartbeat',{configVersion:0,cameras:[{id:cam.id,status:'online',inspectionMs:212,stats:[{minute,module:'quality',frames:20,inspected:20,passed:18}]}]});
-  assert.equal(JSON.parse(one('SELECT metrics FROM vision_cameras WHERE id=?', cam.id).metrics).inspectionMs,212);
+  assert.equal(JSON.parse((await one('SELECT metrics FROM vision_cameras WHERE id=?', cam.id)).metrics).inspectionMs,212);
   const r=await edge('/edge/v1/events',{events:['sink_mark','short_shot'].map((defect,i)=>({externalId:`auto-${i}`,cameraId:cam.id,module:'quality',type:'defect',occurredAt:new Date().toISOString(),detail:{preset:'automotive_plastic',defect,surfaceClass:'A',sizeMm:1.2}}))});
   assert.equal(r.data.accepted,2,JSON.stringify(r.data.results));
-  const row=one("SELECT inspected,rejected,defects,source FROM vision_results WHERE equipment_id='eq-a2' AND station='Door panel QA'");
+  const row=await one("SELECT inspected,rejected,defects,source FROM vision_results WHERE equipment_id='eq-a2' AND station='Door panel QA'");
   assert.deepEqual([row.inspected,row.rejected,row.source],[20,2,'edge']); assert.deepEqual(JSON.parse(row.defects),{short_shot:1,sink_mark:1});
 });

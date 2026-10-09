@@ -22,13 +22,13 @@ after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close
 async function call(path,method='GET',body,token,extra={}){const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',atlas:'atlas@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
-const insertState=(eq,state,reason,start,end)=>run("INSERT INTO machine_states (id,company_id,equipment_id,state,reason_code,started_at,ended_at,source) VALUES (?,?,?,?,?,?,?,'test')", crypto.randomUUID(),'c-acme',eq,state,reason,start,end);
-const insertCount=(eq,start,total,scrap,rate)=>run("INSERT INTO production_counts (id,company_id,equipment_id,product_id,period_start,period_minutes,total_qty,scrap_qty,unit,ideal_rate_per_hour,source) VALUES (?,?,?,?,?,?,?,?,?,?,'test')", crypto.randomUUID(),'c-acme',eq,'pr-hsg',start,60,total,scrap,'parts',rate);
+const insertState=async (eq,state,reason,start,end)=>await run("INSERT INTO machine_states (id,company_id,equipment_id,state,reason_code,started_at,ended_at,source) VALUES (?,?,?,?,?,?,?,'test')", crypto.randomUUID(),'c-acme',eq,state,reason,start,end);
+const insertCount=async (eq,start,total,scrap,rate)=>await run("INSERT INTO production_counts (id,company_id,equipment_id,product_id,period_start,period_minutes,total_qty,scrap_qty,unit,ideal_rate_per_hour,source) VALUES (?,?,?,?,?,?,?,?,?,?,'test')", crypto.randomUUID(),'c-acme',eq,'pr-hsg',start,60,total,scrap,'parts',rate);
 const close=(a,b,msg)=>assert.ok(Math.abs(a-b)<0.15,`${msg}: ${a} vs ${b}`);
 
 test('shifts: custom shifts replace the operating-pattern defaults; validation',async()=>{
-  const plantA=one("SELECT * FROM plants WHERE id='plant-a'");
-  assert.equal(shiftWindows(plantA,Date.parse('2026-09-05T12:00:00Z'),Date.parse('2026-09-06T12:00:00Z')).length,0,'24x5 plant has no shifts at the weekend');
+  const plantA=await one("SELECT * FROM plants WHERE id='plant-a'");
+  assert.equal((await shiftWindows(plantA,Date.parse('2026-09-05T12:00:00Z'),Date.parse('2026-09-06T12:00:00Z'))).length,0,'24x5 plant has no shifts at the weekend');
   assert.equal((await call('/plants/plant-a/shifts','PATCH',{shifts:[{name:'Day',start:'25:00',end:'16:00',days:[1]}]},tokens.acme)).status,400);
   assert.equal((await call('/plants/plant-a/shifts','PATCH',{shifts:[{name:'Day',start:'08:00',end:'16:00',days:[1,2,3,4,5,6,7]}]},tokens.nova)).status,403);
   assert.equal((await call('/plants/plant-a/shifts','PATCH',{shifts:[{name:'Day',start:'08:00',end:'16:00',days:[1,2,3,4,5,6,7]}]},tokens.maint)).status,403);
@@ -38,19 +38,19 @@ test('shifts: custom shifts replace the operating-pattern defaults; validation',
 
 test('OEE = availability × performance × quality, within planned shift time',async()=>{
   // Tuesday 1 Sep 2026, Chicago (CDT, UTC-5): shift 08:00-16:00 local = 13:00-21:00 UTC.
-  insertState('eq-a2','running',null,'2026-09-01T12:00:00.000Z','2026-09-01T17:00:00.000Z'); // 1 h of it is before the shift
-  insertState('eq-a2','down','breakdown','2026-09-01T17:00:00.000Z','2026-09-01T18:00:00.000Z');
-  insertState('eq-a2','planned_stop','break','2026-09-01T18:00:00.000Z','2026-09-01T18:30:00.000Z');
-  insertState('eq-a2','running',null,'2026-09-01T18:30:00.000Z','2026-09-01T22:00:00.000Z'); // 1 h after the shift
-  insertCount('eq-a2','2026-09-01T14:00:00.000Z',650,13,225); insertCount('eq-a2','2026-09-01T19:00:00.000Z',650,13,225);
-  insertCount('eq-a2','2026-09-01T21:00:00.000Z',999,0,225); // outside the shift: ignored
+  await insertState('eq-a2','running',null,'2026-09-01T12:00:00.000Z','2026-09-01T17:00:00.000Z'); // 1 h of it is before the shift
+  await insertState('eq-a2','down','breakdown','2026-09-01T17:00:00.000Z','2026-09-01T18:00:00.000Z');
+  await insertState('eq-a2','planned_stop','break','2026-09-01T18:00:00.000Z','2026-09-01T18:30:00.000Z');
+  await insertState('eq-a2','running',null,'2026-09-01T18:30:00.000Z','2026-09-01T22:00:00.000Z'); // 1 h after the shift
+  await insertCount('eq-a2','2026-09-01T14:00:00.000Z',650,13,225); await insertCount('eq-a2','2026-09-01T19:00:00.000Z',650,13,225);
+  await insertCount('eq-a2','2026-09-01T21:00:00.000Z',999,0,225); // outside the shift: ignored
   const r=(await call('/factory/oee?equipmentId=eq-a2&from=2026-09-01T05:00:00Z&to=2026-09-02T05:00:00Z','GET',null,tokens.acme)).data;
   const m=r.machines[0];
   assert.equal(m.plannedHours,7.5); assert.equal(m.runningHours,6.5);
-  close(m.availability,86.7,'availability'); close(m.performance,88.9,'performance'); close(m.quality,98,'quality'); close(m.oee,75.5,'OEE');
+  await close(m.availability,86.7,'availability'); await close(m.performance,88.9,'performance'); await close(m.quality,98,'quality'); await close(m.oee,75.5,'OEE');
   assert.equal(m.good,1274); assert.equal(m.scrap,26);
   assert.deepEqual(r.losses.map(l=>[l.state,l.reason,l.minutes]),[['down','breakdown',60],['planned_stop','break',30]]);
-  assert.equal(r.daily.length,1); close(r.daily[0].oee,75.5,'daily OEE');
+  assert.equal(r.daily.length,1); await close(r.daily[0].oee,75.5,'daily OEE');
   assert.equal((await call('/factory/oee?from=2026-01-01T00:00:00Z&to=2026-12-31T00:00:00Z','GET',null,tokens.acme)).status,400);
 });
 
@@ -96,17 +96,17 @@ test('machine-data intake: states and counts through device mappings, stop alert
   assert.deepEqual([floor.state,floor.reason,floor.openAlerts],['down','breakdown',1]);
   const alert=(await call('/alerts','GET',null,tokens.acme)).data.find(a=>a.equipment_id==='eq-a');
   assert.match(alert.title,/Machine stopped: breakdown/);
-  assert.equal(all("SELECT * FROM notification_outbox WHERE alert_id=?",alert.id).length,0,'warnings are not emailed by default');
+  assert.equal((await all("SELECT * FROM notification_outbox WHERE alert_id=?",alert.id)).length,0,'warnings are not emailed by default');
   assert.equal((await call('/alerts','GET',null,tokens.nova)).data.some(a=>a.id===alert.id),false);
   await call('/integrations/factory/events','POST',{events:[{type:'state',deviceId:'demo-device-a',at:at(5),state:'running'}]},null,key);
-  assert.equal(one('SELECT status FROM alerts WHERE id=?',alert.id).status,'resolved','alert resolves itself when the machine runs again');
+  assert.equal((await one('SELECT status FROM alerts WHERE id=?',alert.id)).status,'resolved','alert resolves itself when the machine runs again');
 });
 
 test('alerts: acknowledge, resolve, raise a ticket, email outbox for critical alerts',async()=>{
   const { raiseAlert }=await import('../services/factory/alerts.js');
-  const keyId=raiseAlert({companyId:'c-acme',plantId:'plant-a',module:'condition',severity:'critical',equipmentId:'eq-a',title:'Hydraulic oil overheating',detail:'72 °C (critical above 65 °C)',dedupeKey:'test-critical-1'});
-  assert.equal(raiseAlert({companyId:'c-acme',module:'condition',severity:'critical',title:'dup',dedupeKey:'test-critical-1'}),null,'one open alert per key');
-  const mails=all('SELECT recipient,status FROM notification_outbox WHERE alert_id=?',keyId);
+  const keyId=await raiseAlert({companyId:'c-acme',plantId:'plant-a',module:'condition',severity:'critical',equipmentId:'eq-a',title:'Hydraulic oil overheating',detail:'72 °C (critical above 65 °C)',dedupeKey:'test-critical-1'});
+  assert.equal(await raiseAlert({companyId:'c-acme',module:'condition',severity:'critical',title:'dup',dedupeKey:'test-critical-1'}),null,'one open alert per key');
+  const mails=await all('SELECT recipient,status FROM notification_outbox WHERE alert_id=?',keyId);
   assert.deepEqual(mails.map(m=>m.recipient).sort(),['acme@demo.test','dispatch@demo.test','maint@demo.test']);
   assert.ok(mails.every(m=>m.status==='not_configured'));
   assert.deepEqual((await call('/alerts/summary','GET',null,tokens.acme)).data.critical,1);
@@ -114,7 +114,7 @@ test('alerts: acknowledge, resolve, raise a ticket, email outbox for critical al
   assert.equal((await call(`/alerts/${keyId}/acknowledge`,'POST',{},tokens.maint)).data.status,'acknowledged');
   assert.equal((await call(`/alerts/${keyId}/acknowledge`,'POST',{},tokens.maint)).status,400);
   const t=await call('/tickets','POST',ticketBody('eq-a',{title:'Hydraulic oil overheating',alertId:keyId}),tokens.acme);
-  assert.equal(t.status,201); assert.equal(one('SELECT ticket_id FROM alerts WHERE id=?',keyId).ticket_id,t.data.id); assert.ok(t.data.events.some(e=>e.event_type==='alert'));
+  assert.equal(t.status,201); assert.equal((await one('SELECT ticket_id FROM alerts WHERE id=?',keyId)).ticket_id,t.data.id); assert.ok(t.data.events.some(e=>e.event_type==='alert'));
   assert.match((await call('/tickets','POST',ticketBody('eq-n',{alertId:keyId}),tokens.nova)).data.error,/Unknown alert/);
   assert.equal((await call(`/alerts/${keyId}/resolve`,'POST',{},tokens.acme)).data.status,'resolved');
   assert.equal((await call('/alerts/emails','GET',null,tokens.acme)).status,403);
@@ -123,12 +123,12 @@ test('alerts: acknowledge, resolve, raise a ticket, email outbox for critical al
 
 test('simulator: deterministic history through the ingest path; off unless enabled',async()=>{
   const until=Date.parse('2026-09-10T12:00:00Z');
-  const slots=simulateMachine(one("SELECT * FROM equipment WHERE id='eq-bm'"),until);
+  const slots=await simulateMachine(await one("SELECT * FROM equipment WHERE id='eq-bm'"),until);
   assert.equal(slots,7*96,'a week of 15-minute slots');
-  assert.equal(simulateMachine(one("SELECT * FROM equipment WHERE id='eq-bm'"),until),0,'resumes from its cursor');
-  const states=all("SELECT state,count(*) n FROM machine_states WHERE equipment_id='eq-bm' GROUP BY state").map(s=>s.state);
+  assert.equal(await simulateMachine(await one("SELECT * FROM equipment WHERE id='eq-bm'"),until),0,'resumes from its cursor');
+  const states=(await all("SELECT state,count(*) n FROM machine_states WHERE equipment_id='eq-bm' GROUP BY state")).map(s=>s.state);
   assert.ok(states.includes('running')&&states.includes('planned_stop'));
-  const counts=one("SELECT count(*) n,sum(total_qty) q FROM production_counts WHERE equipment_id='eq-bm'");
+  const counts=await one("SELECT count(*) n,sum(total_qty) q FROM production_counts WHERE equipment_id='eq-bm'");
   assert.ok(counts.n>100&&counts.q>0);
   const oee=(await call('/factory/oee?equipmentId=eq-bm&from=2026-09-03T12:00:00Z&to=2026-09-10T12:00:00Z','GET',null,tokens.acme)).data.machines[0];
   assert.ok(oee.oee>30&&oee.oee<95,`plausible OEE ${oee.oee}`); assert.ok(oee.performance<=100);

@@ -2,7 +2,7 @@
 // written through the same recordState/recordCount path real PLC and sensor adapters will use. Deterministic per
 // machine and slot, so a re-run produces the same history. Enabled with FACTORY_SIMULATOR=true (off by default, so it
 // never invents data for real customers on a live site).
-import { one, all, run, transaction } from '../../common/db.js';
+import { one, all, run, transaction, reduceSeq } from '../../common/db.js';
 import { recordState, recordCount, currentProduct, plantOf, stateAlerts } from './production.js';
 import { shiftWindows, inShift } from './time.js';
 import { PRODUCTION_MACHINES, parametersFor } from '../../common/catalog.js';
@@ -66,20 +66,20 @@ function nextState(prev,e,slot,ch) {
 }
 
 // Generates slots for one machine from its cursor (or BACKFILL_DAYS ago) up to `until`.
-export function simulateMachine(e,until=Date.now()) {
-  const plant=plantOf(e), ch=character(e), product=currentProduct(e), params=parametersFor(e.machine_type);
-  const cursor=one("SELECT until FROM factory_cursors WHERE equipment_id=? AND stream='production'",e.id);
+export async function simulateMachine(e,until=Date.now()) {
+  const plant=await plantOf(e), ch=character(e), product=await currentProduct(e), params=parametersFor(e.machine_type);
+  const cursor=await one("SELECT until FROM factory_cursors WHERE equipment_id=? AND stream='production'",e.id);
   let t=cursor?Date.parse(cursor.until):Math.floor((until-BACKFILL_DAYS*86400000)/SLOT)*SLOT;
   const end=Math.floor(until/SLOT)*SLOT; if (t>=end) return 0;
-  const windows=shiftWindows(plant,t,end), recentFrom=until-2*3600000;
-  let slots=0, prev=one('SELECT state,reason_code FROM machine_states WHERE equipment_id=? AND ended_at IS NULL',e.id), afterSetup=false;
-  transaction(()=>{
+  const windows=await shiftWindows(plant,t,end), recentFrom=until-2*3600000;
+  let slots=0, prev=await one('SELECT state,reason_code FROM machine_states WHERE equipment_id=? AND ended_at IS NULL',e.id), afterSetup=false;
+  await transaction(async ()=>{
     for (; t<end; t+=SLOT, slots++) {
       const at=new Date(t).toISOString(), slot=String(t/SLOT);
       const [state,reason]=inShift(windows,t)?nextState(prev,e,slot,ch):['planned_stop','no_production_planned'];
-      const change=recordState(e,state,reason,at,'simulator');
+      const change=await recordState(e,state,reason,at,'simulator');
       // Alerts only for recent events, so the first backfill does not flood the alert list.
-      if (t>=recentFrom) stateAlerts(e,state,reason,change,at);
+      if (t>=recentFrom) await stateAlerts(e,state,reason,change,at);
       if (state==='running') {
         const rate=product.ideal_rate_per_hour*ch.speed*(0.96+rand(e.id,slot,'rate')*0.06), totalRaw=rate*SLOT_MIN/60;
         const total=product.unit==='parts'?Math.round(totalRaw):Math.round(totalRaw*10)/10;
@@ -89,18 +89,18 @@ export function simulateMachine(e,until=Date.now()) {
         // Camera station at the machine outlet: parts are inspected one by one; extruded product by an inline gauge
         // taking a measurement every 15 seconds. Rejects are split over the defects typical for the process.
         const inspected=product.unit==='parts'?total:60, rejected=product.unit==='parts'?scrap:Math.round(60*scrapShare);
-        recordVision(e,{station:'Camera 1',periodStart:at,periodMinutes:SLOT_MIN,inspected,rejected,defects:splitDefects(e,slot,rejected)},'simulator',{evaluate:t>=recentFrom});
-        recordCount(e,{periodStart:at,periodMinutes:SLOT_MIN,totalQty:total,scrapQty:scrap,unit:product.unit,idealRatePerHour:product.ideal_rate_per_hour,productId:product.id},'simulator');
+        await recordVision(e,{station:'Camera 1',periodStart:at,periodMinutes:SLOT_MIN,inspected,rejected,defects:splitDefects(e,slot,rejected)},'simulator',{evaluate:t>=recentFrom});
+        await recordCount(e,{periodStart:at,periodMinutes:SLOT_MIN,totalQty:total,scrapQty:scrap,unit:product.unit,idealRatePerHour:product.ideal_rate_per_hour,productId:product.id},'simulator');
       }
       const kw=ratedKw(e)*(state==='planned_stop'&&reason==='break'?0.35:STATE_POWER[state])*(0.92+rand(e.id,slot,'kw')*0.16);
-      recordEnergy(e,{periodStart:at,periodMinutes:SLOT_MIN,kwh:Math.round(kw*SLOT_MIN/60*100)/100,peakKw:Math.round(kw*(state==='running'?1.35:1.1)*10)/10},'simulator');
+      await recordEnergy(e,{periodStart:at,periodMinutes:SLOT_MIN,kwh:Math.round(kw*SLOT_MIN/60*100)/100,peakKw:Math.round(kw*(state==='running'?1.35:1.1)*10)/10},'simulator');
       // Readings are judged against limits only for recent slots, so a first backfill does not raise old alerts.
-      for (const p of params) recordCondition(e,p.key,signal(e,p.key,t,state),at,'simulator',{evaluate:t>=recentFrom});
+      for (const p of params) await recordCondition(e,p.key,signal(e,p.key,t,state),at,'simulator',{evaluate:t>=recentFrom});
       // Safety camera over the machine: occasional PPE or guarding events while people work at it.
-      if (['running','setup','down'].includes(state)&&rand(e.id,slot,'safety')<(state==='running'?0.003:0.03)) simulatedSafety(e,plant,t,until,state);
+      if (['running','setup','down'].includes(state)&&rand(e.id,slot,'safety')<(state==='running'?0.003:0.03)) await simulatedSafety(e,plant,t,until,state);
       afterSetup=state==='setup'; prev={state,reason_code:reason||null};
     }
-    run("INSERT INTO factory_cursors (equipment_id,stream,until) VALUES (?,'production',?) ON CONFLICT(equipment_id,stream) DO UPDATE SET until=excluded.until",e.id,new Date(end).toISOString());
+    await run("INSERT INTO factory_cursors (equipment_id,stream,until) VALUES (?,'production',?) ON CONFLICT(equipment_id,stream) DO UPDATE SET until=excluded.until",e.id,new Date(end).toISOString());
   });
   return slots;
 }
@@ -111,24 +111,24 @@ function splitDefects(e,slot,rejected) {
   for (let i=0,left=rejected; i<3&&left>0; i++) { const n=i===2?left:Math.min(left,Math.round(rejected*weights[i]*(0.7+rand(e.id,slot,'d',i)*0.6))); if (n>0) { out[own[i]]=(out[own[i]]||0)+n; left-=n; } }
   return out;
 }
-function simulatedSafety(e,plant,t,until,state) {
+async function simulatedSafety(e,plant,t,until,state) {
   const r=rand(e.id,String(t),'stype'), eventType=state==='setup'?(r<0.5?'ppe_missing':'guard_bypassed'):(r<0.6?'ppe_missing':r<0.9?'zone_intrusion':'unsafe_act');
   const text={ppe_missing:'Person without safety glasses or gloves at the machine',guard_bypassed:'Safety gate open while the machine was cycling during setup',zone_intrusion:'Person entered the robot or take-off area while the machine was in automatic',unsafe_act:'Reaching into the mould area without lock-out'}[eventType];
   const occurredAt=new Date(t+Math.floor(rand(e.id,String(t),'smin')*SLOT_MIN)*60000).toISOString(), recent=t>=until-2*3600000;
-  const key=recordSafety({companyId:e.company_id,plantId:plant.id,equipmentId:e.id,eventType,source:'camera',description:`${text} (${e.asset_tag||e.model})`,occurredAt},{alert:recent});
+  const key=await recordSafety({companyId:e.company_id,plantId:plant.id,equipmentId:e.id,eventType,source:'camera',description:`${text} (${e.asset_tag||e.model})`,occurredAt},{alert:recent});
   // Older simulated events were already handled by the shift supervisor.
-  if (!recent) run("UPDATE safety_events SET status='closed',root_cause=?,corrective_action=?,closed_by='u-system',closed_at=? WHERE id=?",'Behaviour: rule known but not followed under time pressure','Discussed at the shift huddle; reminder posted at the machine',new Date(t+8*3600000).toISOString(),key);
+  if (!recent) await run("UPDATE safety_events SET status='closed',root_cause=?,corrective_action=?,closed_by='u-system',closed_at=? WHERE id=?",'Behaviour: rule known but not followed under time pressure','Discussed at the shift huddle; reminder posted at the machine',new Date(t+8*3600000).toISOString(),key);
 }
 
 // Asset tags: every 30 minutes each gateway reports which tags it hears. Assets mostly stay in their home zone and
 // move between the zones their kind uses; trolleys occasionally go outside, one gauge is "lost" (stops reporting).
 const ASSET_SLOT=30*60000, ASSET_BACKFILL=2*86400000;
 const ROUTES={mould:['tool_room','production','production','maintenance','storage'],tool:['tool_room','tool_room','production','maintenance'],gauge:['tool_room','production'],trolley:['production','storage','storage','dock','production','outside'],forklift:['storage','dock','production','outside'],fixture:['tool_room','production'],container:['storage','production','dock'],other:['production','storage']};
-export function simulateAssets(until=Date.now()) {
-  const cursor=one("SELECT value FROM settings WHERE key='sim_assets_until'"), end=Math.floor(until/ASSET_SLOT)*ASSET_SLOT;
+export async function simulateAssets(until=Date.now()) {
+  const cursor=await one("SELECT value FROM settings WHERE key='sim_assets_until'"), end=Math.floor(until/ASSET_SLOT)*ASSET_SLOT;
   let t=cursor?Date.parse(JSON.parse(cursor.value)):Math.floor((until-ASSET_BACKFILL)/ASSET_SLOT)*ASSET_SLOT; if (t>=end) return 0;
-  const assets=all('SELECT * FROM tracked_assets'), zones=all('SELECT * FROM zones'); let n=0;
-  transaction(()=>{
+  const assets=await all('SELECT * FROM tracked_assets'), zones=await all('SELECT * FROM zones'); let n=0;
+  await transaction(async ()=>{
     for (; t<end; t+=ASSET_SLOT) for (const a of assets) {
       // A gauge that someone took home: its tag stops reporting 30 hours ago, so it shows as missing.
       if (a.kind==='gauge'&&rand(a.id,'lost')<0.5&&t>until-30*3600000) continue;
@@ -138,15 +138,15 @@ export function simulateAssets(until=Date.now()) {
       if (kind==='outside'&&rand(a.id,slot,'out')<0.7) kind='dock';
       const zone=(kind===home?.kind?home:null)||own.find(z=>z.kind===kind)||home||own[0];
       const battery=Math.max(3,Math.round(100-rand(a.id,'bat')*90));
-      if (recordSighting({tagId:a.tag_id,readerId:zone.reader_id,at:new Date(t).toISOString(),rssi:-50-Math.round(rand(a.id,String(t),'rssi')*40),batteryPct:battery},{alerts:t>=until-2*3600000})==='accepted') n++;
+      if (await recordSighting({tagId:a.tag_id,readerId:zone.reader_id,at:new Date(t).toISOString(),rssi:-50-Math.round(rand(a.id,String(t),'rssi')*40),batteryPct:battery},{alerts:t>=until-2*3600000})==='accepted') n++;
     }
-    run("INSERT INTO settings (key,value,updated_at) VALUES ('sim_assets_until',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify(new Date(end).toISOString()),new Date().toISOString());
+    await run("INSERT INTO settings (key,value,updated_at) VALUES ('sim_assets_until',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify(new Date(end).toISOString()),new Date().toISOString());
   });
   return n;
 }
-export function simulateAll(until=Date.now()) {
-  const machines=all(`SELECT * FROM equipment WHERE status='in_service' AND machine_type IN (${PRODUCTION_MACHINES.map(()=>'?').join(',')})`,...PRODUCTION_MACHINES);
-  const slots=machines.reduce((n,e)=>n+simulateMachine(e,until),0);
-  simulateAssets(until);
+export async function simulateAll(until=Date.now()) {
+  const machines=await all(`SELECT * FROM equipment WHERE status='in_service' AND machine_type IN (${PRODUCTION_MACHINES.map(()=>'?').join(',')})`,...PRODUCTION_MACHINES);
+  const slots=(await reduceSeq(machines, async (n,e)=>n+await simulateMachine(e,until),0));
+  await simulateAssets(until);
   return slots;
 }

@@ -42,7 +42,7 @@ test('equipment needs asset tag, criticality, year and the full parameter set fo
   assert.match(error(await call(`/equipment/${ok.data.id}`,'PATCH',{specs:{clampForceKn:1600}},tokens.acme)),/Missing mandatory/);
   assert.equal((await call(`/equipment/${ok.data.id}`,'PATCH',{status:'decommissioned'},tokens.acme)).data.status,'decommissioned');
   assert.match(error(await call('/tickets','POST',ticketBody(ok.data.id),tokens.acme)),/decommissioned/);
-  run("INSERT INTO equipment (id,company_id,plant_id,machine_type,make,model,serial_number,location,qr_code,created_at) VALUES ('eq-legacy','c-acme','plant-a','mould','Old','M1','OLD-1','Store','MC:legacy',?)", new Date().toISOString());
+  await run("INSERT INTO equipment (id,company_id,plant_id,machine_type,make,model,serial_number,location,qr_code,created_at) VALUES ('eq-legacy','c-acme','plant-a','mould','Old','M1','OLD-1','Store','MC:legacy',?)", new Date().toISOString());
   const legacy=(await call('/equipment','GET',null,tokens.acme)).data.find(e=>e.id==='eq-legacy');
   assert.deepEqual(legacy.missing,['Asset tag','Year built','Mould number','Cavities','Hot runner','Current shot count','Preventive maintenance interval']);
   assert.ok((await call('/dashboard','GET',null,tokens.acme)).data.incompleteAssets.some(a=>a.id==='eq-legacy'));
@@ -85,7 +85,7 @@ test('spare parts need part number, unit and urgency; quotes need a validity dat
   assert.match(error(await call(`/parts/${part.id}/quote`,'POST',quoteBody({validUntil:undefined}),tokens.dispatch)),/validUntil/);
   assert.match(error(await call(`/parts/${part.id}/quote`,'POST',quoteBody({validUntil:'2020-01-01'}),tokens.dispatch)),/between today and one year ahead/);
   const quote=(await call(`/parts/${part.id}/quote`,'POST',quoteBody(),tokens.dispatch)).data;
-  run('UPDATE quotations SET valid_until=? WHERE id=?', '2026-01-01T00:00:00.000Z',quote.id);
+  await run('UPDATE quotations SET valid_until=? WHERE id=?', '2026-01-01T00:00:00.000Z',quote.id);
   assert.match(error(await call(`/quotes/${quote.id}/decision`,'POST',{decision:'approved'},tokens.acme)),/expired/);
   const fresh=(await call(`/parts/${part.id}/quote`,'POST',quoteBody(),tokens.dispatch)).data;
   assert.equal((await call(`/quotes/${fresh.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,200);

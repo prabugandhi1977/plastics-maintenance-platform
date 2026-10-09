@@ -59,10 +59,10 @@ test('raising a ticket needs a scan at the machine, or a dispatcher override wit
   const phoned=await call('/tickets','POST',{...noScan('eq-a'),scanOverrideReason:'Customer phoned in; label unreadable'},tokens.dispatch);
   assert.equal(phoned.status,201); assert.equal(phoned.data.raised_via,'override'); assert.match(phoned.data.scan_override_reason,/phoned in/);
   // The field app replays a queued raise with the same action ID: one ticket only.
-  const actionId=crypto.randomUUID(), queued=ticketBody('eq-a2'), before=one('SELECT count(*) n FROM tickets').n;
+  const actionId=crypto.randomUUID(), queued=ticketBody('eq-a2'), before=(await one('SELECT count(*) n FROM tickets')).n;
   const first=await call('/tickets','POST',queued,tokens.acme,{'x-client-action-id':actionId}), replay=await call('/tickets','POST',queued,tokens.acme,{'x-client-action-id':actionId});
   assert.deepEqual([first.status,replay.status,replay.data.id],[201,200,first.data.id]);
-  assert.equal(one('SELECT count(*) n FROM tickets').n,before+1);
+  assert.equal((await one('SELECT count(*) n FROM tickets')).n,before+1);
 });
 
 test('closing a ticket needs a scan of the same machine, or a dispatcher override',async()=>{
@@ -74,7 +74,7 @@ test('closing a ticket needs a scan of the same machine, or a dispatcher overrid
   assert.match(error(await call(`/tickets/${tid}/status`,'POST',{status:'completed',...closeOut,...atMachine('eq-b')},tokens.engineer)),/different machine/);
   // An engineer cannot override; only dispatch can.
   assert.match(error(await call(`/tickets/${tid}/status`,'POST',{status:'completed',...closeOut,scanOverrideReason:'In a hurry'},tokens.engineer)),/Scan the equipment/);
-  assert.equal(one('SELECT status FROM tickets WHERE id=?', tid).status,'in_progress');
+  assert.equal((await one('SELECT status FROM tickets WHERE id=?', tid)).status,'in_progress');
   const done=await call(`/tickets/${tid}/status`,'POST',{status:'completed',...closeOut,scanCode:'e2 80 11 60 60 00 02 08 40 a1 b2 04'},tokens.engineer);
   assert.equal(done.status,200); assert.equal(done.data.status,'completed'); assert.equal(done.data.closed_via,'rfid'); assert.ok(done.data.closed_scan_at);
   assert.match(done.data.events.find(e=>e.event_type==='scan'&&/Closed/.test(e.detail)).detail,/Closed at the machine: RFID/);

@@ -5,7 +5,7 @@ import http from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { ROOT, now, one, run, transaction } from './common/db.js';
+import { ROOT, now, one, run, transaction, readOnly } from './common/db.js';
 import { authenticate } from './common/security.js';
 import { HttpError, bad } from './common/validate.js';
 import { createRouter, bodyOf, json, Reply, API_HEADERS } from './common/http.js';
@@ -28,23 +28,30 @@ const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=u
 
 // Offline-capable mutations carry X-Client-Action-Id. The first result is stored with the mutation in one
 // transaction; a replay by the same user returns it unchanged, and reusing the ID for a different request is refused.
-function runOffline(u,req,path,body,handle) {
+async function runOffline(u,req,path,body,handle) {
   const actionId=req.headers['x-client-action-id'];
-  if (!actionId) return transaction(handle);
+  if (!actionId) return await transaction(handle);
   if (typeof actionId!=='string'||!/^[a-f0-9-]{36}$/.test(actionId)) bad('Invalid client action ID');
   const hash=createHash('sha256').update(JSON.stringify(body)).digest('hex');
-  const previous=one('SELECT result_json FROM offline_actions WHERE user_id=? AND client_action_id=?',u.id,actionId);
+  const previous=await one('SELECT result_json FROM offline_actions WHERE user_id=? AND client_action_id=?',u.id,actionId);
   if (previous) { const saved=JSON.parse(previous.result_json); if (saved.path!==path||saved.hash!==hash) throw new HttpError(409,'Client action ID already used for another request'); return new Reply(200,saved.result); }
-  return transaction(()=>{ const out=handle(), value=out instanceof Reply?out.value:out; run('INSERT INTO offline_actions (user_id,client_action_id,result_json,created_at) VALUES (?,?,?,?)',u.id,actionId,JSON.stringify({path,hash,result:value}),now()); return out; });
+  return await transaction(async ()=>{ const out=await handle(), value=out instanceof Reply?out.value:out; await run('INSERT INTO offline_actions (user_id,client_action_id,result_json,created_at) VALUES (?,?,?,?)',u.id,actionId,JSON.stringify({path,hash,result:value}),now()); return out; });
 }
 
 async function api(req,res,url) {
   const {route,params,pathExists}=router.match(req.method,url.pathname);
   if (!route) throw new HttpError(pathExists?405:404,pathExists?'Method not allowed':'Endpoint not found');
   const body=['POST','PATCH','PUT'].includes(req.method)?await bodyOf(req):{};
-  const u=route.public?null:authenticate(req); if (!route.public&&!u) throw new HttpError(401,'Authentication required');
+  const u=route.public?null:await authenticate(req); if (!route.public&&!u) throw new HttpError(401,'Authentication required');
   const ctx={u,body,params,query:url.searchParams,req,res};
-  const out=route.offline?runOffline(u,req,url.pathname,body,()=>route.handler(ctx)):await route.handler(ctx);
+  // Each request keeps the atomicity it had with SQLite: writes run in one serialised transaction, reads in a
+  // consistent read-only snapshot (concurrently). Routes marked external (AI and remote calls) run outside, so a
+  // slow external call never holds the writer lock; their statements autocommit as before.
+  const handle=()=>route.handler(ctx);
+  const out=route.offline?await runOffline(u,req,url.pathname,body,handle)
+    :route.external?await handle()
+    :req.method==='GET'&&!route.writes?await readOnly(handle)
+    :await transaction(handle);
   if (res.writableEnded||res.headersSent) return;
   if (out instanceof Reply) return json(res,out.status,out.value);
   json(res,200,out);
@@ -68,7 +75,7 @@ export function createServer() {
     } catch(e) {
       if (res.headersSent) return res.destroy();
       if (e instanceof HttpError) { res.writeHead(e.status,{...API_HEADERS,...e.headers}); return res.end(JSON.stringify({error:e.message})); }
-      if (String(e.message).includes('UNIQUE constraint failed')) return json(res,409,{error:'Record already exists'});
+      if (e.code==='23505') return json(res,409,{error:'Record already exists'});
       console.error(e); json(res,500,{error:'Internal server error'});
     }
   });
@@ -78,16 +85,16 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   const port=Number(process.env.PORT||3100);
   createServer().listen(port,()=>console.log(`MouldCare listening on port ${port}`));
   // Asset tags that stop reporting are flagged as missing whether the data is real or simulated.
-  setInterval(()=>{ try { checkMissing(); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
+  setInterval(async ()=>{ try { await transaction(async ()=>await checkMissing()); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
   // Machine learning: predictive alerts from learned baselines (degrading or unusual signals).
-  setInterval(()=>{ try { scanPredictive(); scanQuality(); } catch(e) { console.error('Predictive scan failed:',e.message); } },10*60000).unref();
+  setInterval(async ()=>{ try { await transaction(async ()=>await scanPredictive()); await transaction(async ()=>await scanQuality()); } catch(e) { console.error('Predictive scan failed:',e.message); } },10*60000).unref();
   // Vision AI second opinions for companies that opted in to automatic review (a few non-critical incidents per minute).
   setInterval(()=>{ reviewPending().catch(e=>console.error('Vision AI review failed:',e.message)); },60000).unref();
   // Vision: silent edge nodes raise an alert; closed, unlocked evidence past its retention is deleted (locked never).
-  setInterval(()=>{ try { checkNodes(); } catch(e) { console.error('Vision node check failed:',e.message); } },60000).unref();
-  setInterval(()=>{ try { const n=pruneMedia(); if (n) console.log(`Vision: pruned ${n} media files past retention`); } catch(e) { console.error('Vision pruning failed:',e.message); } },6*3600000).unref();
+  setInterval(async ()=>{ try { await transaction(async ()=>await checkNodes()); } catch(e) { console.error('Vision node check failed:',e.message); } },60000).unref();
+  setInterval(async ()=>{ try { const n=await transaction(async ()=>await pruneMedia()); if (n) console.log(`Vision: pruned ${n} media files past retention`); } catch(e) { console.error('Vision pruning failed:',e.message); } },6*3600000).unref();
   // Simulated machine data (local demos only): backfills a week on first start, then keeps the factory live.
-  if (simulatorEnabled()) { const tick=()=>{ try { const n=simulateAll(); if (n) console.log(`Factory simulator: ${n} slots generated`); } catch(e) { console.error('Factory simulator failed:',e.message); } }; tick(); setInterval(tick,60000).unref(); }
+  if (simulatorEnabled()) { const tick=async ()=>{ try { const n=await transaction(async ()=>await simulateAll()); if (n) console.log(`Factory simulator: ${n} slots generated`); } catch(e) { console.error('Factory simulator failed:',e.message); } }; await tick(); setInterval(tick,60000).unref(); }
   const every=Number(process.env.IOT_SYNC_INTERVAL_SECONDS||0);
-  if (every>0) { const adapter=createAdapter(process.env.IOT_SYNC_ADAPTER||'mock'), tick=()=>runSync(adapter).then(r=>console.log(`IoT sync ${r.status}: ${r.accepted} accepted, ${r.duplicates} duplicate, ${r.rejected} rejected${r.error?' - '+r.error:''}`)).catch(e=>console.error('IoT sync skipped:',e.message)); tick(); setInterval(tick,Math.max(every,15)*1000).unref(); }
+  if (every>0) { const adapter=createAdapter(process.env.IOT_SYNC_ADAPTER||'mock'), tick=()=>runSync(adapter).then(r=>console.log(`IoT sync ${r.status}: ${r.accepted} accepted, ${r.duplicates} duplicate, ${r.rejected} rejected${r.error?' - '+r.error:''}`)).catch(e=>console.error('IoT sync skipped:',e.message)); await tick(); setInterval(tick,Math.max(every,15)*1000).unref(); }
 }

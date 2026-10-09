@@ -11,14 +11,14 @@ const email=(process.env.MOULDCARE_ADMIN_EMAIL||'').trim().toLowerCase(), passwo
 const resetRequested=process.env.MOULDCARE_ADMIN_RESET_PASSWORD==='true';
 if (!email) process.exit(0);
 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('MOULDCARE_ADMIN_EMAIL is not a valid email address');
-const existing=one('SELECT id,role FROM users WHERE email=?',email);
+const existing=await one('SELECT id,role FROM users WHERE email=?',email);
 if (existing && !resetRequested) { console.log(`Platform admin ${email} already exists`); process.exit(0); }
 if (password.length<12) throw new Error('MOULDCARE_ADMIN_PASSWORD must have at least 12 characters');
 if (existing) {
   if (existing.role!=='platform_admin') throw new Error(`${email} is not a platform admin; refusing to reset it from the environment`);
-  run('UPDATE users SET password_hash=?,active=1,must_change_password=1,session_version=session_version+1 WHERE id=?',hashPassword(password),existing.id);
+  await run('UPDATE users SET password_hash=?,active=1,must_change_password=1,session_version=session_version+1 WHERE id=?',hashPassword(password),existing.id);
   console.log(`Reset password for platform admin ${email}. Sign in, choose a new password, then remove MOULDCARE_ADMIN_RESET_PASSWORD.`);
   process.exit(0);
 }
-run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',id(),null,null,'Platform Admin',email,hashPassword(password),'platform_admin',1,'[]','[]',now());
+await run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',id(),null,null,'Platform Admin',email,hashPassword(password),'platform_admin',1,'[]','[]',now());
 console.log(`Created platform admin ${email}. Change the password after first sign-in.`);

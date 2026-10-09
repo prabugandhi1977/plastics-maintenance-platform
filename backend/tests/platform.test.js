@@ -53,7 +53,7 @@ test('equipment edits stay inside the owning company',async()=>{
   assert.equal((await call('/equipment/eq-a','PATCH',{plantId:'plant-n'},tokens.acme)).status,400);
   assert.equal((await call('/equipment/eq-n','PATCH',{location:'Hijack'},tokens.acme)).status,403);
   assert.equal((await call('/equipment/eq-a','PATCH',{location:'Bay 6'},tokens.maint)).status,403);
-  assert.equal(one('SELECT qr_code FROM equipment WHERE id=?','eq-a').qr_code,'MC:eq-a');
+  assert.equal((await one('SELECT qr_code FROM equipment WHERE id=?','eq-a')).qr_code,'MC:eq-a');
 });
 
 test('assignment candidates, provider decline, and templated checklist',async()=>{
@@ -104,7 +104,7 @@ test('contract coverage, response targets, visits and renewal',async()=>{
   const t=(await call('/tickets/ticket-a','GET',null,tokens.acme)).data;
   assert.equal(t.coverage.contractId,'contract-a'); assert.equal(t.coverage.responseHours,8);
   assert.equal(Date.parse(t.responseDueAt)-Date.parse(t.created_at),8*3600000); assert.equal(t.responseBreached,false);
-  run("UPDATE tickets SET created_at=? WHERE id='ticket-a'",new Date(Date.now()-9*3600000).toISOString());
+  await run("UPDATE tickets SET created_at=? WHERE id='ticket-a'",new Date(Date.now()-9*3600000).toISOString());
   assert.equal((await call('/tickets/ticket-a','GET',null,tokens.acme)).data.responseBreached,true);
   assert.equal((await call('/tickets/'+(await raise(tokens.acme,'eq-b')),'GET',null,tokens.acme)).data.coverage,null);
   assert.equal((await call('/contracts/contract-a/visits','POST',{equipmentId:'eq-a',dueAt:'2026-12-01T09:00',notes:'Pre-renewal check'},tokens.nova)).status,403);
@@ -135,7 +135,7 @@ test('parts fulfilment stages and dashboard metrics stay tenant-scoped',async()=
   assert.ok(nova.repeatFaults.every(x=>x.equipmentId==='eq-n')); assert.ok(nova.upcomingMaintenance.every(v=>v.company_id==='c-nova'));
   assert.deepEqual(nova.upcomingRenewals.map(c=>c.id),['contract-n']);
   const atlas=(await call('/dashboard','GET',null,tokens.atlas)).data; assert.deepEqual([atlas.upcomingMaintenance,atlas.upcomingRenewals],[[],[]]);
-  assert.ok(all("SELECT 1 FROM audit_events WHERE action IN ('parts.ordered','parts.shipped','parts.fulfilled')").length===3);
+  assert.ok((await all("SELECT 1 FROM audit_events WHERE action IN ('parts.ordered','parts.shipped','parts.fulfilled')")).length===3);
 });
 
 test('company and plant settings, admin password reset and session sign-out',async()=>{
@@ -151,7 +151,7 @@ test('company and plant settings, admin password reset and session sign-out',asy
   assert.equal((await call('/plants/plant-a','PATCH',{serviceArea:'US-MW',name:'Chicago Plant 1'},tokens.acme)).data.name,'Chicago Plant 1');
   assert.equal((await call('/plants/plant-a','PATCH',{country:'USA'},tokens.acme)).status,400);
   assert.equal((await call('/plants/plant-n','PATCH',{name:'Hijacked'},tokens.acme)).status,403);
-  assert.ok(one("SELECT 1 FROM audit_events WHERE action='plant.update' AND company_id='c-acme'"));
+  assert.ok(await one("SELECT 1 FROM audit_events WHERE action='plant.update' AND company_id='c-acme'"));
 
   const created=await call('/users','POST',{companyId:'c-acme',name:'New Planner',email:'planner@acme.test',role:'plant_manager',password:'Temporary-Pass-001'},tokens.acme);
   assert.equal(created.status,201);
@@ -170,7 +170,7 @@ test('company and plant settings, admin password reset and session sign-out',asy
   const reset=await login('maint@demo.test','Reset-Temp-Pass-003'); assert.equal(reset.status,200); assert.equal(reset.data.user.mustChangePassword,true);
   assert.equal((await call('/users/u-atlas/password','POST',{newPassword:'Atlas-Temp-Pass-004'},tokens.atlasAdmin)).status,200);
   assert.equal((await call('/users/u-euro/password','POST',{newPassword:'Euro-Temp-Pass-005'},tokens.atlasAdmin)).status,403);
-  assert.ok(one("SELECT 1 FROM audit_events WHERE action='user.password_reset' AND entity_id='u-acme-maint'"));
+  assert.ok(await one("SELECT 1 FROM audit_events WHERE action='user.password_reset' AND entity_id='u-acme-maint'"));
 });
 
 test('sign-in: per-account pause with warnings, padded passwords, demo flag, admin bootstrap and recovery',async()=>{
@@ -186,11 +186,11 @@ test('sign-in: per-account pause with warnings, padded passwords, demo flag, adm
   assert.match((await wrong()).data.error,/now paused for 15 minutes/);
   const paused=await login('typo@acme.test','Correct-Pass-777');
   assert.equal(paused.status,429); assert.match(paused.data.error,/Try again in 15 minutes/);
-  assert.equal((await call('/users/'+one("SELECT id FROM users WHERE email='typo@acme.test'").id+'/password','POST',{newPassword:'Fresh-Temp-Pass-888'},tokens.acme)).status,200);
+  assert.equal((await call('/users/'+(await one("SELECT id FROM users WHERE email='typo@acme.test'")).id+'/password','POST',{newPassword:'Fresh-Temp-Pass-888'},tokens.acme)).status,200);
   assert.equal((await login('typo@acme.test','Fresh-Temp-Pass-888')).status,200);
   assert.equal((await login('  TYPO@Acme.test ','Fresh-Temp-Pass-888')).status,200);
   assert.equal((await login('typo@acme.test','  Fresh-Temp-Pass-888  ')).status,200);
-  run("UPDATE users SET password_hash=? WHERE email='typo@acme.test'", hashPassword(' pasted with spaces '));
+  await run("UPDATE users SET password_hash=? WHERE email='typo@acme.test'", hashPassword(' pasted with spaces '));
   assert.equal((await login('typo@acme.test',' pasted with spaces ')).status,200);
   assert.equal((await call('/auth/login','POST',{email:'typo@acme.test',password:''})).status,400);
 
