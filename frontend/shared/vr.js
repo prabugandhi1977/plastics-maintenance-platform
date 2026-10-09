@@ -1,3 +1,4 @@
+import { t as _t } from './i18n.js';
 // Immersive repair guide for critical breakdowns. Opens full screen with three panels around the technician: the
 // machine (picture and breakdown), the current repair step, and the hazards and PPE. "Enter VR" starts a WebXR
 // session on a headset (for example the Meta Quest browser); controllers or hand pinch select Back / Next. Without a
@@ -30,11 +31,11 @@ export async function openVrGuide({title,machine,guide,image=null,critical=false
   root.setAttribute('role','dialog'); root.setAttribute('aria-label','VR repair guide');
   root.style.cssText='position:fixed;inset:0;z-index:2147483000;background:#081419;color:#e8f3f2;font-family:system-ui,Segoe UI,sans-serif;touch-action:none';
   root.innerHTML=`<div style="position:absolute;top:0;left:0;right:0;display:flex;gap:8px;align-items:center;padding:10px 12px;background:linear-gradient(#081419ee,#08141900);z-index:2;flex-wrap:wrap">
-    <b style="flex:1;min-width:160px;font-size:15px">${critical?'<span style="background:#b0413e;color:#fff;border-radius:6px;padding:2px 7px;margin-right:6px">CRITICAL</span>':''}VR repair guide</b>
+    <b style="flex:1;min-width:160px;font-size:15px">${_t('vr.vrRepairGuide',{value:critical?_t('vr.critical'):''})}</b>
     <span data-count style="font-size:14px"></span>
-    <button data-prev style="${btnCss}">◀ Back</button><button data-next style="${btnCss}">Next ▶</button>
-    <button data-xr hidden style="${btnCss};background:#2bb3a3;color:#04221e">Enter VR</button><button data-exit style="${btnCss}">Exit</button></div>
-    <p style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:13px;color:#9fbfbe;margin:0;z-index:2">Drag to look around · tap Back / Next · on a headset choose Enter VR</p>`;
+    <button data-prev style="${btnCss}">${_t('vr.back')}</button><button data-next style="${btnCss}">${_t('vr.next')}</button>
+    <button data-xr hidden style="${btnCss};background:#2bb3a3;color:#04221e">${_t('vr.enterVr')}</button><button data-exit style="${btnCss}">${_t('vr.exit')}</button></div>
+    <p style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:13px;color:#9fbfbe;margin:0;z-index:2">${_t('vr.dragToLookAroundTap')}</p>`;
   document.body.append(root);
 
   const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight); renderer.xr.enabled=true;
@@ -84,10 +85,10 @@ export async function openVrGuide({title,machine,guide,image=null,critical=false
     if (guide.summary) text(ctx,guide.summary,48,Math.max(y+50,820),{size:26,color:'#9fbfbe',maxLines:6});
   },'hazards');
   const button=(label,angle,name)=>panel(220,0.5,angle,0.84,ctx=>{ ctx.clearRect(0,0,W,220); ctx.fillStyle='#2bb3a3'; ctx.beginPath(); ctx.roundRect(8,8,W-16,204,60); ctx.fill(); ctx.textAlign='center'; text(ctx,label,W/2,140,{size:96,weight:800,color:'#04221e',width:W}); ctx.textAlign='left'; },name);
-  button('◀ Back',-12,'prev'); button('Next ▶',12,'next');
+  button(_t('vr.back'),-12,'prev'); button(_t('vr.next'),12,'next');
 
   const count=root.querySelector('[data-count]');
-  const go=delta=>{ index=Math.max(0,Math.min(steps.length-1,index+delta)); stepPanel.redraw(); count.textContent=steps.length?`Step ${index+1} / ${steps.length}`:''; };
+  const go=delta=>{ index=Math.max(0,Math.min(steps.length-1,index+delta)); stepPanel.redraw(); count.textContent=steps.length?`${_t('vr.step',{value:index+1,length:steps.length})}`:''; };
   go(0);
   if (image) { const img=new Image(); img.onload=()=>{ photo=img; machinePanel.redraw(); }; img.src=image; }
 
@@ -116,8 +117,8 @@ export async function openVrGuide({title,machine,guide,image=null,critical=false
   if (navigator.xr?.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then(ok=>{ xrBtn.hidden=!ok; }).catch(()=>{});
   xrBtn.onclick=async()=>{
     if (renderer.xr.isPresenting) return renderer.xr.getSession().end();
-    try { const session=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','hand-tracking']}); renderer.xr.setReferenceSpaceType('local-floor'); await renderer.xr.setSession(session); xrBtn.textContent='Exit VR'; session.addEventListener('end',()=>{ xrBtn.textContent='Enter VR'; }); }
-    catch (err) { xrBtn.textContent='VR unavailable'; xrBtn.disabled=true; console.warn('WebXR:',err); }
+    try { const session=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','hand-tracking']}); renderer.xr.setReferenceSpaceType('local-floor'); await renderer.xr.setSession(session); xrBtn.textContent=_t('vr.exitVr'); session.addEventListener('end',()=>{ xrBtn.textContent=_t('vr.enterVr'); }); }
+    catch (err) { xrBtn.textContent=_t('vr.vrUnavailable'); xrBtn.disabled=true; console.warn('WebXR:',err); }
   };
   renderer.setAnimationLoop(()=>renderer.render(scene,camera));
   function close() {

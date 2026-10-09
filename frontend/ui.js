@@ -1,6 +1,6 @@
 // Shared UI building blocks for the web workspace: escaping, buttons and pills, filterable tables, catalogue-driven
 // form fields with required markers and units, modal dialogs, confirmations and toasts.
-import { t, label } from './shared/i18n.js';
+import { t, label, t as _t } from './shared/i18n.js';
 
 export const $=s=>document.querySelector(s);
 export const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -19,8 +19,8 @@ export function dataTable(id,{rows,columns,search,filters=[],empty=t('msg.noReco
   const st=tableState[id]??={q:'',f:{}};
   const q=st.q.trim().toLowerCase();
   const visible=rows.filter(r=>(!q||search(r).toLowerCase().includes(q))&&filters.every(f=>!st.f[f.key]||f.match(r,st.f[f.key])));
-  const controls=`<div class="table-tools" data-table="${id}"><input type="search" class="tt-search" placeholder="Search…" aria-label="Search" value="${esc(st.q)}">${filters.map(f=>`<select class="tt-filter" data-key="${f.key}" aria-label="${esc(f.label)}"><option value="">${esc(f.label)}: all</option>${f.options.map(([v,l])=>`<option value="${esc(v)}" ${st.f[f.key]===v?'selected':''}>${esc(l)}</option>`).join('')}</select>`).join('')}<span class="muted tt-count">${visible.length} of ${rows.length}</span>${actions}</div>`;
-  const body=visible.length?visible.map(r=>`<tr>${columns.map(c=>`<td${c.cls?` class="${c.cls}"`:''}>${c.cell(r)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${columns.length}" class="empty">${rows.length?'No matches. Clear the search or filters.':esc(empty)}</td></tr>`;
+  const controls=`<div class="table-tools" data-table="${id}"><input type="search" class="tt-search" placeholder="${_t('ui.search')}" aria-label="${_t('ui.search2')}" value="${esc(st.q)}">${filters.map(f=>`<select class="tt-filter" data-key="${f.key}" aria-label="${esc(f.label)}"><option value="">${_t('ui.all',{label:esc(f.label)})}</option>${f.options.map(([v,l])=>`<option value="${esc(v)}" ${st.f[f.key]===v?'selected':''}>${esc(l)}</option>`).join('')}</select>`).join('')}<span class="muted tt-count">${_t('ui.of',{length:visible.length,length2:rows.length})}</span>${actions}</div>`;
+  const body=visible.length?visible.map(r=>`<tr>${columns.map(c=>`<td${c.cls?` class="${c.cls}"`:''}>${c.cell(r)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${columns.length}" class="empty">${rows.length?_t('ui.noMatchesClearTheSearch'):esc(empty)}</td></tr>`;
   return `${controls}<div class="table-wrap"><table><thead><tr>${columns.map(c=>`<th${c.cls?` class="${c.cls}"`:''}>${esc(c.title)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 // Re-render on input while keeping the cursor in the search box.
@@ -50,7 +50,7 @@ export function checkboxes(name,text,options,{values=[],required=false,help=''}=
   return `<fieldset class="fld wide checks" ${required?'data-required-group="'+name+'"':''}><legend>${esc(text)}${req(required)}</legend>${options.map(([v,l])=>`<label class="check-opt"><input type="checkbox" name="${name}" value="${esc(v)}" ${values.includes(v)?'checked':''}> ${esc(l)}</label>`).join('')}${help?`<small class="help">${esc(help)}</small>`:''}</fieldset>`;
 }
 export function yesNo(name,text,{value=null,required=false,help=''}={}) {
-  return `<fieldset class="fld checks" ${required?'data-required-group="'+name+'"':''}><legend>${esc(text)}${req(required)}</legend><label class="check-opt"><input type="radio" name="${name}" value="no" ${value===false?'checked':''} ${required?'required':''}> No</label><label class="check-opt"><input type="radio" name="${name}" value="yes" ${value===true?'checked':''}> Yes</label>${help?`<small class="help">${esc(help)}</small>`:''}</fieldset>`;
+  return `<fieldset class="fld checks" ${required?'data-required-group="'+name+'"':''}><legend>${esc(text)}${req(required)}</legend><label class="check-opt"><input type="radio" name="${name}" value="no" ${value===false?'checked':''} ${required?'required':''}> ${_t('ui.no')}</label><label class="check-opt"><input type="radio" name="${name}" value="yes" ${value===true?'checked':''}> ${_t('ui.yes')}</label>${help?`<small class="help">${esc(help)}</small>`:''}</fieldset>`;
 }
 export const section=(title,body,note='')=>`<fieldset class="section"><legend>${esc(title)}</legend>${note?`<p class="muted wide">${esc(note)}</p>`:''}<div class="form-grid">${body}</div></fieldset>`;
 // Type-specific technical parameters, generated from the server's catalogue so both always agree.
@@ -58,7 +58,7 @@ export function specFields(defs,values={},{equipment=[]}={}) {
   return defs.map(f=>{
     const name=`spec.${f.key}`, value=values?.[f.key]??'';
     if (f.type==='choice') return select(name,f.label,f.options.map(o=>[o,humanise(o)]),{value,required:f.required});
-    if (f.type==='equipment') return select(name,f.label,equipment.map(e=>[e.id,`${e.asset_tag?e.asset_tag+' · ':''}${e.make} ${e.model}`]),{value,required:f.required,placeholder:'Not linked'});
+    if (f.type==='equipment') return select(name,f.label,equipment.map(e=>[e.id,`${e.asset_tag?e.asset_tag+' · ':''}${e.make} ${e.model}`]),{value,required:f.required,placeholder:_t('ui.notLinked')});
     if (f.type==='number'||f.type==='integer') return field(name,f.label,{type:'number',value,required:f.required,unit:f.unit,min:f.min,max:f.max,step:f.type==='integer'?1:'any',inputmode:f.type==='integer'?'numeric':'decimal'});
     return field(name,f.label,{value,required:f.required,maxlength:f.max});
   }).join('');
@@ -70,7 +70,7 @@ export const specsFromForm=fd=>Object.fromEntries([...fd.entries()].filter(([k,v
 export function openDialog(title,content,{submitLabel=t('action.save'),onSubmit,wide=true,onOpen}={}) {
   closeDialog();
   const d=document.createElement('dialog'); d.className=`modal${wide?' wide':''}`; d.id='modal';
-  d.innerHTML=`<form method="dialog" class="modal-form" novalidate><header><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></header><div class="modal-body">${content}<p class="form-error notice error" role="alert" hidden></p></div><footer>${onSubmit?'<span class="muted"><span class="req">*</span> required</span>':''}<span class="spacer"></span><button type="button" class="secondary" data-close>${onSubmit?t('action.cancel'):'Close'}</button>${onSubmit?`<button type="submit" class="primary">${esc(submitLabel)}</button>`:''}</footer></form>`;
+  d.innerHTML=`<form method="dialog" class="modal-form" novalidate><header><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-close aria-label="${_t('ui.close')}">✕</button></header><div class="modal-body">${content}<p class="form-error notice error" role="alert" hidden></p></div><footer>${onSubmit?_t('ui.required'):''}<span class="spacer"></span><button type="button" class="secondary" data-close>${onSubmit?t('action.cancel'):_t('ui.close')}</button>${onSubmit?`<button type="submit" class="primary">${esc(submitLabel)}</button>`:''}</footer></form>`;
   document.body.append(d);
   d.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closeDialog());
   d.addEventListener('close',()=>d.remove());
@@ -82,7 +82,7 @@ export function openDialog(title,content,{submitLabel=t('action.save'),onSubmit,
     e.preventDefault();
     const err=formEl.querySelector('.form-error'); err.hidden=true;
     const problem=validate(formEl); if (problem) { err.textContent=problem; err.hidden=false; return; }
-    const submit=formEl.querySelector('[type=submit]'); submit.disabled=true; const label0=submit.textContent; submit.textContent='Saving…';
+    const submit=formEl.querySelector('[type=submit]'); submit.disabled=true; const label0=submit.textContent; submit.textContent=_t('ui.saving');
     try { await onSubmit(new FormData(formEl),formEl); closeDialog(); }
     catch(ex) { err.textContent=ex.message; err.hidden=false; err.scrollIntoView({block:'nearest'}); }
     finally { if (submit.isConnected) { submit.disabled=false; submit.textContent=label0; } }
@@ -122,4 +122,4 @@ export function toast(text,kind='ok') {
   box.append(el); setTimeout(()=>el.classList.add('hide'),kind==='error'?7000:3500); setTimeout(()=>el.remove(),kind==='error'?7600:4100);
 }
 // A small "incomplete" badge listing which mandatory fields a legacy record still lacks.
-export const incomplete=missing=>missing?.length?`<span class="pill incomplete" title="Missing: ${esc(missing.join(', '))}">⚠ Incomplete</span>`:'';
+export const incomplete=missing=>missing?.length?`<span class="pill incomplete" title="${_t('ui.missing',{value:esc(missing.join(', '))})}">${_t('ui.incomplete')}</span>`:'';
