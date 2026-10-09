@@ -6,14 +6,15 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-platform-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 await import('../scripts/seed.js');
 const { createServer }=await import('../server.js');
-const { db, one, all }=await import('../common/db.js');
+const { db, one, all, run }=await import('../common/db.js');
 const { ticketBody, closeOut, atMachine, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token,extra={}) {const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json(),headers:r.headers};}
 const login=async(email,password='DemoPass123!')=>call('/auth/login','POST',{email,password});
 const tokens={};
@@ -103,7 +104,7 @@ test('contract coverage, response targets, visits and renewal',async()=>{
   const t=(await call('/tickets/ticket-a','GET',null,tokens.acme)).data;
   assert.equal(t.coverage.contractId,'contract-a'); assert.equal(t.coverage.responseHours,8);
   assert.equal(Date.parse(t.responseDueAt)-Date.parse(t.created_at),8*3600000); assert.equal(t.responseBreached,false);
-  db.prepare("UPDATE tickets SET created_at=? WHERE id='ticket-a'").run(new Date(Date.now()-9*3600000).toISOString());
+  run("UPDATE tickets SET created_at=? WHERE id='ticket-a'",new Date(Date.now()-9*3600000).toISOString());
   assert.equal((await call('/tickets/ticket-a','GET',null,tokens.acme)).data.responseBreached,true);
   assert.equal((await call('/tickets/'+(await raise(tokens.acme,'eq-b')),'GET',null,tokens.acme)).data.coverage,null);
   assert.equal((await call('/contracts/contract-a/visits','POST',{equipmentId:'eq-a',dueAt:'2026-12-01T09:00',notes:'Pre-renewal check'},tokens.nova)).status,403);
@@ -189,7 +190,7 @@ test('sign-in: per-account pause with warnings, padded passwords, demo flag, adm
   assert.equal((await login('typo@acme.test','Fresh-Temp-Pass-888')).status,200);
   assert.equal((await login('  TYPO@Acme.test ','Fresh-Temp-Pass-888')).status,200);
   assert.equal((await login('typo@acme.test','  Fresh-Temp-Pass-888  ')).status,200);
-  db.prepare("UPDATE users SET password_hash=? WHERE email='typo@acme.test'").run(hashPassword(' pasted with spaces '));
+  run("UPDATE users SET password_hash=? WHERE email='typo@acme.test'", hashPassword(' pasted with spaces '));
   assert.equal((await login('typo@acme.test',' pasted with spaces ')).status,200);
   assert.equal((await call('/auth/login','POST',{email:'typo@acme.test',password:''})).status,400);
 

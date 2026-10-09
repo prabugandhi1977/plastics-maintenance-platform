@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-trace-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 delete process.env.EMAIL_PROVIDER;
@@ -16,7 +17,7 @@ const { simulateMachine, simulateAssets }=await import('../services/factory/simu
 const { checkMissing }=await import('../services/factory/assets.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token,extra={}){const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',atlas:'atlas@demo.test',engineer:'engineer@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;

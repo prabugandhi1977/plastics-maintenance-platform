@@ -6,18 +6,19 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-iot-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 await import('../scripts/seed.js');
 const { createServer }=await import('../server.js');
-const { db, one }=await import('../common/db.js');
+const { db, one, run }=await import('../common/db.js');
 const { normalizeRecord }=await import('../services/iot/contract.js');
 const { runSync }=await import('../services/iot/sync.js');
 const { createMockAdapter }=await import('../services/iot/adapters/mock.js');
 const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token,extra={}) {const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',engineer:'engineer@demo.test',acme:'acme@demo.test',nova:'nova@demo.test',atlas:'atlas@demo.test',euro:'euro@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
@@ -38,7 +39,7 @@ test('mock adapter sync ingests, quarantines bad records, and is idempotent',asy
   assert.equal(first.status,'succeeded'); assert.ok(first.accepted>50,`accepted ${first.accepted}`); assert.equal(first.rejected,2); assert.ok(first.cursor_after);
   const again=await runSync(createMockAdapter({}));
   assert.equal(again.status,'succeeded'); assert.equal(again.rejected,0); assert.equal(again.cursor_before,first.cursor_after);
-  db.prepare('DELETE FROM integration_cursors').run();
+  run('DELETE FROM integration_cursors');
   const replay=await runSync(createMockAdapter({}));
   assert.equal(replay.accepted,0); assert.ok(replay.duplicates>=first.accepted);
   const status=await call('/integrations/status','GET',null,tokens.admin);

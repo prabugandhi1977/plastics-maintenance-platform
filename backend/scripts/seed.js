@@ -1,9 +1,10 @@
 import { seedVision } from './vision-demo.js';
 import { seedTraceSuite } from './trace-demo.js';
-import { db, id, now, one, run } from '../common/db.js';
+import { db, id, now, one, run, transaction } from '../common/db.js';
 import { hashPassword } from '../common/security.js';
 import { parametersFor } from '../common/catalog.js';
 
+const isMain=process.argv[1]?.endsWith('seed.js');
 const stamp=now(), daysAgo=d=>new Date(Date.now()-d*86400000).toISOString();
 function company(key,name,currency,timezone,locale,country,contact,email,phone) { run('INSERT INTO companies (id,name,timezone,currency,units,locale,created_at,country,contact_name,contact_email,contact_phone) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,name,timezone,currency,'metric',locale,stamp,country,contact,email,phone); }
 function provider(key,name,areas,skills,country,contact,email,phone,certs) { run('INSERT INTO providers (id,name,approved,service_areas,skills,created_at,country,contact_name,contact_email,contact_phone,insurance_expiry,certifications) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',key,name,1,JSON.stringify(areas),JSON.stringify(skills),stamp,country,contact,email,phone,'2027-06-30T00:00:00.000Z',certs); }
@@ -73,12 +74,11 @@ if (one('SELECT 1 FROM companies LIMIT 1')) {
   demoRfid();
   if (seedVision()) console.log('Vision demo data added');
   if (seedTraceSuite()) console.log('Traceability suite demo data added');
-  if (one("SELECT 1 FROM companies WHERE id='c-acme'")&&one("SELECT 1 FROM products WHERE id='pr-cap'")&&!one('SELECT 1 FROM zones LIMIT 1')) { db.exec('BEGIN IMMEDIATE'); try { seedOperations(); db.exec('COMMIT'); console.log('Added traceability, safety and asset-tracking demo data'); } catch(e) { db.exec('ROLLBACK'); throw e; } }
+  if (one("SELECT 1 FROM companies WHERE id='c-acme'")&&one("SELECT 1 FROM products WHERE id='pr-cap'")&&!one('SELECT 1 FROM zones LIMIT 1')) { transaction(()=>{ seedOperations(); }); console.log('Added traceability, safety and asset-tracking demo data'); }
   else console.log('Seed already present');
-  process.exit(0);
-}
-db.exec('BEGIN IMMEDIATE');
-try {
+  if (isMain) { await db.close(); process.exit(0); }
+} else {
+transaction(()=>{
   for (const [code,name] of [['US-MW','United States – Midwest'],['DE-NW','Germany – North-West'],['IN-S','India – South']]) run('INSERT OR IGNORE INTO service_areas (code,name,created_at) VALUES (?,?,?)',code,name,stamp);
   company('c-acme','Acme Plastics','USD','America/Chicago','en','US','Sam Acme','acme@demo.test','+1 312 555 0100'); company('c-nova','Nova Polymers','EUR','Europe/Berlin','de','DE','Nora Nova','nova@demo.test','+49 221 555 0100');
   provider('p-atlas','Atlas Field Service',['US-MW'],['injection','mould','auxiliary'],'US','Avery Atlas','atlas-admin@demo.test','+1 312 555 0200','ISO 9001; OEM-certified Arburg service');
@@ -128,5 +128,7 @@ try {
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-a','demo-device-a','c-acme','eq-a',stamp);
   run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-n','demo-device-n','c-nova','eq-n',stamp);
   seedOperations(); demoRfid(); seedVision(); seedTraceSuite(true);
-  db.exec('COMMIT'); console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');
-} catch(e) { db.exec('ROLLBACK'); throw e; }
+});
+console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');
+}
+if (isMain) await db.close();

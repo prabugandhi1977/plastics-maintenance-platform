@@ -6,17 +6,18 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-condition-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 delete process.env.EMAIL_PROVIDER;
 await import('../scripts/seed.js');
 const { createServer }=await import('../server.js');
-const { db, one, all }=await import('../common/db.js');
+const { db, one, all, run }=await import('../common/db.js');
 const { judge }=await import('../services/factory/condition.js');
 const { simulateMachine }=await import('../services/factory/simulator.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token,extra={}){const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',atlas:'atlas@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
@@ -83,15 +84,15 @@ test('critical without auto-ticket, stale data, trend and isolation',async()=>{
   assert.equal((await call('/factory/condition/eq-a/trend?parameter=hydraulic_oil_temp&hours=24','GET',null,tokens.nova)).status,404);
   assert.ok((await call('/factory/condition','GET',null,tokens.nova)).data.every(m=>m.companyId==='c-nova'));
   assert.equal((await call('/factory/condition','GET',null,tokens.atlas)).status,403);
-  db.prepare("INSERT INTO condition_readings VALUES ('eq-a2','hydraulic_oil_temp',?,40,'c-acme','test')").run(ago(180));
+  run("INSERT INTO condition_readings VALUES ('eq-a2','hydraulic_oil_temp',?,40,'c-acme','test')", ago(180));
   assert.equal((await call('/factory/condition','GET',null,tokens.acme)).data.find(m=>m.id==='eq-a2').parameters.find(p=>p.parameter==='hydraulic_oil_temp').status,'stale');
 });
 
 test('energy: kWh, kWh per kg, waste, CO2 and cost',async()=>{
-  const ins=(t,kwh,peak)=>db.prepare("INSERT INTO energy_readings VALUES ('eq-a2',?,60,?,?,'c-acme','test')").run(t,kwh,peak);
+  const ins=(t,kwh,peak)=>run("INSERT INTO energy_readings VALUES ('eq-a2',?,60,?,?,'c-acme','test')", t,kwh,peak);
   ins('2026-09-01T13:00:00.000Z',10,14); ins('2026-09-01T14:00:00.000Z',10,15); ins('2026-09-01T15:00:00.000Z',10,14); ins('2026-09-01T16:00:00.000Z',2,3);
-  db.prepare("INSERT INTO machine_states (id,company_id,equipment_id,state,reason_code,started_at,ended_at,source) VALUES ('s1','c-acme','eq-a2','running',NULL,'2026-09-01T13:00:00.000Z','2026-09-01T16:00:00.000Z','test'),('s2','c-acme','eq-a2','idle','waiting_material','2026-09-01T16:00:00.000Z','2026-09-01T17:00:00.000Z','test')").run();
-  for (const t of ['2026-09-01T13:00:00.000Z','2026-09-01T14:00:00.000Z']) db.prepare("INSERT INTO production_counts (id,company_id,equipment_id,product_id,period_start,period_minutes,total_qty,scrap_qty,unit,ideal_rate_per_hour,source) VALUES (?,?,?,?,?,?,?,?,?,?,'test')").run(crypto.randomUUID(),'c-acme','eq-a2','pr-hsg',t,60,1000,10,'parts',225);
+  run("INSERT INTO machine_states (id,company_id,equipment_id,state,reason_code,started_at,ended_at,source) VALUES ('s1','c-acme','eq-a2','running',NULL,'2026-09-01T13:00:00.000Z','2026-09-01T16:00:00.000Z','test'),('s2','c-acme','eq-a2','idle','waiting_material','2026-09-01T16:00:00.000Z','2026-09-01T17:00:00.000Z','test')");
+  for (const t of ['2026-09-01T13:00:00.000Z','2026-09-01T14:00:00.000Z']) run("INSERT INTO production_counts (id,company_id,equipment_id,product_id,period_start,period_minutes,total_qty,scrap_qty,unit,ideal_rate_per_hour,source) VALUES (?,?,?,?,?,?,?,?,?,?,'test')", crypto.randomUUID(),'c-acme','eq-a2','pr-hsg',t,60,1000,10,'parts',225);
   const r=(await call('/factory/energy?equipmentId=eq-a2&from=2026-09-01T13:00:00Z&to=2026-09-01T17:00:00Z','GET',null,tokens.acme)).data.total;
   assert.equal(r.kwh,32); assert.equal(r.wasteKwh,2); assert.equal(r.kg,76); assert.equal(Math.round(r.secKwhPerKg*1000)/1000,0.421);
   assert.equal(Math.round(r.co2Kg*100)/100,11.84,'US grid factor 0.37 kg/kWh'); assert.equal(Math.round(r.cost*100)/100,3.84); assert.equal(r.currency,'USD'); assert.equal(r.peakKw,15);

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-ml-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 delete process.env.EMAIL_PROVIDER;
@@ -16,7 +17,7 @@ const { median, mad, linearFit, assessSignal, assessDaily }=await import('../ser
 const { machineInsights, raisePredictiveAlerts, oeeInsights }=await import('../services/ml/insights.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 const call=async(path,token)=>{const r=await fetch(base+'/api'+path,{headers:{authorization:`Bearer ${token}`}});return {status:r.status,data:await r.json()};};
 const login=async email=>(await (await fetch(base+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email,password:'DemoPass123!'})})).json()).token;
 

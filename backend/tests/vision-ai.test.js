@@ -6,26 +6,27 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-visionai-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN; delete process.env.EMAIL_PROVIDER;
 await import('../scripts/seed.js');
 const { createServer }=await import('../server.js');
-const { db, one, all, run }=await import('../common/db.js');
+const { db, one, all, run, execSql }=await import('../common/db.js');
 const { setAiClient, AI_MODEL }=await import('../services/assistant/assistant.js');
 const { storeMedia }=await import('../services/vision/vision.js');
 const { recommendThreshold, falseAlarmReport }=await import('../services/vision/analytics.js');
 const { reviewPending, reviewStats }=await import('../services/vision/review.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{setAiClient(null);await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{setAiClient(null);await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token){const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{})},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [k,email] of Object.entries({admin:'admin@demo.test',acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',engineer:'engineer@demo.test'})) tokens[k]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
 const JPEG=Buffer.from([0xff,0xd8,0xff,0xe0,0,16,0x4a,0x46,0x49,0x46,0,1,1,0,0,1,0,1,0,0,0xff,0xd9]).toString('base64');
 
 // Start from no vision data of our own; the demo seed adds some.
-db.exec('DELETE FROM vision_reviews; DELETE FROM vision_events;');
+execSql('DELETE FROM vision_reviews; DELETE FROM vision_events;');
 run("INSERT OR REPLACE INTO vision_cameras (id,company_id,plant_id,name,source_type,location,created_at) VALUES ('cam-t1','c-acme','plant-a','Gate camera','rtsp','Gate 1',datetime('now'))");
 run("INSERT OR REPLACE INTO vision_cameras (id,company_id,plant_id,name,source_type,location,created_at) VALUES ('cam-t2','c-acme','plant-a','Hall camera','rtsp','Hall',datetime('now'))");
 let n=0;
@@ -102,7 +103,7 @@ test('AI review: sends the snapshot and the report, stores the verdict, caches i
 
 test('automatic review: opted-in companies only, never fire or critical, once per incident, failures not retried',async()=>{
   const seen=[]; setAiClient({beta:{messages:{create:async body=>{seen.push(body);return {stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({verdict:'confirmed',reason:'Visible.',description:'Scene.'})}]};}}}});
-  db.exec('DELETE FROM vision_reviews; DELETE FROM vision_events;'); run("UPDATE companies SET vision_ai_review='manual' WHERE id='c-acme'");
+  execSql('DELETE FROM vision_reviews; DELETE FROM vision_events;'); run("UPDATE companies SET vision_ai_review='manual' WHERE id='c-acme'");
   const ok=addEvent({snapshot:true,severity:'warning'}), fire=addEvent({snapshot:true,module:'fire_smoke',type:'smoke',severity:'warning',detail:{}}), crit=addEvent({snapshot:true,severity:'critical'}), plain=addEvent({snapshot:false});
   assert.equal(await reviewPending(),0,'manual mode is not automatic');
   run("UPDATE companies SET vision_ai_review='auto' WHERE id='c-acme'");
@@ -117,7 +118,7 @@ test('automatic review: opted-in companies only, never fire or critical, once pe
 });
 
 test('AI agreement with people: counts only closed incidents, and calls out real incidents it doubted',()=>{
-  db.exec('DELETE FROM vision_reviews'); const rev=(verdict,status)=>{ const id=addEvent({status}); run("INSERT INTO vision_reviews (event_id,company_id,verdict,reason,description,model,source,created_at) VALUES (?,'c-acme',?,'r','',?,'manual',datetime('now'))",id,verdict,AI_MODEL); };
+  execSql('DELETE FROM vision_reviews'); const rev=(verdict,status)=>{ const id=addEvent({status}); run("INSERT INTO vision_reviews (event_id,company_id,verdict,reason,description,model,source,created_at) VALUES (?,'c-acme',?,'r','',?,'manual',datetime('now'))",id,verdict,AI_MODEL); };
   for (let i=0;i<3;i++) rev('confirmed','resolved'); rev('confirmed','false_alarm'); rev('doubtful','false_alarm'); rev('doubtful','false_alarm'); rev('doubtful','resolved'); rev('unclear','resolved'); rev('confirmed','open');
   const s=reviewStats(['c-acme'],{days:30}); assert.equal(s.closedReviewed,8); assert.equal(s.unclear,1); assert.equal(s.agreementPct,71.4); assert.equal(s.realIncidentsCalledDoubtful,1); assert.equal(s.enoughData,false);
   assert.equal(reviewStats(['c-nova'],{days:30}).closedReviewed,0);
