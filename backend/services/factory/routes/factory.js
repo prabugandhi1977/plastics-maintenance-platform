@@ -24,7 +24,7 @@ const DAY=86400000;
 async function safetyEvent(ev,where,index) {
   const eventType=choice(ev.eventType,'eventType',Object.keys(SAFETY_EVENTS)), source=choice(ev.source??'camera','source',['camera','wearable','sensor']), at=instant(ev.at,'at');
   // Devices resend after a lost connection: the same event type at the same place and time is stored once.
-  if (await one('SELECT 1 FROM safety_events WHERE plant_id=? AND event_type=? AND occurred_at=? AND source=? AND zone_id IS ? AND equipment_id IS ?',where.plantId,eventType,at,source,where.zoneId??null,where.equipmentId??null)) return {index,status:'duplicate'};
+  if (await one('SELECT 1 FROM safety_events WHERE plant_id=? AND event_type=? AND occurred_at=? AND source=? AND zone_id IS NOT DISTINCT FROM ? AND equipment_id IS NOT DISTINCT FROM ?',where.plantId,eventType,at,source,where.zoneId??null,where.equipmentId??null)) return {index,status:'duplicate'};
   await recordSafety({...where,eventType,source,description:ev.description?required(ev.description,'description',500):`${eventType.replaceAll('_',' ')} detected by ${source}`,occurredAt:at});
   return {index,status:'accepted'};
 }
@@ -77,14 +77,14 @@ export function register(r) {
   // Learned-baseline insights: unusual or degrading signals and the time left before a limit.
   r.get('/factory/condition-insights',async ({u,query})=>Object.fromEntries((await mapSeq((await machinesFor(u,{plantId:query.get('plantId')||null})), async e=>[e.id,await machineInsights(e)]))));
   // Predictions from the trained models in the Python ML service (empty when it is not configured).
-  r.get('/factory/ml-predictions',async({u,query})=>mlConfigured()?Object.fromEntries(await Promise.all((await mapSeq((await machinesFor(u,{plantId:query.get('plantId')||null})), async e=>[e.id,await scoreMachine(e)])))):{});
+  r.get('/factory/ml-predictions',async({u,query})=>mlConfigured()?Object.fromEntries(await Promise.all((await mapSeq((await machinesFor(u,{plantId:query.get('plantId')||null})), async e=>[e.id,await scoreMachine(e)])))):{},{external:true});
   r.get('/factory/scrap-insights',async ({u,query})=>Object.fromEntries((await mapSeq((await machinesFor(u,{plantId:query.get('plantId')||null})), async e=>{ const a=await assessScrap(e); return [e.id,{...a,explanation:explainScrap(a)}]; }))));
   // Claude's evidence-based explanation of one machine (a rule-built summary when no API key is set).
   r.post('/factory/machines/:id/explain',async({u,params})=>{
     const [e]=await machinesFor(u,{equipmentId:params.id}); if (!e) missing();
     const locale=u.locale||(await one('SELECT locale FROM companies WHERE id=?',e.company_id))?.locale||'en', predictions=mlConfigured()?await scoreMachine(e):null;
     try { const out=await explainMachine(e,{predictions,locale}); await audit(u,'machine.explain','equipment',e.id,e.company_id,{source:out.source}); return out; } catch (err) { throw aiHttpError(err); }
-  });
+  },{external:true});
   r.get('/factory/oee-insights',async ({u,query})=>{ const ms=await machinesFor(u,{plantId:query.get('plantId')||null}), forecasts=Object.fromEntries((await mapSeq(ms, async e=>[e.id,await shiftForecast(e)]))); return (await oeeInsights(ms)).map(o=>({...o,forecast:forecasts[o.equipmentId]})); });
   r.get('/factory/condition/:id/trend',async ({u,params,query})=>{
     const [e]=await machinesFor(u,{equipmentId:params.id}); if (!e) missing();

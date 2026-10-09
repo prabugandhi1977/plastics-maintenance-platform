@@ -39,7 +39,7 @@ export async function ticketContext(t) {
   const specs=Object.entries(JSON.parse(e.specs||'{}')).map(([k,v])=>`${k}=${v}`).join(', ');
   const tm=await telemetry(e.id), m=tm.metrics;
   const alerts=await all("SELECT severity,title,detail,created_at FROM alerts WHERE equipment_id=? AND status<>'resolved' ORDER BY created_at DESC LIMIT 10",e.id);
-  const checklist=await all('SELECT item,done,note FROM checklist_entries WHERE ticket_id=? ORDER BY rowid',t.id);
+  const checklist=await all('SELECT item,done,note FROM checklist_entries WHERE ticket_id=? ORDER BY seq',t.id);
   const work=await all('SELECT w.description,w.minutes,w.parts_used,w.created_at,u.name FROM work_logs w JOIN users u ON u.id=w.user_id WHERE w.ticket_id=? ORDER BY w.created_at',t.id);
   const parts=await all('SELECT item,part_number,quantity,unit,status FROM parts_requests WHERE ticket_id=?',t.id);
   // Earlier repairs on this machine, then on the company's machines of the same make and model.
@@ -144,7 +144,7 @@ const PPE={injection:['Safety glasses or face shield','Heat-resistant gloves','S
   extrusion:['Face shield','Heat-resistant gloves and sleeves','Safety shoes'],mould:['Safety shoes','Cut-resistant gloves','Hard hat when lifting'],auxiliary:['Safety glasses','Gloves','Safety shoes']};
 export async function standardGuide(t) {
   const e=await one('SELECT machine_type,make,model,asset_tag FROM equipment WHERE id=?',t.equipment_id);
-  const items=(await all('SELECT item FROM checklist_entries WHERE ticket_id=? ORDER BY rowid',t.id)).map(x=>x.item);
+  const items=(await all('SELECT item FROM checklist_entries WHERE ticket_id=? ORDER BY seq',t.id)).map(x=>x.item);
   const checklist=items.length?items:(await all('SELECT item FROM checklist_templates WHERE machine_type=? ORDER BY position',e.machine_type)).map(x=>x.item);
   const last=await one("SELECT title,action_taken,root_cause,completed_at FROM tickets WHERE equipment_id=? AND status='completed' AND id<>? ORDER BY completed_at DESC LIMIT 1",t.equipment_id,t.id);
   const steps=[

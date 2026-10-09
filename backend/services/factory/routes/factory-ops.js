@@ -130,7 +130,7 @@ export function register(r) {
   r.patch('/zones/:id',async ({u,body,params})=>{ const z=owned(u,await byId('zones',params.id)); if (!canManage(u,z.company_id)) deny();
     const reader=body.readerId==null?z.reader_id:required(body.readerId,'readerId',60); if (reader!==z.reader_id&&await one('SELECT 1 FROM zones WHERE reader_id=? AND id<>?',reader,z.id)) bad(`Reader ${reader} already covers another zone`);
     await run('UPDATE zones SET name=?,kind=?,reader_id=? WHERE id=?',body.name==null?z.name:required(body.name,'name',80),body.kind==null?z.kind:choice(body.kind,'kind',ZONE_KINDS),reader,z.id); await audit(u,'zone.update','zone',z.id,z.company_id,reader!==z.reader_id?{readerId:reader}:{}); return await byId('zones',z.id); });
-  r.get('/assets',async ({u})=>{ view(u); await checkMissing(); const [w,a]=companyFilter(u); return (await mapSeq((await all(`SELECT * FROM tracked_assets WHERE ${w} ORDER BY name`,...a)), assetView)); });
+  r.get('/assets',async ({u})=>{ view(u); await checkMissing(); const [w,a]=companyFilter(u); return (await mapSeq((await all(`SELECT * FROM tracked_assets WHERE ${w} ORDER BY name`,...a)), assetView)); },{writes:true});
   const assetBody=async (u,body,existing)=>{
     const plant=await byId('plants',body.plantId??existing?.plant_id); if (!plant) bad('Unknown plant'); if (!canManage(u,plant.company_id)) deny(); if (existing&&plant.company_id!==existing.company_id) bad('An asset cannot move to another company');
     let equipmentId=body.equipmentId===undefined?existing?.equipment_id??null:body.equipmentId||null; if (equipmentId) { const e=await byId('equipment',equipmentId); if (!e||e.company_id!==plant.company_id) bad('Linked equipment must belong to the same company'); }

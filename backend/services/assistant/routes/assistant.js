@@ -8,7 +8,7 @@ import { HttpError, deny, required } from '../../../common/validate.js';
 import { AI_MODEL, aiEnabled, askAssistant, manualBlocks, photoBlocks, standardGuide, ticketContext, writeGuide } from '../assistant.js';
 import { storeFile } from '../../../common/files.js';
 
-const conversation=async ticketId=>await all('SELECT m.id,m.role,m.content,m.attachment_id,m.created_at,u.name user_name FROM ticket_assistant_messages m JOIN users u ON u.id=m.user_id WHERE m.ticket_id=? ORDER BY m.created_at,m.rowid',ticketId);
+const conversation=async ticketId=>await all('SELECT m.id,m.role,m.content,m.attachment_id,m.created_at,u.name user_name FROM ticket_assistant_messages m JOIN users u ON u.id=m.user_id WHERE m.ticket_id=? ORDER BY m.created_at,m.seq',ticketId);
 const canAsk=(u,t)=>isCustomer(u)||canService(u,t);
 const MAX_TURNS=60;
 function needAi() { if (!aiEnabled()) throw new HttpError(503,'The AI assistant is not set up on this server. An administrator adds ANTHROPIC_API_KEY to the server settings.'); }
@@ -41,7 +41,7 @@ export function register(r) {
     await transaction(async ()=>{ await run('INSERT INTO ticket_assistant_messages (id,ticket_id,user_id,role,content,created_at,attachment_id) VALUES (?,?,?,?,?,?,?)',id(),t.id,u.id,'user',question,at,photo?.id??null);
       await run('INSERT INTO ticket_assistant_messages (id,ticket_id,user_id,role,content,created_at) VALUES (?,?,?,?,?,?)',id(),t.id,u.id,'assistant',answer,later); });
     await audit(u,'ticket.assistant','ticket',t.id,t.company_id); return {enabled:true,model:AI_MODEL,canAsk:true,messages:await conversation(t.id)};
-  });
+  },{external:true});
   r.get('/tickets/:id/guide',async ({u,params})=>({...await storedGuide(await getTicket(u,params.id)),aiEnabled:aiEnabled()}));
   // Writes the guide: with AI when it is set up (using the conversation so far), otherwise the standard guide.
   r.post('/tickets/:id/guide',async({u,params})=>{
@@ -49,5 +49,5 @@ export function register(r) {
     const ai=aiEnabled(), guide=ai?await callAi(async ()=>writeGuide({context:await ticketContext(t),manuals:await manualBlocks(t.equipment_id),photos:await photoBlocks(t),conversation:await conversation(t.id)})):await standardGuide(t), at=now();
     await run("INSERT INTO ticket_guides (ticket_id,guide,source,created_by,created_at) VALUES (?,?,?,?,?) ON CONFLICT(ticket_id) DO UPDATE SET guide=excluded.guide,source=excluded.source,created_by=excluded.created_by,created_at=excluded.created_at",t.id,JSON.stringify(guide),ai?'ai':'standard',u.id,at);
     await audit(u,'ticket.guide','ticket',t.id,t.company_id,{source:ai?'ai':'standard'}); return {source:ai?'ai':'standard',guide,createdAt:at,aiEnabled:ai};
-  });
+  },{external:true});
 }

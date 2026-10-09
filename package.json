@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node backend/server.js",
     "seed": "node backend/scripts/seed.js",
+    "db:import-sqlite": "node backend/scripts/import-sqlite.js",
     "icons": "node frontend/scripts/make-icons.js",
     "test": "node --test backend/tests/*.test.js",
     "iot:sync": "node backend/scripts/iot-sync.js",

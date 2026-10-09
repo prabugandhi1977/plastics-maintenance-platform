@@ -57,5 +57,5 @@ export function register(r) {
   r.post('/integrations/sync',async({u})=>{
     if (!isPlatform(u)) deny();
     const result=await runSync(createAdapter(process.env.IOT_SYNC_ADAPTER||'mock')); await audit(u,'integration.sync','integration_run',result.id,null,{status:result.status}); return result;
-  });
+  },{external:true});
 }

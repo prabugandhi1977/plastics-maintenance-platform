@@ -121,7 +121,7 @@ export const catalog=async ()=>({machineTypes:MACHINE_TYPES,criticality:CRITICAL
 
 // Validates a full parameter set for a machine type and returns only known keys, typed.
 // linkedEquipment(id) must return the referenced asset (or undefined) so cross-company links are refused.
-export function validateSpecs(type,input,linkedEquipment=()=>undefined) {
+export async function validateSpecs(type,input,linkedEquipment=()=>undefined) {
   const fields=SPEC_FIELDS[type]; if (!fields) bad('Unknown machine type');
   if (input==null||typeof input!=='object'||Array.isArray(input)) bad('specs must be an object');
   const out={}, missing=[];
@@ -133,7 +133,7 @@ export function validateSpecs(type,input,linkedEquipment=()=>undefined) {
       if (!Number.isFinite(n)||(f.type==='integer'&&!Number.isInteger(n))||n<f.min||n>f.max) bad(`${f.label} must be ${f.type==='integer'?'a whole number':'a number'} from ${f.min} to ${f.max}${f.unit?' '+f.unit:''}`);
       out[f.key]=n;
     } else if (f.type==='choice') { if (!f.options.includes(v)) bad(`${f.label} must be one of: ${f.options.join(', ')}`); out[f.key]=v; }
-    else if (f.type==='equipment') { if (typeof v!=='string'||!linkedEquipment(v)) bad(`${f.label} must be a machine of the same company`); out[f.key]=v; }
+    else if (f.type==='equipment') { if (typeof v!=='string'||!(await linkedEquipment(v))) bad(`${f.label} must be a machine of the same company`); out[f.key]=v; }
     else { if (typeof v!=='string'||v.trim().length>f.max) bad(`${f.label} must be text up to ${f.max} characters`); if (v.trim()) out[f.key]=v.trim(); }
   }
   if (missing.length) bad(`Missing mandatory ${type} parameters: ${missing.join(', ')}`);

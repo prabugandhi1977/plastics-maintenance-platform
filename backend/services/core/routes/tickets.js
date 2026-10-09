@@ -32,7 +32,7 @@ export async function ticketDetail(u,key) {
     plant:await one('SELECT id,name,country,service_area,timezone FROM plants WHERE id=?',t.plant_id),
     coverage,...await responseTarget(t,coverage),
     events:await all('SELECT e.*,u.name actor_name FROM ticket_events e JOIN users u ON u.id=e.actor_id WHERE e.ticket_id=? ORDER BY e.created_at',key),
-    checklist:await all('SELECT * FROM checklist_entries WHERE ticket_id=? ORDER BY rowid',key),
+    checklist:await all('SELECT * FROM checklist_entries WHERE ticket_id=? ORDER BY seq',key),
     workLogs:await all('SELECT w.*,u.name user_name FROM work_logs w JOIN users u ON u.id=w.user_id WHERE w.ticket_id=? ORDER BY w.created_at',key),
     parts:await all('SELECT * FROM parts_requests WHERE ticket_id=?',key),
     signoff:await one('SELECT * FROM signoffs WHERE ticket_id=?',key)||null,

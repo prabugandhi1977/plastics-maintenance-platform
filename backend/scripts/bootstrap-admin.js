@@ -4,7 +4,7 @@
 //
 // Recovery: with MOULDCARE_ADMIN_RESET_PASSWORD=true, an existing admin with that email gets the configured password
 // again (re-activated, signed out everywhere, asked to choose a new password at sign-in). Remove the flag afterwards.
-import { id, now, one, run } from '../common/db.js';
+import { db, id, now, one, run } from '../common/db.js';
 import { hashPassword } from '../common/security.js';
 
 const email=(process.env.MOULDCARE_ADMIN_EMAIL||'').trim().toLowerCase(), password=(process.env.MOULDCARE_ADMIN_PASSWORD||'').trim();
@@ -22,3 +22,4 @@ if (existing) {
 }
 await run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',id(),null,null,'Platform Admin',email,hashPassword(password),'platform_admin',1,'[]','[]',now());
 console.log(`Created platform admin ${email}. Change the password after first sign-in.`);
+await db.close();

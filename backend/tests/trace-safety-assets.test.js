@@ -162,7 +162,7 @@ test('simulator: camera results, safety detections and asset sightings are gener
   const keys=new Set((await all("SELECT defects FROM vision_results WHERE equipment_id='eq-a' AND station='Camera 1' AND rejected>0")).flatMap(r=>Object.keys(JSON.parse(r.defects))));
   assert.ok(keys.size>=1&&keys.size<=3);
   for (const eq of ['eq-a2','eq-bm','eq-n2']) await simulateMachine(await one('SELECT * FROM equipment WHERE id=?',eq));
-  const cam=await one("SELECT count(*) n,sum(status='closed') c FROM safety_events WHERE source='camera'"); assert.ok(cam.n>=3&&cam.c>=1,JSON.stringify(cam));
+  const cam=await one("SELECT count(*) n,sum(CASE WHEN status='closed' THEN 1 ELSE 0 END) c FROM safety_events WHERE source='camera'"); assert.ok(cam.n>=3&&cam.c>=1,JSON.stringify(cam));
   const n=await simulateAssets(); assert.ok(n>500); assert.equal(await simulateAssets(),0,'cursor prevents re-generation');
   assert.ok((await all('SELECT * FROM tracked_assets')).every(a=>a.last_seen_at));
 });

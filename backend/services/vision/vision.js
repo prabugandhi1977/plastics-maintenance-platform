@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { DATA_DIR, id, now, one, all, run, transaction, mapSeq } from '../../common/db.js';
+import { DATA_DIR, id, now, one, all, run, transaction, mapSeq, filterSeq } from '../../common/db.js';
 import { raiseAlert, resolveAlertKey } from '../factory/alerts.js';
 import { recordSafety } from '../factory/safety.js';
 import { bad } from '../../common/validate.js';
@@ -161,10 +161,10 @@ export const nodeStatus=n=>!n.active?'disabled':!n.last_seen_at?'never_seen':Dat
 export async function nodeConfig(node) {
   const s=await visionSettings(), seats={};
   const cameras=(await mapSeq((await all('SELECT * FROM vision_cameras WHERE node_id=? AND active=1 ORDER BY created_at',node.id)), async c=>{
-    const modules=(await all('SELECT * FROM vision_assignments WHERE camera_id=? AND enabled=1 ORDER BY updated_at',c.id)).filter(a=>{
-      const key=`${c.company_id}:${a.module}`; seats[key]??=(async ()=>{ const l=await licence(c.company_id,a.module); return l.valid?l.cameras:0; })();
+    const modules=(await filterSeq((await all('SELECT * FROM vision_assignments WHERE camera_id=? AND enabled=1 ORDER BY updated_at',c.id)), async a=>{
+      const key=`${c.company_id}:${a.module}`; seats[key]??=await (async ()=>{ const l=await licence(c.company_id,a.module); return l.valid?l.cameras:0; })();
       if (seats[key]<=0) return false; seats[key]--; return true;
-    }).map(a=>{ const config=JSON.parse(a.config);
+    })).map(a=>{ const config=JSON.parse(a.config);
       // The node grades against the preset's defect classes, so it needs no copy of the preset list.
       if (a.module==='quality') config.defects=QUALITY_PRESETS[config.preset]?.defects||[];
       return {module:a.module,config}; });

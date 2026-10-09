@@ -20,6 +20,7 @@ mkdirSync(DATA_DIR, { recursive: true });
 pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
 
+if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) throw new Error('DATABASE_URL is required in production (postgres://user:password@host:5432/dbname)');
 const SCHEMA = process.env.MOULDCARE_DB_SCHEMA || 'public';
 if (!/^[a-z_][a-z0-9_]*$/.test(SCHEMA)) throw new Error('MOULDCARE_DB_SCHEMA must be a lowercase identifier');
 export const pool = new pg.Pool({
@@ -56,6 +57,8 @@ export const now = () => new Date().toISOString();
 export const one = async (sql, ...args) => (await exec(sql, args)).rows[0];
 export const all = async (sql, ...args) => (await exec(sql, args)).rows;
 export const run = async (sql, ...args) => ({ changes: (await exec(sql, args)).rowCount ?? 0 });
+// Statement already written with $1..$n placeholders (bulk loaders); joins the current transaction like the others.
+export const rawQuery = (sql, params = []) => (store.getStore() ?? pool).query(sql, norm(params));
 // Multi-statement script without parameters (test fixtures, maintenance).
 export const execSql = async (sql) => { await (store.getStore() ?? pool).query(sql); };
 export const inTransaction = () => Boolean(store.getStore());

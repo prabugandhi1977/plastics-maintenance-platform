@@ -185,7 +185,7 @@ export function register(r) {
       e.status,e.acknowledgedBy,e.acknowledgedAt,e.resolvedBy,e.resolvedAt,e.resolutionNote,e.locked?'yes':'no',e.snapshotMediaId?'yes':'no',e.clipMediaId?'yes':'no',e.id].map(cell).join(','));
     await audit(u,'vision.export','vision_event','csv',isCustomer(u)?u.company_id:null,{rows:rows.length});
     res.writeHead(200,{'content-type':'text/csv; charset=utf-8','content-disposition':`attachment; filename="vision-incidents-${now().slice(0,10)}.csv"`,'cache-control':'no-store'});
-    res.end('﻿'+[head.join(','),...lines].join('\r\n')); });
+    res.end('﻿'+[head.join(','),...lines].join('\r\n')); },{writes:true});
   r.get('/vision/events/:id',async ({u,params})=>{ const e=await getEvent(u,params.id); return {...eventOut(await one(`${EVENT_SELECT} WHERE e.id=?`,params.id)),review:await reviewOf(e.id),aiReviewMode:await reviewMode(e.company_id),aiEnabled:aiEnabled()}; });
   const close=async (e,status,u,note)=>{ await run('UPDATE vision_events SET status=?,resolved_by=?,resolved_at=?,resolution_note=?,acknowledged_by=COALESCE(acknowledged_by,?),acknowledged_at=COALESCE(acknowledged_at,?) WHERE id=?',status,u.id,now(),note,u.id,now(),e.id);
     // The last open incident of a kind on a camera closes its alert too.
@@ -234,7 +234,7 @@ export function register(r) {
     const review=await reviewEvent(e,{source:'manual',userId:u.id,refresh:body?.refresh===true});
     if (!review.cached) await audit(u,'vision.event.ai_review','vision_event',e.id,e.company_id,{verdict:review.verdict});
     return review;
-  });
+  },{external:true});
 
   // ---------- Dashboards and alarms ----------
   r.get('/vision/overview',async ({u,query})=>{
@@ -252,7 +252,7 @@ export function register(r) {
     const crit=await all(`SELECT latency_ms,edge_actions ${ev} AND severity='critical'`,...evArgs), p95=xs=>{ const s=xs.filter(x=>x!=null).sort((a,b)=>a-b); return s.length?s[Math.min(s.length-1,Math.floor(s.length*0.95))]:null; };
     return {hours,since,
       cameras:(await mapSeq(cameras, async c=>({...await cameraOut(c),latest:(e=>e&&{...e,boxes:parse(e.boxes,[])})(await latest(c)),
-        today:{events:(await one('SELECT count(*) n FROM vision_events WHERE camera_id=? AND occurred_at>=?',c.id,since)).n,...(async ()=>{ const s=await one('SELECT coalesce(sum(inspected),0) i,coalesce(sum(passed),0) p,coalesce(sum(people),0) pe,coalesce(sum(compliant),0) co FROM vision_stats WHERE camera_id=? AND minute>=?',c.id,since.slice(0,16)); return {inspected:s.i,passed:s.p,people:s.pe,compliant:s.co}; })()}}))),
+        today:{events:(await one('SELECT count(*) n FROM vision_events WHERE camera_id=? AND occurred_at>=?',c.id,since)).n,...await (async ()=>{ const s=await one('SELECT coalesce(sum(inspected),0) i,coalesce(sum(passed),0) p,coalesce(sum(people),0) pe,coalesce(sum(compliant),0) co FROM vision_stats WHERE camera_id=? AND minute>=?',c.id,since.slice(0,16)); return {inspected:s.i,passed:s.p,people:s.pe,compliant:s.co}; })()}}))),
       nodes:[...new Map((await mapSeq(nodes, async n=>[n.id,await nodeOut(n)]))).values()],
       ppe:{people:ppe.people,compliant:ppe.compliant,complianceRate:ppe.people?Math.round(1000*ppe.compliant/ppe.people)/10:null,violations:await count("module='ppe'"),
         byGear:await all(`SELECT j.value AS key,count(*) n ${ev.replace('FROM vision_events',"FROM vision_events, jsonb_array_elements_text(vision_events.detail::jsonb->'missing') AS j(value)")} AND module='ppe' GROUP BY 1 ORDER BY n DESC`,...evArgs),
@@ -264,7 +264,7 @@ export function register(r) {
         logistics:await group("json_extract(detail,'$.defect')","module='quality' AND json_extract(detail,'$.preset')='logistics_container'"),byCamera:await group('camera_id',"module='quality'")},
       latency:{criticalEvents:crit.length,uplinkP95Ms:p95(crit.map(x=>x.latency_ms)),broadcastP95Ms:p95(crit.map(x=>parse(x.edge_actions,{}).broadcastMs??null)),actuatorP95Ms:p95(crit.map(x=>{ const a=parse(x.edge_actions,{}); return a.relayMs??a.plcMs??null; }))},
       open:(await all(`${EVENT_SELECT} WHERE e.camera_id ${inIds} AND e.status IN ('open','acknowledged') AND e.severity IN ('warning','critical') ORDER BY e.severity='critical' DESC,e.occurred_at DESC LIMIT 30`,...ids)).map(eventOut),
-      hourly:await all(`SELECT substr(occurred_at,1,13) hour,module,count(*) n ${ev} GROUP BY 1,2 ORDER BY 1`,...evArgs)};
+      hourly:await all(`SELECT substr(occurred_at,1,13) AS hour,module,count(*) n ${ev} GROUP BY 1,2 ORDER BY 1`,...evArgs)};
   });
   // Live alarms for the banner: open warning/critical incidents of the last day that match the person's vision
   // duties (fire always). Without duties, critical incidents only.

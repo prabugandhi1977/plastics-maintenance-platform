@@ -41,7 +41,7 @@ export function register(r) {
   // ---------- Batch: gates, readings, deviations, SPC ----------
   r.get('/trace/batches/:id/quality',async ({u,params})=>{ view(u); const b=owned(u,await byId('batches',params.id)), p=await byId('products',b.product_id);
     return {batch:await batchSummary(b),gates:await T.gateStatus(b,p),deviations:await T.deviationsOf(b.id),spc:await T.spc([b.id],p),window:T.windowOf(p),releaseBlockers:await T.releaseBlockers(b),
-      units:(await all('SELECT * FROM trace_units WHERE batch_id=? ORDER BY kind DESC,serial',b.id)).map(T.unitView)}; });
+      units:(await mapSeq((await all('SELECT * FROM trace_units WHERE batch_id=? ORDER BY kind DESC,serial',b.id)), T.unitView))}; });
   r.post('/trace/batches/:id/checks',async ({u,body,params})=>{ const b=owned(u,await byId('batches',params.id)); if (!canRecord(u,b.company_id)) deny();
     const res=await T.recordCheck(u,b,body.gate,body.answers,body.note); await audit(u,`batch.gate.${res.result}`,'batch',b.id,b.company_id,{gate:body.gate}); return created(res); });
   r.post('/trace/batches/:id/readings',async ({u,body,params})=>{ const b=owned(u,await byId('batches',params.id)); if (!canRecord(u,b.company_id)) deny();
@@ -59,12 +59,12 @@ export function register(r) {
   r.post('/trace/batches/:id/units',async ({u,body,params})=>{ const b=owned(u,await byId('batches',params.id)); if (!canRecord(u,b.company_id)) deny();
     const made=await T.createUnits(u,b,{kind:body.kind||'box',count:Number(body.count),perUnit:body.perUnit}); await audit(u,'units.create','batch',b.id,b.company_id,{kind:body.kind||'box',count:made.length}); return created(made); });
   r.post('/trace/pallets',async ({u,body})=>{ const companyId=companyOf(u,body); if (!canRecord(u,companyId)) deny(); const p=await T.createPallet(u,companyId,body.serials); await audit(u,'pallet.create','unit',p.id,companyId); return created(p); });
-  r.get('/trace/units/:serial',async ({u,params})=>{ view(u); const x=await unitBy(u,params.serial); return {...await T.unitView(x),contents:x.kind==='pallet'?(await all('SELECT * FROM trace_units WHERE parent_id=?',x.id)).map(T.unitView):[]}; });
+  r.get('/trace/units/:serial',async ({u,params})=>{ view(u); const x=await unitBy(u,params.serial); return {...await T.unitView(x),contents:x.kind==='pallet'?(await mapSeq((await all('SELECT * FROM trace_units WHERE parent_id=?',x.id)), T.unitView)):[]}; });
   r.get('/trace/stock',async ({u})=>{ view(u); const c=await companies(u);
-    return (await all(`SELECT * FROM trace_units WHERE company_id IN (${c.map(()=>'?').join(',')}) AND status='packed' AND parent_id IS NULL ORDER BY created_at LIMIT 1000`,...c)).map(T.unitView); });
+    return (await mapSeq((await all(`SELECT * FROM trace_units WHERE company_id IN (${c.map(()=>'?').join(',')}) AND status='packed' AND parent_id IS NULL ORDER BY created_at LIMIT 1000`,...c)), T.unitView)); });
 
   // ---------- Dispatch ----------
-  r.get('/trace/shipments',async ({u})=>{ view(u); const c=await companies(u); return (await all(`SELECT * FROM shipments WHERE company_id IN (${c.map(()=>'?').join(',')}) ORDER BY created_at DESC LIMIT 300`,...c)).map(T.shipmentView); });
+  r.get('/trace/shipments',async ({u})=>{ view(u); const c=await companies(u); return (await mapSeq((await all(`SELECT * FROM shipments WHERE company_id IN (${c.map(()=>'?').join(',')}) ORDER BY created_at DESC LIMIT 300`,...c)), T.shipmentView)); });
   r.post('/trace/shipments',async ({u,body})=>{ const companyId=companyOf(u,body); if (!canRecord(u,companyId)) deny();
     const n=(await one('SELECT count(*) n FROM shipments WHERE company_id=?',companyId)).n, number=String(body.shipmentNumber||'').trim().toUpperCase()||`DN-${new Date().getUTCFullYear()}-${String(n+1).padStart(5,'0')}`;
     if (!/^[A-Z0-9][A-Z0-9._/-]{0,59}$/.test(number)) bad('shipmentNumber may contain letters, digits, dot, dash, slash or underscore');

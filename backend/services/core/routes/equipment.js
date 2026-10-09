@@ -37,7 +37,7 @@ export function register(r) {
   });
   r.post('/equipment',async ({u,body})=>{
     const plant=await byId('plants',body.plantId); if (!plant) bad('Unknown plant'); if (!canManageCompany(u,plant.company_id)) deny();
-    const type=choice(body.machineType,'machineType',MACHINE_TYPES), specs=validateSpecs(type,body.specs??{},sameCompanyAsset(plant.company_id)), tag=assetTag(body.assetTag);
+    const type=choice(body.machineType,'machineType',MACHINE_TYPES), specs=await validateSpecs(type,body.specs??{},sameCompanyAsset(plant.company_id)), tag=assetTag(body.assetTag);
     if (await one('SELECT 1 FROM equipment WHERE company_id=? AND asset_tag=?',plant.company_id,tag)) bad(`Asset tag ${tag} is already used in this company`);
     const rfid=await uniqueRfid(rfidTag(body.rfidTag)), qr=body.qrCode?await uniqueQr(qrLabel(body.qrCode)):`MC:${randomBytes(6).toString('hex')}`, key=id();
     await run('INSERT INTO equipment (id,company_id,plant_id,machine_type,make,model,serial_number,location,qr_code,created_at,asset_tag,criticality,status,year_built,commissioned_at,warranty_until,specs,rfid_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -70,7 +70,7 @@ export function register(r) {
       if (['mould','auxiliary'].includes(type)) { const served=await one("SELECT asset_tag FROM equipment WHERE company_id=? AND id<>? AND json_extract(specs,'$.linkedEquipmentId')=? LIMIT 1",e.company_id,e.id,e.id);
         if (served) bad(`${served.asset_tag||'An auxiliary unit'} serves this machine; link it elsewhere before changing the type to ${type}`); }
     }
-    const specs=body.specs==null?e.specs:JSON.stringify(validateSpecs(type,body.specs,sameCompanyAsset(e.company_id)));
+    const specs=body.specs==null?e.specs:JSON.stringify(await validateSpecs(type,body.specs,sameCompanyAsset(e.company_id)));
     if (body.specs?.linkedEquipmentId===e.id) bad('An auxiliary unit cannot serve itself');
     await run('UPDATE equipment SET machine_type=?,plant_id=?,make=?,model=?,serial_number=?,location=?,asset_tag=?,criticality=?,status=?,year_built=?,commissioned_at=?,warranty_until=?,specs=?,rfid_tag=?,qr_code=? WHERE id=?',
       type,plantId,value('make','make',100),value('model','model',100),value('serialNumber','serial_number',100),value('location','location',160),tag,

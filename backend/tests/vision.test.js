@@ -98,7 +98,7 @@ test('edge: detections are prioritised, alert people, log safety and lock proof'
   const r=(await edge('/edge/v1/events',{events})).data;
   assert.deepEqual([r.accepted,r.rejected],[4,1]); assert.match(r.results[4].error,/not assigned to this camera/);
   // Critical first: the fire and intrusion were recorded before the quality defect.
-  const order=(await all("SELECT type FROM vision_events ORDER BY rowid")).map(x=>x.type); assert.ok(order.indexOf('fire')<order.indexOf('defect'));
+  const order=(await all("SELECT type FROM vision_events ORDER BY seq")).map(x=>x.type); assert.ok(order.indexOf('fire')<order.indexOf('defect'));
   assert.equal((await edge('/edge/v1/events',{events:[events[0]]})).data.duplicates,1);
   const alerts=(await call('/alerts','GET',null,tokens.acme)).data.filter(a=>a.module==='vision');
   assert.ok(alerts.some(a=>/Fire detected/.test(a.title)&&a.severity==='critical')); assert.ok(alerts.some(a=>/Person in Press cell/.test(a.title))); assert.ok(alerts.some(a=>/PPE missing/.test(a.title)));
