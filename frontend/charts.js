@@ -36,7 +36,7 @@ export function columnChart(id,{title,subtitle,points,valueLabel,formatValue=fmt
 }
 
 // Horizontal bars for comparing magnitude across named items (long labels stay readable); value at the bar tip.
-export function barChart(id,{title,subtitle,rows,valueLabel,formatValue=fmt,empty='No data in this period.'}) {
+export function barChart(id,{title,subtitle,rows,valueLabel,formatValue=fmt,empty=_t('chart.noDataInThisPeriod')}) {
   if (!rows.length) return `<figure class="chart" id="${id}"><figcaption><div><h2>${esc(title)}</h2>${subtitle?`<p class="muted">${esc(subtitle)}</p>`:''}</div></figcaption><p class="muted">${esc(empty)}</p></figure>`;
   const W=640,L=200,R=72,row=36,bh=18,H=rows.length*row+8, max=Math.max(...rows.map(r=>r.value)), x=v=>(v/max)*(W-L-R);
   const marks=rows.map((r,i)=>{ const y=4+i*row, w=Math.max(2,x(r.value)), name=r.label.length>28?r.label.slice(0,27)+'…':r.label;
