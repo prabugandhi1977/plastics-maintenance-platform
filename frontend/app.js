@@ -182,7 +182,7 @@ function tickets(){
 }
 function equipment(){
   const rows=state.data.equipment||[];
-  return header(t('nav.equipment'),_t('ws.machinesMouldsAndAuxiliaryEquipment'),manager()?btn(_t('ws.addEquipment'),'newEquipment','primary'):'')+`<div class="panel">${dataTable('equipment',{rows,
+  return header(t('nav.equipment'),_t('ws.machinesMouldsAndAuxiliaryEquipment'),manager()?btn(_t('ws.addEquipment'),'newEquipment','primary')+btn(_t('ws.importFromCsv'),'importEquipment','secondary'):'')+`<div class="panel">${dataTable('equipment',{rows,
     search:e=>`${e.asset_tag} ${e.make} ${e.model} ${e.serial_number} ${e.location} ${label('machine',e.machine_type)} ${Object.values(e.specs||{}).map(humanise).join(' ')}`,
     filters:[{key:'type',label:_t('ws.type'),options:(state.cat?.machineTypes||[]).map(x=>[x,label('machine',x)]),match:(r,v)=>r.machine_type===v},{key:'crit',label:_t('ws.criticality'),options:[['A','A'],['B','B'],['C','C']],match:(r,v)=>r.criticality===v},{key:'status',label:t('label.status'),options:options(state.cat?.equipmentStatus||[]),match:(r,v)=>r.status===v},{key:'plant',label:_t('ws.plant'),options:(state.data.plants||[]).map(p=>[p.id,p.name]),match:(r,v)=>r.plant_id===v}],
     columns:[{title:'',cell:e=>assetVisual(e,40,'asset-visual thumb')},{title:_t('ws.assetTag'),cell:e=>`<a data-action="equipment" data-id="${esc(e.id)}">${esc(e.asset_tag||'— no tag —')}</a> ${incomplete(e.missing)}`},{title:_t('ws.machine'),cell:e=>`${esc(e.make)} ${esc(e.model)}<div class="muted">${_t('ws.sn',{serial_number:esc(e.serial_number)})}</div>`},{title:_t('ws.type'),cell:e=>pill('machine',e.machine_type)},{title:_t('ws.criticality'),cell:e=>`<span class="crit crit-${esc(e.criticality)}" title="${esc(humanise(e.criticality))}">${esc(e.criticality)}</span>`},{title:t('label.status'),cell:e=>`<span class="pill ${esc(e.status)}">${esc(humanise(e.status))}</span>`},{title:_t('ws.plantLocation'),cell:e=>`${esc(plantOf(e.plant_id)?.name||'')}<div class="muted">${esc(e.location)}</div>`},{title:'',cls:'row',cell:e=>manager()||dispatch()?btn(t('action.edit'),'editEquipmentRow','secondary small',e.id):''}]})}</div>`;
@@ -206,7 +206,7 @@ function organisation(){
   const users=state.data.users||[], canManage=x=>admin()||(is('customer_admin')&&x.company_id===state.user.companyId&&['plant_manager','maintenance'].includes(x.role))||(is('provider_admin')&&x.provider_id===state.user.providerId&&x.role==='provider_engineer');
   const canEditCompany=id=>admin()||(is('customer_admin')&&id===state.user.companyId);
   const companies=state.data.companies||[];
-  return header(t('nav.organisation'),_t('ws.customerCompaniesPlantsAndUser'),`${admin()?btn(_t('ws.addCompany'),'newCompany','primary'):''}${manager()?btn(_t('ws.addPlant'),'newPlant','secondary'):''}${manager()||is('provider_admin')?btn(_t('ws.addUser'),'newUser','secondary'):''}`)
+  return header(t('nav.organisation'),_t('ws.customerCompaniesPlantsAndUser'),`${admin()?btn(_t('ws.addCompany'),'newCompany','primary'):''}${manager()?btn(_t('ws.addPlant'),'newPlant','secondary')+btn(_t('ws.importFromCsv'),'importPlants','secondary'):''}${manager()||is('provider_admin')?btn(_t('ws.addUser'),'newUser','secondary'):''}`)
     +(companies.length?`<div class="panel"><h2>${_t('ws.companies')}</h2>${simpleTable([_t('ws.company'),_t('ws.primaryContact'),_t('ws.country'),_t('ws.timeZone'),_t('ws.currencyUnits'),t('label.language'),''],companies.map(c=>`<tr><td>${esc(c.name)} ${incomplete(c.missing)}</td><td>${esc(c.contact_name||'—')}<div class="muted">${esc(c.contact_email)} ${esc(c.contact_phone)}</div></td><td>${esc(c.country||'—')}</td><td>${esc(c.timezone)}</td><td>${esc(c.currency)} · ${esc(c.units)}</td><td>${esc(LOCALES[c.locale]||c.locale)}</td><td>${canEditCompany(c.id)?btn(t('action.edit'),'editCompany','secondary small',c.id):''}</td></tr>`))}</div>
     <div class="panel"><h2>${_t('ws.plants')}</h2>${simpleTable([_t('ws.plant'),_t('ws.company'),_t('ws.address'),_t('ws.serviceArea'),_t('ws.operatingPattern'),_t('ws.timeZone'),''],(state.data.plants||[]).map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(companyOf(p.company_id)?.name||'')}</td><td>${esc(p.address)}<div class="muted">${esc(p.country)}</div></td><td>${esc(p.service_area)}</td><td>${esc(humanise(p.operating_pattern))}</td><td>${esc(p.timezone)}</td><td class="row">${canEditCompany(p.company_id)?btn(t('action.edit'),'editPlant','secondary small',p.id):''}${factoryManager(p.company_id)?btn(_t('ws.editShifts'),'editShifts','secondary small',p.id):''}</td></tr>`))}</div>`:'')
     +`<div class="panel"><h2>${_t('ws.users')}</h2>${dataTable('users',{rows:users,search:x=>`${x.name} ${x.email} ${x.phone} ${x.job_title}`,
@@ -293,7 +293,7 @@ function alertsView(){
 }
 function productsView(){
   const rows=state.data.products||[];
-  return header(t('nav.products'),_t('ws.partsYouMakeAndTheir'),customer()&&is('customer_admin','plant_manager')||admin()?btn(_t('ws.addProduct'),'newProduct','primary'):'')+`<div class="panel">${dataTable('products',{rows,search:p=>`${p.part_number} ${p.name} ${p.material}`,
+  return header(t('nav.products'),_t('ws.partsYouMakeAndTheir'),customer()&&is('customer_admin','plant_manager')||admin()?btn(_t('ws.addProduct'),'newProduct','primary')+btn(_t('ws.importFromCsv'),'importProducts','secondary'):'')+`<div class="panel">${dataTable('products',{rows,search:p=>`${p.part_number} ${p.name} ${p.material}`,
     columns:[{title:_t('ws.partNumber'),cell:p=>`<b>${esc(p.part_number)}</b>${p.active?'':_t('ws.inactive')}`},{title:_t('ws.nameMaterial'),cell:p=>`${esc(p.name)}<div class="muted">${esc(p.material)}${p.part_weight_g?` · ${formatNumber(p.part_weight_g,1)} g`:''}</div>`},{title:_t('ws.idealRate'),cell:p=>`${formatNumber(p.ideal_rate_per_hour,0)} ${esc(p.unit)}/h${p.ideal_cycle_s?`<div class="muted">${_t('ws.sCycleCavities',{ideal_cycle_s:formatNumber(p.ideal_cycle_s,1),cavities:p.cavities})}</div>`:''}`},{title:_t('ws.mould'),cell:p=>esc(p.mould_id?assetName(p.mould_id):'—')},{title:_t('ws.runsOn'),cell:p=>esc(p.default_machine_id?assetName(p.default_machine_id):'—')},{title:'',cell:p=>factoryManager(p.company_id)?btn(t('action.edit'),'editProduct','secondary small',p.id):''}]})}</div>`;
 }
 function productForm(p){
@@ -508,6 +508,18 @@ function equipmentForm(e,{fromList=false}={}){
     onSubmit:async fd=>{ const v=Object.fromEntries([...fd.entries()].filter(([k])=>!k.startsWith('spec.')&&k!=='picture')), picture=fd.get('picture'); const body={...v,yearBuilt:Number(v.yearBuilt),commissionedAt:v.commissionedAt||null,warrantyUntil:v.warrantyUntil||null,specs:specsFromForm(fd)};
       if (e) { const updated=await save('/equipment/'+e.id,'PATCH',body); if (!fromList) { state.detail={type:'equipment',value:await api('/equipment/'+updated.id)}; render(); } } else { if (picture?.size>5*1024*1024) throw Error(_t('ws.pictureExceeds5Mb')); const made=await api('/equipment','POST',body); if (picture?.size) await api(`/equipment/${made.id}/image`,'POST',{filename:picture.name,mime:picture.type,base64:await fileBase64(picture)}).catch(err=>toast(`${_t('ws.equipmentAddedButThePicture',{message:err.message})}`,'error')); toast(_t('ws.equipmentAdded')); await refresh(); } }});
 }
+// Bulk upload from CSV: download the template (for equipment, one per machine type), fill it in, upload it. All or nothing.
+function importDialog(entity){
+  const titles={equipment:t('nav.equipment'),products:t('nav.products'),plants:_t('ws.plants')};
+  const body=section(_t('ws.importStep1'),`${entity==='equipment'?select('machineType',_t('ws.machineType'),(state.cat?.machineTypes||[]).map(x=>[x,label('machine',x)]),{required:true,help:_t('ws.oneFilePerMachineType')}):''}<div class="fld wide"><button type="button" class="secondary" data-template>${_t('ws.downloadTemplate')}</button><small class="help">${_t('ws.templateHelp')}</small></div>`)
+    +section(_t('ws.importStep2'),`<div class="fld wide"><label for="f-csv">${_t('ws.csvFile')}</label><input id="f-csv" name="csv" type="file" accept=".csv,text/csv" required><small class="help">${_t('ws.importAllOrNothing')}</small></div>`);
+  openDialog(_t('ws.importTitle',{value:titles[entity]}),body,{submitLabel:_t('ws.upload'),onOpen:d=>{ d.querySelector('[data-template]').onclick=async()=>{
+      const type=d.querySelector('[name=machineType]')?.value; if (entity==='equipment'&&!type) return toast(_t('ws.chooseMachineTypeFirst'),'error');
+      try { const r=await fetch(`/api/import/${entity}/template${type?`?machineType=${type}`:''}`,{headers:{authorization:`Bearer ${state.token}`}}); if (!r.ok) throw Error((await r.json()).error);
+        const url=URL.createObjectURL(await r.blob()), a=document.createElement('a'); a.href=url; a.download=`${entity}${type?'-'+type:''}-import-template.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); } catch(err) { toast(err.message,'error'); } }; },
+    onSubmit:async fd=>{ const file=fd.get('csv'), machineType=fd.get('machineType')||undefined; if (!file?.size) throw Error(_t('ws.chooseAFile')); if (file.size>5*1024*1024) throw Error(_t('ws.fileTooLarge'));
+      const out=await api(`/import/${entity}`,'POST',{csv:await file.text(),machineType}); toast(_t('ws.importedRows',{count:out.imported})); await refresh(); }});
+}
 // prefill: {title, symptoms, failureCategory} for a breakdown reported from elsewhere (e.g. a vision quality defect).
 function ticketForm(preset,alert,prefill={}){
   const assets=(state.data.equipment||[]).filter(e=>e.status!=='decommissioned'), first=assetOf(preset)||assets[0], zone=plantOf(first?.plant_id)?.timezone||prefs().timezone;
@@ -629,6 +641,9 @@ async function action(name,id){
   if(name==='alertTicket'){const a=d.alerts.find(x=>x.id===id);return ticketForm(a.equipment_id,a)}
   if(name==='oeeFor'){state.oeeFilter={range:'7d',plantId:'',equipmentId:id};state.oee=undefined;state.page='oee';state.detail=null;return render()}
   if(name==='newProduct')return productForm();
+  if(name==='importEquipment')return importDialog('equipment');
+  if(name==='importProducts')return importDialog('products');
+  if(name==='importPlants')return importDialog('plants');
   if(name==='trend'){const [eq,param]=id.split('|');return trendDialog(eq,param).catch(fail)}
   if(name==='limits')return limitsForm(id).catch(fail);
   if(name==='explain')return explainDialog(id).catch(fail);

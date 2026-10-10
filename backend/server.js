@@ -9,7 +9,7 @@ import { ROOT, now, one, run, transaction, readOnly } from './common/db.js';
 import { authenticate } from './common/security.js';
 import { HttpError, bad } from './common/validate.js';
 import { createRouter, bodyOf, json, Reply, API_HEADERS } from './common/http.js';
-import { auth, org, equipment, contracts, tickets, parts, dashboard, settings } from './services/core/index.js';
+import { auth, org, equipment, contracts, tickets, parts, dashboard, settings, bulk } from './services/core/index.js';
 import { iot, runSync, createAdapter } from './services/iot/index.js';
 import { scanPredictive } from './services/ml/insights.js';
 import { scanQuality } from './services/ml/quality.js';
@@ -20,7 +20,7 @@ import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,factory,factoryOps,traceability,assistant,vision]) area.register(router);
+for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,bulk,factory,factoryOps,traceability,assistant,vision]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
