@@ -322,7 +322,7 @@ export function createVision(ctx) {
     if (!list.length) { el?.remove(); return; }
     if (!el) { el=document.createElement('div'); el.id='vision-alarm'; el.setAttribute('role','alert'); document.body.prepend(el); }
     const top=list[0];
-    el.className=`${_t('vis.visionAlarm',{severity:top.severity})}`;
+    el.className=`${`vision-alarm ${top.severity}`}`;
     el.innerHTML=`<span class="va-icon" aria-hidden="true">${top.type==='fire'||top.type==='smoke'?'🔥':top.module==='intrusion'?'🚫':top.module==='ppe'?'⛑':'⚠'}</span><div class="va-text"><b>${esc(typeLabel(top.type))} – ${esc(top.cameraName)}</b><span>${esc(top.location||'')}${eventDetail(top)?` · ${esc(eventDetail(top))}`:''} · ${when(top.occurredAt)}${list.length>1?` ${_t('vis.more',{value:list.length-1})}`:''}</span></div>
       <button type="button" data-va="open">${_t('vis.view')}</button><button type="button" data-va="ack">${_t('vis.acknowledge')}</button><button type="button" class="va-x" data-va="hide" aria-label="${_t('vis.hideThisAlarm')}">✕</button>`;
     el.querySelector('[data-va=open]').onclick=()=>eventDialog(top.id).catch(fail);

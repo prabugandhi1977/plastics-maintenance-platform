@@ -176,7 +176,7 @@ export function createTrace(ctx) {
     const d=openDialog(`${_t('trace.load',{shipment_number:s.shipment_number,customer:s.customer})}`,`<div class="fld wide"><label for="f-dispatchCode">${_t('trace.scanBoxOrPalletLabel')}</label>${scanInput('dispatchCode',{placeholder:_t('trace.scanOrTypeTheLabel')})}</div><div id="load-msg" role="status"></div><div id="load-list">${listHtml()}</div>`,{submitLabel:_t('trace.shipNow'),onSubmit:async()=>{
       if (!await confirmAction(`${_t('trace.ship2',{shipment_number:s.shipment_number})}`,`${_t('trace.unitsToEachLabelIs',{quantity:formatNumber(s.quantity),customer:s.customer})}`,{confirmLabel:_t('trace.ship'),danger:false})) throw Error(_t('trace.notShipped'));
       await api(`/trace/shipments/${id}/ship`,'POST',{}); toast(`${_t('trace.shipped2',{shipment_number:s.shipment_number})}`); state.ship=undefined; state.thub=undefined; render(); }});
-    const msg=d.querySelector('#load-msg'), say=(html,kind)=>{ msg.className=`${_t('trace.notice',{kind:kind})}`; msg.innerHTML=html; };
+    const msg=d.querySelector('#load-msg'), say=(html,kind)=>{ msg.className=`${`notice ${kind}`}`; msg.innerHTML=html; };
     const refresh=()=>{ d.querySelector('#load-list').innerHTML=listHtml(); d.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{ try { s=await api(`/trace/shipments/${id}/remove`,'POST',{serial:b.dataset.remove}); say(`${_t('trace.removed',{remove:esc(b.dataset.remove)})}`,'ok'); refresh(); } catch(e) { say(esc(e.message),'error'); } }); };
     refresh();
     bindScanInput(d,'dispatchCode',async code=>{ const input=d.querySelector('[name=dispatchCode]');
