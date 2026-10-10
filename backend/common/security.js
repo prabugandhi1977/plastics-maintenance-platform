@@ -10,14 +10,14 @@ const sign = data => createHmac('sha256',secret).update(data).digest('base64url'
 // Tokens carry the user's session version; changing or resetting a password bumps it, which signs out every
 // existing session for that user even though tokens are otherwise stateless.
 export function tokenFor(user) { const payload=Buffer.from(JSON.stringify({sub:user.id,sv:user.session_version??0,exp:Date.now()+8*60*60*1000})).toString('base64url'); return `${payload}.${sign(payload)}`; }
-export function authenticate(req) {
+export async function authenticate(req) {
   const token=(req.headers.authorization || '').replace(/^Bearer /,''); const [payload,signature]=token.split('.');
   if (!payload || !signature) return null;
   const expected=Buffer.from(sign(payload)),received=Buffer.from(signature);
   if (expected.length!==received.length || !timingSafeEqual(expected,received)) return null;
   try {
     const claims=JSON.parse(Buffer.from(payload,'base64url').toString()); if (claims.exp<Date.now()) return null;
-    const user=one('SELECT id,name,email,role,company_id,provider_id,service_areas,skills,locale,session_version FROM users WHERE id=? AND active=1',claims.sub);
+    const user=await one('SELECT id,name,email,role,company_id,provider_id,service_areas,skills,locale,session_version FROM users WHERE id=? AND active=1',claims.sub);
     return user && claims.sv===user.session_version ? user : null;
   } catch { return null; }
 }

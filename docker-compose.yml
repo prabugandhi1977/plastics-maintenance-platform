@@ -1,11 +1,30 @@
-# Local or single-server deployment. Settings come from a .env file next to this one (copy .env.example).
+# Local or single-server deployment: the platform plus PostgreSQL. Settings come from a .env file next to this one
+# (copy .env.example). Data: PostgreSQL in the "db-data" volume, uploaded files in "platform-data".
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mouldcare
+      POSTGRES_USER: mouldcare
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mouldcare -d mouldcare"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
   platform:
     build: .
     image: plastics-maintenance-platform
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "${HOST_PORT:-3100}:3100"
     environment:
+      DATABASE_URL: postgres://mouldcare:${POSTGRES_PASSWORD}@db:5432/mouldcare
       MOULDCARE_SECRET: ${MOULDCARE_SECRET:?Set MOULDCARE_SECRET (32+ random characters) in .env}
       MOULDCARE_INTEGRATION_KEY: ${MOULDCARE_INTEGRATION_KEY:-}
       MOULDCARE_SEED_DEMO: ${MOULDCARE_SEED_DEMO:-false}
@@ -22,4 +41,5 @@ services:
       - platform-data:/data
     restart: unless-stopped
 volumes:
+  db-data:
   platform-data:

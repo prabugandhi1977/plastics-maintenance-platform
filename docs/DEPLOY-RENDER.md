@@ -1,8 +1,8 @@
 # Put the platform online with Render
 
-This takes about 10 minutes. Render builds the app from this GitHub repository, gives it a secure `https://` web address, and keeps the database on a storage disk that survives restarts.
+This takes about 10 minutes. Render builds the app from this GitHub repository, gives it a secure `https://` web address, runs a managed PostgreSQL database for it, and keeps uploaded files on a storage disk that survives restarts.
 
-**Cost:** about US$7–8 per month, for the *Starter* plan plus a 1 GB disk. The free plan can't be used, because it doesn't keep data.
+**Cost:** the *Starter* web plan, a 1 GB disk, and the smallest paid PostgreSQL plan. Check current prices at <https://render.com/pricing>. The free plans can't be used, because they don't keep data.
 
 The screen wording on Render may differ slightly from these steps.
 
@@ -17,7 +17,7 @@ Decide the **email and password for your admin account**. The password needs at 
 3. **Give Render access to the repository.**
    - If Render asks to connect GitHub, choose **Only select repositories**, pick `plastics-maintenance-platform`, then **Install**/**Save**.
    - Back in Render, select `plastics-maintenance-platform` and click **Connect**.
-4. **Check the plan.** Render reads the settings file (`render.yaml`) in this repository and shows one web service, `plastics-maintenance-platform`, on the **Starter** plan with a 1 GB disk, in Singapore.
+4. **Check the plan.** Render reads the settings file (`render.yaml`) in this repository and shows one web service, `plastics-maintenance-platform`, on the **Starter** plan with a 1 GB disk, and one PostgreSQL database, `platform-db`, both in Singapore. The database address is passed to the web service automatically as `DATABASE_URL`.
 5. **Fill in the two empty values:**
    - `MOULDCARE_ADMIN_EMAIL`: your admin email
    - `MOULDCARE_ADMIN_PASSWORD`: your admin password
@@ -37,8 +37,23 @@ Decide the **email and password for your admin account**. The password needs at 
 
 - **Add real data.** As admin, go to **Companies, plants & users** and add customer companies, plants and users. Then add service providers, equipment, and contracts.
 - **Updates are automatic.** Every change pushed to the repository's `main` branch is rebuilt and published automatically.
-- **Backups.** Render takes daily snapshots of the disk. To restore one, open the service, then **Disks**.
-- **Only one instance.** Keep the service on a single instance: the database file can't be shared between servers. Moving to PostgreSQL, described in `docs/ROADMAP.md`, removes this limit.
+- **Backups.** The data is in the PostgreSQL database: open `platform-db` in Render to see its backup and recovery options, and also keep your own copy now and then (`pg_dump` with the database's external connection string). Uploaded files are on the disk, which Render snapshots daily (open the service, then **Disks**).
+- **Only one instance, for now.** The database can serve several, but the sign-in lockout counter is still kept in each server's memory. Keep a single instance until it moves into the database (listed in `docs/ROADMAP.md`).
+
+## Already running the SQLite version?
+
+Your data is in `/data/mouldcare.sqlite` on the service's disk, and uploaded files are in `/data/uploads` on the same disk, so only the database needs moving. Plan about 15 minutes when nobody is using the app.
+
+1. **Deploy the PostgreSQL version.** Merge it into `main`. In Render, open **Blueprints**, select this blueprint and click **Sync** (or **Manual sync**) so it creates `platform-db` and adds `DATABASE_URL` to the web service. Wait for **Live**. The app now starts on the new, empty database, so your data seems missing until step 2.
+2. **Copy the data.** Open the web service, then **Shell**, and run:
+
+   ```
+   node backend/scripts/import-sqlite.js /data/mouldcare.sqlite
+   ```
+
+   The admin account created on the first start is replaced by the accounts from your old data. Only if the script says the database *already has companies* (for example, someone added one in step 1) add `--force`, which replaces whatever is there. The copy runs in one transaction and finishes with `Imported N rows across 63 tables; counts match.` If anything fails, nothing is written and you can simply run it again.
+3. **Restart.** Click **Manual Deploy**, then **Restart service**, and sign in with your usual accounts.
+4. **Keep the old file** for a few weeks as a fallback. It is not used any more and can be deleted later.
 
 ## If something goes wrong
 
@@ -49,4 +64,6 @@ Decide the **email and password for your admin account**. The password needs at 
 | "Email or password is incorrect" | Check the email matches `MOULDCARE_ADMIN_EMAIL` (capitals and spaces don't matter). The message warns when 2 tries are left. |
 | "Too many wrong passwords for this account" | Sign-in for that email is paused for 15 minutes after 5 wrong passwords. Wait, or ask an admin to use **Reset password**, which lifts the pause immediately. |
 | Forgot the only admin password | In Render, open **Environment**. Set `MOULDCARE_ADMIN_PASSWORD` to a new temporary password, and add `MOULDCARE_ADMIN_RESET_PASSWORD` = `true`, then save. Render restarts the service, and the logs show `Reset password for platform admin`. Sign in with that password, choose your own, then **delete** `MOULDCARE_ADMIN_RESET_PASSWORD` and save again. |
+| Logs say `DATABASE_URL is required in production` | The web service is not linked to the database. Sync the Blueprint (step 1 above), or add `DATABASE_URL` in **Environment** using the database's *Internal Database URL*. |
+| After moving from SQLite, logs say `MOULDCARE_ADMIN_PASSWORD must have at least 12 characters` | `MOULDCARE_ADMIN_EMAIL` names an account that isn't in your old data, so the start tries to create it. Set it to your existing admin email, or delete `MOULDCARE_ADMIN_EMAIL`, then save. |
 | The site shows an error page right after deploying | Wait until the status is **Live**; the first start takes a minute. |

@@ -6,14 +6,15 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-masterdata-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 await import('../scripts/seed.js');
 const { createServer }=await import('../server.js');
-const { db, one }=await import('../common/db.js');
+const { db, one, run }=await import('../common/db.js');
 const { ticketBody, closeOut, atMachine, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token){const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{})},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',engineer:'engineer@demo.test',acme:'acme@demo.test',nova:'nova@demo.test',atlas:'atlas@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
@@ -41,7 +42,7 @@ test('equipment needs asset tag, criticality, year and the full parameter set fo
   assert.match(error(await call(`/equipment/${ok.data.id}`,'PATCH',{specs:{clampForceKn:1600}},tokens.acme)),/Missing mandatory/);
   assert.equal((await call(`/equipment/${ok.data.id}`,'PATCH',{status:'decommissioned'},tokens.acme)).data.status,'decommissioned');
   assert.match(error(await call('/tickets','POST',ticketBody(ok.data.id),tokens.acme)),/decommissioned/);
-  db.prepare("INSERT INTO equipment (id,company_id,plant_id,machine_type,make,model,serial_number,location,qr_code,created_at) VALUES ('eq-legacy','c-acme','plant-a','mould','Old','M1','OLD-1','Store','MC:legacy',?)").run(new Date().toISOString());
+  await run("INSERT INTO equipment (id,company_id,plant_id,machine_type,make,model,serial_number,location,qr_code,created_at) VALUES ('eq-legacy','c-acme','plant-a','mould','Old','M1','OLD-1','Store','MC:legacy',?)", new Date().toISOString());
   const legacy=(await call('/equipment','GET',null,tokens.acme)).data.find(e=>e.id==='eq-legacy');
   assert.deepEqual(legacy.missing,['Asset tag','Year built','Mould number','Cavities','Hot runner','Current shot count','Preventive maintenance interval']);
   assert.ok((await call('/dashboard','GET',null,tokens.acme)).data.incompleteAssets.some(a=>a.id==='eq-legacy'));
@@ -84,7 +85,7 @@ test('spare parts need part number, unit and urgency; quotes need a validity dat
   assert.match(error(await call(`/parts/${part.id}/quote`,'POST',quoteBody({validUntil:undefined}),tokens.dispatch)),/validUntil/);
   assert.match(error(await call(`/parts/${part.id}/quote`,'POST',quoteBody({validUntil:'2020-01-01'}),tokens.dispatch)),/between today and one year ahead/);
   const quote=(await call(`/parts/${part.id}/quote`,'POST',quoteBody(),tokens.dispatch)).data;
-  db.prepare('UPDATE quotations SET valid_until=? WHERE id=?').run('2026-01-01T00:00:00.000Z',quote.id);
+  await run('UPDATE quotations SET valid_until=? WHERE id=?', '2026-01-01T00:00:00.000Z',quote.id);
   assert.match(error(await call(`/quotes/${quote.id}/decision`,'POST',{decision:'approved'},tokens.acme)),/expired/);
   const fresh=(await call(`/parts/${part.id}/quote`,'POST',quoteBody(),tokens.dispatch)).data;
   assert.equal((await call(`/quotes/${fresh.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,200);

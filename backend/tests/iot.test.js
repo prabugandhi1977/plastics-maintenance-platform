@@ -6,18 +6,19 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-iot-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 await import('../scripts/seed.js');
 const { createServer }=await import('../server.js');
-const { db, one }=await import('../common/db.js');
+const { db, one, run }=await import('../common/db.js');
 const { normalizeRecord }=await import('../services/iot/contract.js');
 const { runSync }=await import('../services/iot/sync.js');
 const { createMockAdapter }=await import('../services/iot/adapters/mock.js');
 const { ticketBody, closeOut, partBody, quoteBody, contractBody, companyBody, plantBody, equipmentBody }=await import('./fixtures.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token,extra={}) {const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({admin:'admin@demo.test',dispatch:'dispatch@demo.test',engineer:'engineer@demo.test',acme:'acme@demo.test',nova:'nova@demo.test',atlas:'atlas@demo.test',euro:'euro@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
@@ -38,7 +39,7 @@ test('mock adapter sync ingests, quarantines bad records, and is idempotent',asy
   assert.equal(first.status,'succeeded'); assert.ok(first.accepted>50,`accepted ${first.accepted}`); assert.equal(first.rejected,2); assert.ok(first.cursor_after);
   const again=await runSync(createMockAdapter({}));
   assert.equal(again.status,'succeeded'); assert.equal(again.rejected,0); assert.equal(again.cursor_before,first.cursor_after);
-  db.prepare('DELETE FROM integration_cursors').run();
+  await run('DELETE FROM integration_cursors');
   const replay=await runSync(createMockAdapter({}));
   assert.equal(replay.accepted,0); assert.ok(replay.duplicates>=first.accepted);
   const status=await call('/integrations/status','GET',null,tokens.admin);
@@ -95,23 +96,23 @@ test('telemetry and device mappings respect tenant and assignment boundaries',as
   assert.equal((await call(`/devices/${mapped.data.id}`,'PATCH',{active:false},tokens.acme)).status,200);
   assert.equal((await call('/equipment/eq-b/readings','GET',null,tokens.acme)).data.status,'inactive');
   assert.match((await push([{deviceId:'hot-runner-ctrl-1',observedAt:ago(1),temperatureC:210}])).data.results[0].errors[0],/inactive/);
-  assert.ok(one("SELECT 1 FROM audit_events WHERE action='device.update' AND company_id='c-acme'"));
+  assert.ok(await one("SELECT 1 FROM audit_events WHERE action='device.update' AND company_id='c-acme'"));
 });
 
 test('plant-local visit times, quote lifecycle and upload signatures',async()=>{
   const contract=await call('/contracts','POST',contractBody('c-acme',['eq-a'],{title:'TZ check',visits:[{equipmentId:'eq-a',dueAt:'2026-11-15T08:00'}]}),tokens.acme);
   assert.equal(contract.status,201);
-  assert.equal(one('SELECT due_at FROM visits WHERE contract_id=?',contract.data.id).due_at,'2026-11-15T14:00:00.000Z');
+  assert.equal((await one('SELECT due_at FROM visits WHERE contract_id=?',contract.data.id)).due_at,'2026-11-15T14:00:00.000Z');
   assert.equal((await call('/contracts','POST',contractBody('c-acme',['eq-a'],{startsAt:'2026-01-01T00:00:00'}),tokens.acme)).status,400);
   const part=await call('/tickets/ticket-a/parts','POST',partBody({item:'Check valve'}),tokens.acme);
   const q1=await call(`/parts/${part.data.id}/quote`,'POST',quoteBody({amountMinor:1000,leadDays:2}),tokens.dispatch);
   const q2=await call(`/parts/${part.data.id}/quote`,'POST',quoteBody({amountMinor:900,leadDays:2}),tokens.dispatch);
-  assert.equal(one('SELECT status FROM quotations WHERE id=?',q1.data.id).status,'superseded');
+  assert.equal((await one('SELECT status FROM quotations WHERE id=?',q1.data.id)).status,'superseded');
   assert.equal((await call(`/quotes/${q1.data.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,400);
   assert.equal((await call(`/quotes/${q2.data.id}/decision`,'POST',{decision:'approved'},tokens.acme)).status,200);
   assert.equal((await call(`/parts/${part.data.id}/fulfil`,'POST',{},tokens.dispatch)).status,200);
   assert.equal((await call(`/parts/${part.data.id}/quote`,'POST',quoteBody({amountMinor:1,leadDays:1}),tokens.dispatch)).status,400);
-  assert.equal(one('SELECT status FROM parts_requests WHERE id=?',part.data.id).status,'fulfilled');
+  assert.equal((await one('SELECT status FROM parts_requests WHERE id=?',part.data.id)).status,'fulfilled');
   const wav=Buffer.concat([Buffer.from('RIFF'),Buffer.alloc(4),Buffer.from('WAVEfmt ')]).toString('base64');
   assert.equal((await call('/attachments','POST',{entityType:'ticket',entityId:'ticket-a',kind:'photo',filename:'x.webp',mime:'image/webp',base64:wav},tokens.acme)).status,400);
 });
