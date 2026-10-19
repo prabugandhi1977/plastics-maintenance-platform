@@ -45,3 +45,15 @@ test('outside a MouldCare checkout the panel says so', async ($, on) => {
   await ui.press({ key: 'refresh' })
   expect(await ui.find({ type: 'Text', text: /not a MouldCare checkout/ })).toBeDefined()
 })
+
+test('an unreachable database is reported as a setup problem, not as failing tests', async ($, on) => {
+  mock.clock(on)
+  on('fs.read', () => ({ value: '{ "name": "mouldcare-mvp" }' }))
+  on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
+  on('process.run', (_$, e) => e.argv.includes('--test') ? { value: { exitCode: 1, stdout: '# tests 15\n# pass 0\n# fail 15\n', stderr: 'Error: connect ECONNREFUSED 127.0.0.1:5432', isStdoutTruncated: false, isStderrTruncated: false } } : ok(''))
+  const ui = await $.ui.mount({ plugin: 'mouldcare-panel', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'refresh' })
+  await ui.press({ key: 'tests' })
+  expect(await ui.find({ type: 'Text', text: /PostgreSQL is not reachable/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /15 failed/ })).toBeUndefined()
+})

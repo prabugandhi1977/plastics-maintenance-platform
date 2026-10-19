@@ -56,11 +56,21 @@ async function refresh($: Api): Promise<void> {
   }))
 }
 
+// The app's tests and demo need PostgreSQL; an unreachable database is a setup problem, not failing tests.
+const DB_DOWN = /ECONNREFUSED|password authentication failed|database "[^"]+" does not exist/
+const DB_HELP = 'PostgreSQL is not reachable: set DATABASE_URL or run docker compose up -d db'
+
 async function runTests($: Api): Promise<void> {
   if ((await read($, tests)).status === 'running') return
   await update($, tests, (t): TestRun => ({ ...t, status: 'running', message: '' }))
   try {
     const { stdout, stderr } = await $.process.run(['node', '--test', 'backend/tests/*.test.js'], { timeoutMs: 600_000 })
+    if (DB_DOWN.test(stdout + stderr)) {
+      const finishedAt = await $.clock.now()
+      await update($, tests, (): TestRun => ({ status: 'error', passed: 0, failed: 0, finishedAt, message: DB_HELP }))
+      $.ui.toast(DB_HELP)
+      return
+    }
     const count = (name: string) => Number(stdout.match(new RegExp(`^# ${name} (\\d+)`, 'm'))?.[1] ?? NaN)
     const passed = count('pass')
     const failed = count('fail')
@@ -92,7 +102,7 @@ async function startDemo($: Api): Promise<void> {
   const seed = await $.process.run(['node', 'backend/scripts/seed.js'], { timeoutMs: 120_000 }).catch(() => null)
   if (!seed || seed.exitCode !== 0) {
     await update($, health, x => ({ ...x, isDemoStarting: false }))
-    $.ui.toast('Seeding the demo data failed; run npm run seed to see why')
+    $.ui.toast(seed && DB_DOWN.test(seed.stdout + seed.stderr) ? DB_HELP : 'Seeding the demo data failed; run npm run seed to see why')
     return
   }
   void (async () => {
