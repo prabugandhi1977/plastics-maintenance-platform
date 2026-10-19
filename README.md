@@ -20,6 +20,10 @@ Security notes for the clients:
 - The field app keeps its token in session storage. Cached work and queued actions stay on the device until they are synced or the user signs out.
 - Use managed devices and HTTPS for field rollout.
 
+## Machine monitoring app (`monitor/`)
+
+A separate application for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in. See [monitor/README.md](monitor/README.md).
+
 ## Run the local demo
 
 You need PostgreSQL 14+ running locally (or start one with `docker compose up -d db`). From this directory in PowerShell:
