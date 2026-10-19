@@ -86,10 +86,11 @@ cd monitor
 npm test
 ```
 
-There are 19 tests in three files:
+There are 20 tests in four files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
+- `seed.test.js`: demo machines without demo accounts, and the first admin from the environment.
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 
 ## Deploy
@@ -102,6 +103,12 @@ There are 19 tests in three files:
 - Use `/api/health` as the health check.
 
 `NODE_ENV=production` refuses to start without a 32-character `MONITOR_SECRET`. Run one instance: SQLite and the sign-in lockout live in one process.
+
+**On Render.** The repository's `render.yaml` defines the service `mouldcare-monitor`:
+- It is built from this folder, with a 1 GB disk at `/data`, and redeploys only when `monitor/` changes.
+- It shows the demo machines with simulated readings but no demo accounts (`MONITOR_DEMO_ACCOUNTS=false`), because their password is published.
+- You sign in with `MONITOR_ADMIN_EMAIL` and `MONITOR_ADMIN_PASSWORD`, which Render asks for when it applies the Blueprint.
+- To monitor real machines, set `MONITOR_SEED_DEMO` and `MONITOR_SIMULATOR` to `false` on a fresh disk.
 
 ## Next steps
 

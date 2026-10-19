@@ -28,11 +28,12 @@ export function addUser(u, password) {
   run('INSERT INTO users (id,email,name,role,password_hash,created_at) VALUES (?,?,?,?,?,?)', id(), u.email, u.name, u.role, hashPassword(password), new Date().toISOString());
 }
 
-export function seedDemo() {
+// The demo accounts share one published password, so a public site can take the demo machines without them.
+export function seedDemo({ accounts = true } = {}) {
   return transaction(() => {
     let added = 0;
     for (const m of DEMO_MACHINES) if (!one('SELECT 1 FROM machines WHERE tag=?', m.tag)) { addMachine(m); added++; }
-    for (const u of DEMO_USERS) if (!one('SELECT 1 FROM users WHERE email=?', u.email)) { addUser(u, DEMO_PASSWORD); added++; }
+    if (accounts) for (const u of DEMO_USERS) if (!one('SELECT 1 FROM users WHERE email=?', u.email)) { addUser(u, DEMO_PASSWORD); added++; }
     return added;
   });
 }

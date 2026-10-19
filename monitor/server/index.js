@@ -15,6 +15,8 @@ import { seedDemo, bootstrapAdmin } from './seed.js';
 import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle } from './ai/claude.js';
 
 const r = createRouter();
+// Demo accounts come with demo data unless MONITOR_DEMO_ACCOUNTS=false (a public site with simulated machines).
+const demoAccounts = () => process.env.MONITOR_SEED_DEMO === 'true' && process.env.MONITOR_DEMO_ACCOUNTS !== 'false';
 const HOUR = 3600000, DAY = 24 * HOUR;
 const write = u => { if (!can(u, 'admin', 'engineer')) deny('Your role can view but not change anything'); };
 const admin = u => { if (!can(u, 'admin')) deny('Only an administrator can do this'); };
@@ -31,7 +33,7 @@ function findingOut(f, sigs) {
 const ACTIVE = "status IN ('open','acknowledged','confirmed')";
 
 r.get('/health', () => ({ ok: true, time: new Date().toISOString() }), { public: true });
-r.get('/config', () => ({ ai: aiEnabled(), aiModel: aiEnabled() ? AI_MODEL : null, simulator: simulatorEnabled(), demo: process.env.MONITOR_SEED_DEMO === 'true' }), { public: true });
+r.get('/config', () => ({ ai: aiEnabled(), aiModel: aiEnabled() ? AI_MODEL : null, simulator: simulatorEnabled(), demo: demoAccounts() }), { public: true });
 
 r.post('/auth/login', ({ body }) => {
   const email = text(body.email, 'email', 200).toLowerCase(); checkLockout(email);
@@ -190,7 +192,7 @@ export function createServer() {
 }
 
 if (process.argv[1]?.endsWith('index.js')) {
-  if (process.env.MONITOR_SEED_DEMO === 'true') console.log(`Demo data: ${seedDemo()} records added`);
+  if (process.env.MONITOR_SEED_DEMO === 'true') console.log(`Demo data: ${seedDemo({ accounts: demoAccounts() })} records added${demoAccounts() ? '' : ' (demo machines only, no demo accounts)'}`);
   if (bootstrapAdmin()) console.log('First administrator created');
   const port = Number(process.env.PORT || 3300);
   const job = (name, fn) => () => { try { fn(); } catch (e) { console.error(`${name} failed:`, e.message); } };
