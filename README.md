@@ -22,7 +22,7 @@ Security notes for the clients:
 
 ## Machine monitoring app (`monitor/`)
 
-A separate application for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in. See [monitor/README.md](monitor/README.md).
+A separate application for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in, and its own Render service (`mouldcare-monitor` in `render.yaml`). See [monitor/README.md](monitor/README.md).
 
 ## Run the local demo
 

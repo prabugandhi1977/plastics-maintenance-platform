@@ -1,5 +1,6 @@
-# Render Blueprint: a managed PostgreSQL database plus one web service built from the Dockerfile, with a small
-# persistent disk for uploaded files (photos, manuals, vision evidence).
+# Render Blueprint: a managed PostgreSQL database plus the MouldCare web service built from the Dockerfile, with a small
+# persistent disk for uploaded files (photos, manuals, vision evidence); and MouldCare Monitor (monitor/), a separate
+# web service with its own SQLite database on its own disk.
 # Render generates the secrets; you enter the first admin's email and password when creating the Blueprint.
 # Region is fixed at creation; singapore is closest to India (alternatives: frankfurt, oregon, ohio, virginia).
 services:
@@ -45,6 +46,45 @@ services:
       - key: EMAIL_API_KEY
         sync: false
       - key: EMAIL_FROM
+        sync: false
+
+  # MouldCare Monitor: machine and condition monitoring with ML and AI (monitor/README.md). Its database is SQLite on
+  # its own disk. It shows the six demo machines with simulated readings and no demo accounts (their password is
+  # published); you sign in with the admin email and password you enter when the Blueprint asks. When real gateways
+  # send data, set MONITOR_SEED_DEMO and MONITOR_SIMULATOR to false on a fresh disk.
+  - type: web
+    name: mouldcare-monitor
+    runtime: docker
+    dockerfilePath: ./monitor/Dockerfile
+    dockerContext: ./monitor
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - monitor/**
+    disk:
+      name: monitor-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: MONITOR_SECRET
+        generateValue: true
+      - key: MONITOR_INGEST_KEY
+        generateValue: true
+      - key: MONITOR_ADMIN_EMAIL
+        sync: false
+      - key: MONITOR_ADMIN_PASSWORD
+        sync: false
+      - key: MONITOR_SEED_DEMO
+        value: "true"
+      - key: MONITOR_DEMO_ACCOUNTS
+        value: "false"
+      - key: MONITOR_SIMULATOR
+        value: "true"
+      # AI explanations, ticket drafts, reports and chat. Leave empty to use the built-in explanations only.
+      - key: ANTHROPIC_API_KEY
         sync: false
 
 databases:
