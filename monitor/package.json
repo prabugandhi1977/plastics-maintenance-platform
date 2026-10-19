@@ -1,0 +1,17 @@
+{
+  "name": "mouldcare-monitor",
+  "private": true,
+  "type": "module",
+  "description": "Machine and condition monitoring with machine learning and an AI assistant, for plastics processing plants",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/seed.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0"
+  }
+}
