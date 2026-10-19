@@ -1,3 +1,4 @@
+import { t as _t } from './i18n.js';
 // Identifying a machine at the machine, shared by the web workspace and the field app:
 // - the camera reads the printed QR label: with the browser's BarcodeDetector where it has one (Chrome, Edge), and
 //   otherwise with the jsQR library (vendored, Apache-2.0), so iPhone Safari and Firefox scan too;
@@ -24,17 +25,17 @@ async function qrDecoder() {
     return jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'})?.data;
   };
 }
-const cameraError=e=>Error(e?.name==='NotAllowedError'?'Camera access was refused. Allow the camera for this site in the browser settings, then try again.'
-  :e?.name==='NotFoundError'||e?.name==='OverconstrainedError'?'No camera was found on this device. Use a scanner, or type the code printed under the label.'
-  :e?.name==='NotReadableError'?'The camera is in use by another app. Close it and try again.':`The camera could not start${e?.message?`: ${e.message}`:''}.`);
+const cameraError=e=>Error(e?.name==='NotAllowedError'?_t('scan.cameraAccessWasRefusedAllow')
+  :e?.name==='NotFoundError'||e?.name==='OverconstrainedError'?_t('scan.noCameraWasFoundOn')
+  :e?.name==='NotReadableError'?_t('scan.theCameraIsInUse'):`${_t('scan.theCameraCouldNotStart',{value:e?.message?`: ${e.message}`:''})}`);
 
 // Opens the rear camera in a modal and resolves with the first QR code read; rejects on cancel.
 export async function scanQr() {
-  if (!canCamera()) throw Error('This browser cannot use the camera here. Type the code printed under the label, or use a scanner.');
+  if (!canCamera()) throw Error(_t('scan.thisBrowserCannotUseThe'));
   const decode=await qrDecoder();
   let stream; try { stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}); } catch (e) { throw cameraError(e); }
   const d=document.createElement('dialog');
-  d.setAttribute('aria-label','Scan the equipment QR label');
+  d.setAttribute('aria-label',_t('scan.scanTheEquipmentQrLabel'));
   d.style.cssText='padding:0;border:0;border-radius:14px;background:#0e2630;color:#fff;width:min(92vw,460px);max-width:none';
   d.innerHTML='<video playsinline muted autoplay style="display:block;width:100%;aspect-ratio:1;object-fit:cover;background:#000"></video><div style="display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px"><span style="font-size:14px">Point the camera at the QR label</span><button type="button" data-cancel style="border:0;border-radius:8px;padding:9px 14px;font:inherit;font-weight:700;background:#e4efef;color:#1d4d53;cursor:pointer">Cancel</button></div>';
   document.body.append(d); d.showModal();
@@ -42,8 +43,8 @@ export async function scanQr() {
   return new Promise((resolve,reject)=>{
     let done=false;
     const finish=(fn,value)=>{ if (done) return; done=true; stream.getTracks().forEach(t=>t.stop()); if (d.open) d.close(); d.remove(); fn(value); };
-    d.querySelector('[data-cancel]').onclick=()=>finish(reject,Error('Scan cancelled'));
-    d.addEventListener('cancel',e=>{ e.preventDefault(); finish(reject,Error('Scan cancelled')); });
+    d.querySelector('[data-cancel]').onclick=()=>finish(reject,Error(_t('scan.scanCancelled')));
+    d.addEventListener('cancel',e=>{ e.preventDefault(); finish(reject,Error(_t('scan.scanCancelled'))); });
     const tick=async()=>{ if (done) return; try { const value=await decode(video); if (value) return finish(resolve,String(value).trim()); } catch {} setTimeout(tick,200); };
     tick();
   });
@@ -51,20 +52,20 @@ export async function scanQr() {
 
 // Waits for an NFC/RFID tag to be held to the phone (up to 30 s). uid: return the tag's UID even if it holds an MC: record.
 export async function readNfc({uid=false}={}) {
-  if (!canNfc()) throw Error('Reading tags with the phone needs Chrome on an Android phone with NFC. Use a handheld RFID reader, or type the number printed on the tag.');
+  if (!canNfc()) throw Error(_t('scan.readingTagsWithThePhone'));
   const reader=new NDEFReader(), stop=new AbortController();
   try { await reader.scan({signal:stop.signal}); }
-  catch (e) { throw Error(e?.name==='NotAllowedError'?'NFC is switched off or not allowed. Turn on NFC in the phone settings, allow it for this site, and try again.'
-    :e?.name==='NotSupportedError'?'This phone has no NFC reader. Use a handheld RFID reader, or type the number printed on the tag.':`NFC could not start${e?.message?`: ${e.message}`:''}.`); }
+  catch (e) { throw Error(e?.name==='NotAllowedError'?_t('scan.nfcIsSwitchedOffOr')
+    :e?.name==='NotSupportedError'?_t('scan.thisPhoneHasNoNfc'):`${_t('scan.nfcCouldNotStart',{value:e?.message?`: ${e.message}`:''})}`); }
   return new Promise((resolve,reject)=>{
     const fail=message=>{ clearTimeout(timer); stop.abort(); reject(Error(message)); };
-    const timer=setTimeout(()=>fail('No tag read. Hold the top of the phone flat against the tag for a second and try again.'),30000);
+    const timer=setTimeout(()=>fail(_t('scan.noTagReadHoldThe')),30000);
     // Many industrial tags (UHF, or HF tags that are not NFC-formatted) cannot be read by phones.
-    reader.onreadingerror=()=>fail('The phone found a tag but cannot read this type. Use a handheld RFID reader, or type the number printed on the tag.');
+    reader.onreadingerror=()=>fail(_t('scan.thePhoneFoundATag'));
     reader.onreading=e=>{
       const text=[...(e.message?.records||[])].filter(r=>r.recordType==='text'||r.recordType==='url').map(r=>{ try { return new TextDecoder(r.encoding||'utf-8').decode(r.data); } catch { return ''; } }).find(x=>/^MC:/i.test(x.trim()));
       const value=((uid?'':text)||e.serialNumber||'').trim();
-      if (!value) return fail('The tag has no readable ID. Type the number printed on the tag instead.');
+      if (!value) return fail(_t('scan.theTagHasNoReadable'));
       clearTimeout(timer); stop.abort(); resolve(value);
     };
   });
@@ -73,8 +74,8 @@ export async function readNfc({uid=false}={}) {
 // A scan field: the code input plus camera and NFC buttons where the device supports them.
 // camera:false for a field that only takes RFID tags; uid:true to read the tag's UID (registering a tag);
 // nfcHint: explain how to read tags when this device cannot.
-export function scanInput(name,{value='',placeholder='Scan, or type the code under the label',required=false,inputClass='',camera=true,uid=false,nfcHint=false}={}) {
-  return `<div class="scan-input" data-scan-for="${esc(name)}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input name="${esc(name)}" id="f-${esc(name)}" class="${esc(inputClass)}" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" autocapitalize="characters" spellcheck="false" ${required?'required aria-required="true"':''} style="flex:1 1 200px;min-width:0">${camera&&canCamera()?'<button type="button" class="secondary small" data-scan="camera">Scan QR</button>':''}${canNfc()?`<button type="button" class="secondary small" data-scan="nfc"${uid?' data-uid="1"':''}>Read RFID/NFC tag</button>`:''}</div><small class="help scan-msg" role="status" hidden></small>${nfcHint&&!canNfc()?'<small class="help scan-hint">To read tags with the phone, use Chrome on an Android phone with NFC on. Here, use a USB or Bluetooth reader, or type the number printed on the tag.</small>':''}`;
+export function scanInput(name,{value='',placeholder=_t('scan.scanOrTypeTheCode'),required=false,inputClass='',camera=true,uid=false,nfcHint=false}={}) {
+  return `<div class="scan-input" data-scan-for="${esc(name)}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input name="${esc(name)}" id="f-${esc(name)}" class="${esc(inputClass)}" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" autocapitalize="characters" spellcheck="false" ${required?'required aria-required="true"':''} style="flex:1 1 200px;min-width:0">${camera&&canCamera()?_t('scan.scanQr'):''}${canNfc()?`<button type="button" class="secondary small" data-scan="nfc"${uid?' data-uid="1"':''}>${_t('scan.readRfidNfcTag')}</button>`:''}</div><small class="help scan-msg" role="status" hidden></small>${nfcHint&&!canNfc()?_t('scan.toReadTagsWithThe'):''}`;
 }
 
 // Wires a scan field: a code from the camera, NFC, or a scanner's Enter (which must not submit the form) calls onCode.
@@ -84,13 +85,13 @@ export function bindScanInput(root,name,onCode,onError) {
   const input=box.querySelector('input'), msg=box.nextElementSibling?.classList.contains('scan-msg')?box.nextElementSibling:null;
   const say=(text,ok)=>{ if (!msg) return; msg.hidden=!text; msg.textContent=text||''; msg.classList.toggle('scan-ok',ok===true); msg.classList.toggle('scan-bad',ok===false); };
   const report=e=>{ if (onError) onError(e); else say(e.message,false); };
-  const use=async (code,via)=>{ input.value=code; try { await onCode(code); if (!onError&&via) say(`✓ Read: ${code}`,true); } catch (e) { report(e); } };
+  const use=async (code,via)=>{ input.value=code; try { await onCode(code); if (!onError&&via) say(`${_t('scan.read',{code:code})}`,true); } catch (e) { report(e); } };
   input.addEventListener('input',()=>say(''));
   input.addEventListener('keydown',e=>{ if (e.key==='Enter') { e.preventDefault(); if (input.value.trim()) use(input.value.trim()); } });
   input.addEventListener('change',()=>{ if (input.value.trim()) use(input.value.trim()); });
   box.querySelectorAll('[data-scan]').forEach(b=>b.onclick=async()=>{
-    const label=b.textContent; b.disabled=true; if (b.dataset.scan==='nfc') b.textContent='Hold the tag to the phone…';
-    say(b.dataset.scan==='nfc'?'Hold the phone against the tag…':'');
+    const label=b.textContent; b.disabled=true; if (b.dataset.scan==='nfc') b.textContent=_t('scan.holdTheTagToThe');
+    say(b.dataset.scan==='nfc'?_t('scan.holdThePhoneAgainstThe'):'');
     try { const code=b.dataset.scan==='camera'?await scanQr():await readNfc({uid:!!b.dataset.uid}); if (code) await use(code,b.dataset.scan); }
     catch (e) { if (e.message==='Scan cancelled') say(''); else report(e); }
     finally { b.disabled=false; b.textContent=label; }

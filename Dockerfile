@@ -1,5 +1,5 @@
 # Plastics maintenance platform: API, web workspace and field app in one container.
-# Data (SQLite database and uploads) lives on the /data volume; mount persistent storage there.
+# The database is PostgreSQL (set DATABASE_URL). Uploaded files live on the /data volume; mount persistent storage there.
 FROM node:22-alpine
 RUN apk add --no-cache su-exec
 WORKDIR /app

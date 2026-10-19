@@ -48,12 +48,12 @@ function scene(kind) {
 }
 const png64=kind=>scene(kind).png().toString('base64');
 
-export function seedVision() {
-  if (!one("SELECT 1 FROM companies WHERE id='c-acme'")||one('SELECT 1 FROM vision_nodes')) return false;
+export async function seedVision() {
+  if (!await one("SELECT 1 FROM companies WHERE id='c-acme'")||await one('SELECT 1 FROM vision_nodes')) return false;
   const at=now(), T=Date.now(), iso=ms=>new Date(T-ms).toISOString();
-  for (const [m,n] of [['ppe',4],['fire_smoke',4],['intrusion',4],['quality',2]]) run('INSERT INTO vision_licences (company_id,module,cameras,valid_until,updated_at) VALUES (?,?,?,?,?)','c-acme',m,n,'2027-12-31',at);
-  for (const [m,n] of [['quality',2],['fire_smoke',2]]) run('INSERT INTO vision_licences (company_id,module,cameras,valid_until,updated_at) VALUES (?,?,?,?,?)','c-nova',m,n,'2027-06-30',at);
-  run('INSERT INTO vision_nodes (id,company_id,plant_id,name,hardware,max_streams,key_hash,key_hint,last_seen_at,agent_version,metrics,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+  for (const [m,n] of [['ppe',4],['fire_smoke',4],['intrusion',4],['quality',2]]) await run('INSERT INTO vision_licences (company_id,module,cameras,valid_until,updated_at) VALUES (?,?,?,?,?)','c-acme',m,n,'2027-12-31',at);
+  for (const [m,n] of [['quality',2],['fire_smoke',2]]) await run('INSERT INTO vision_licences (company_id,module,cameras,valid_until,updated_at) VALUES (?,?,?,?,?)','c-nova',m,n,'2027-06-30',at);
+  await run('INSERT INTO vision_nodes (id,company_id,plant_id,name,hardware,max_streams,key_hash,key_hint,last_seen_at,agent_version,metrics,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
     'vn-chicago','c-acme','plant-a','Edge PC – Chicago press hall','Industrial PC, NVIDIA RTX A4000 16 GB, 64 GB RAM, 2 TB NVMe',16,hashKey(DEMO_NODE_KEY),`${DEMO_NODE_KEY.slice(0,6)}…${DEMO_NODE_KEY.slice(-4)}`,iso(20000),'1.0.0',
     JSON.stringify({gpuUtil:58,gpuTempC:63,cpuTempC:57,diskPct:41,streams:4,fps:25,inferenceMsP95:13.8}),at);
   const cams=[
@@ -65,50 +65,50 @@ export function seedVision() {
   ];
   const VENDOR={'vc-gate':['Hikvision','rtsp'],'vc-hall':['Hikvision','rtsp'],'vc-line':['Cognex','cognex-native'],'vc-dock':['Hikvision','http-snapshot']};
   for (const [cid,name,location,url,kind,eq,mods] of cams) {
-    const frame=storeMedia('c-acme',{kind:'frame',mime:'image/png',base64:png64(kind)});
-    run('INSERT INTO vision_cameras (id,company_id,plant_id,node_id,name,source_type,source_url,location,equipment_id,fps,snapshot_media_id,status,last_seen_at,metrics,created_at,vendor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    const frame=await storeMedia('c-acme',{kind:'frame',mime:'image/png',base64:png64(kind)});
+    await run('INSERT INTO vision_cameras (id,company_id,plant_id,node_id,name,source_type,source_url,location,equipment_id,fps,snapshot_media_id,status,last_seen_at,metrics,created_at,vendor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       cid,'c-acme','plant-a','vn-chicago',name,VENDOR[cid][1],url,location,eq,cid==='vc-line'?1:25,frame.id,'online',iso(20000),JSON.stringify(cid==='vc-line'?{inspectionMs:182,inferenceMs:38}:{fps:25,inferenceMs:14.5}),at,VENDOR[cid][0]);
-    for (const [m,cfg] of mods) run('INSERT INTO vision_assignments (camera_id,module,enabled,config,updated_by,updated_at) VALUES (?,?,1,?,?,?)',cid,m,JSON.stringify(cfg),'u-acme',at);
+    for (const [m,cfg] of mods) await run('INSERT INTO vision_assignments (camera_id,module,enabled,config,updated_by,updated_at) VALUES (?,?,1,?,?,?)',cid,m,JSON.stringify(cfg),'u-acme',at);
   }
-  const zone=(zid,cam,name,kind,points,severity='critical')=>run('INSERT INTO vision_zones (id,camera_id,name,kind,points,severity,classes,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,1,?,?)',zid,cam,name,kind,JSON.stringify(points),severity,'["person","vehicle"]',at,at);
-  zone('vz-cell','vc-hall','Robot cell 3 – no entry','exclusion',[[0.6,0.28],[0.95,0.28],[0.95,0.72],[0.6,0.72]]);
-  zone('vz-robot','vc-hall','Robot arm path (approved motion)','allowed_motion',[[0.7,0.38],[0.9,0.38],[0.9,0.68],[0.7,0.68]]);
-  zone('vz-line','vc-hall','Floor marking – walkway edge','tripwire',[[0,0.83],[1,0.83]],'warning');
-  run("INSERT INTO vision_zones (id,camera_id,name,kind,points,severity,classes,active,created_at,updated_at,surface_class) VALUES ('vz-face','vc-line','Visible face (class A)','inspection_roi',?,'warning','[]',1,?,?,'A'),('vz-edge','vc-line','Flange and clip area (class B)','inspection_roi',?,'warning','[]',1,?,?,'B')",
+  const zone=async (zid,cam,name,kind,points,severity='critical')=>await run('INSERT INTO vision_zones (id,camera_id,name,kind,points,severity,classes,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,1,?,?)',zid,cam,name,kind,JSON.stringify(points),severity,'["person","vehicle"]',at,at);
+  await zone('vz-cell','vc-hall','Robot cell 3 – no entry','exclusion',[[0.6,0.28],[0.95,0.28],[0.95,0.72],[0.6,0.72]]);
+  await zone('vz-robot','vc-hall','Robot arm path (approved motion)','allowed_motion',[[0.7,0.38],[0.9,0.38],[0.9,0.68],[0.7,0.68]]);
+  await zone('vz-line','vc-hall','Floor marking – walkway edge','tripwire',[[0,0.83],[1,0.83]],'warning');
+  await run("INSERT INTO vision_zones (id,camera_id,name,kind,points,severity,classes,active,created_at,updated_at,surface_class) VALUES ('vz-face','vc-line','Visible face (class A)','inspection_roi',?,'warning','[]',1,?,?,'A'),('vz-edge','vc-line','Flange and clip area (class B)','inspection_roi',?,'warning','[]',1,?,?,'B')",
     JSON.stringify([[0.12,0.15],[0.88,0.15],[0.88,0.62],[0.12,0.62]]),at,at,JSON.stringify([[0.12,0.62],[0.88,0.62],[0.88,0.85],[0.12,0.85]]),at,at);
-  zone('vz-gate','vc-gate','Entrance – PPE required','ppe_zone',[[0.3,0.1],[0.7,0.1],[0.7,0.72],[0.3,0.72]],'warning');
+  await zone('vz-gate','vc-gate','Entrance – PPE required','ppe_zone',[[0.3,0.1],[0.7,0.1],[0.7,0.72],[0.3,0.72]],'warning');
   // Per-minute counters for the last 6 hours.
   for (let m=0;m<360;m+=1) { const minute=iso(m*60000).slice(0,16), r=k=>(Math.sin(m/7+k)+1)/2;
-    run('INSERT INTO vision_stats (camera_id,minute,module,frames,people,compliant) VALUES (?,?,?,?,?,?)','vc-gate',minute,'ppe',1500,4+Math.round(r(1)*4),4+Math.round(r(1)*4)-(m%23===0?1:0));
-    run('INSERT INTO vision_stats (camera_id,minute,module,frames,people,compliant) VALUES (?,?,?,?,?,?)','vc-dock',minute,'ppe',600,1+Math.round(r(2)*2),1+Math.round(r(2)*2)-(m%41===0?1:0));
-    run('INSERT INTO vision_stats (camera_id,minute,module,frames,ignored) VALUES (?,?,?,?,?)','vc-hall',minute,'intrusion',1500,Math.round(r(3)*30));
-    run('INSERT INTO vision_stats (camera_id,minute,module,frames,inspected,passed) VALUES (?,?,?,?,?,?)','vc-line',minute,'quality',20,20,20-(m%9===0?1:0)-(m%31===0?1:0));
-    run('INSERT INTO vision_stats (camera_id,minute,module,frames,inspected,passed) VALUES (?,?,?,?,?,?)','vc-dock',minute,'quality',600,m%3===0?1:0,m%3===0&&m%18!==0?1:0);
+    await run('INSERT INTO vision_stats (camera_id,minute,module,frames,people,compliant) VALUES (?,?,?,?,?,?)','vc-gate',minute,'ppe',1500,4+Math.round(r(1)*4),4+Math.round(r(1)*4)-(m%23===0?1:0));
+    await run('INSERT INTO vision_stats (camera_id,minute,module,frames,people,compliant) VALUES (?,?,?,?,?,?)','vc-dock',minute,'ppe',600,1+Math.round(r(2)*2),1+Math.round(r(2)*2)-(m%41===0?1:0));
+    await run('INSERT INTO vision_stats (camera_id,minute,module,frames,ignored) VALUES (?,?,?,?,?)','vc-hall',minute,'intrusion',1500,Math.round(r(3)*30));
+    await run('INSERT INTO vision_stats (camera_id,minute,module,frames,inspected,passed) VALUES (?,?,?,?,?,?)','vc-line',minute,'quality',20,20,20-(m%9===0?1:0)-(m%31===0?1:0));
+    await run('INSERT INTO vision_stats (camera_id,minute,module,frames,inspected,passed) VALUES (?,?,?,?,?,?)','vc-dock',minute,'quality',600,m%3===0?1:0,m%3===0&&m%18!==0?1:0);
   }
   // Incidents with snapshots: a mix of open, handled and false alarms.
-  const ev=(cam,module,type,severity,ago,{conf=0.9,detail={},boxes=[],zoneId=null,actions={},status='open',note='',kind,locked=1,retrain=0}={})=>{
-    const media=kind?storeMedia('c-acme',{kind:'snapshot',mime:'image/png',base64:png64(kind)}).id:null, key=id(), occurred=iso(ago*60000);
-    run(`INSERT INTO vision_events (id,company_id,plant_id,camera_id,node_id,module,type,severity,confidence,occurred_at,received_at,latency_ms,zone_id,detail,boxes,edge_actions,snapshot_media_id,status,acknowledged_by,acknowledged_at,resolved_by,resolved_at,resolution_note,locked,retrain,external_id)
+  const ev=async (cam,module,type,severity,ago,{conf=0.9,detail={},boxes=[],zoneId=null,actions={},status='open',note='',kind,locked=1,retrain=0}={})=>{
+    const media=kind?(await storeMedia('c-acme',{kind:'snapshot',mime:'image/png',base64:png64(kind)})).id:null, key=id(), occurred=iso(ago*60000);
+    await run(`INSERT INTO vision_events (id,company_id,plant_id,camera_id,node_id,module,type,severity,confidence,occurred_at,received_at,latency_ms,zone_id,detail,boxes,edge_actions,snapshot_media_id,status,acknowledged_by,acknowledged_at,resolved_by,resolved_at,resolution_note,locked,retrain,external_id)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,key,'c-acme','plant-a',cam,'vn-chicago',module,type,severity,conf,occurred,new Date(Date.parse(occurred)+420).toISOString(),420,zoneId,JSON.stringify(detail),JSON.stringify(boxes),JSON.stringify(actions),media,
       status,status==='open'?null:'u-acme',status==='open'?null:occurred,['resolved','false_alarm'].includes(status)?'u-acme':null,['resolved','false_alarm'].includes(status)?occurred:null,note,locked,retrain,`demo-${key.slice(0,8)}`);
     return key;
   };
   const person=(x,y,label,ok=false)=>({x,y,w:0.1,h:0.36,label,confidence:0.92,ok});
-  ev('vc-gate','ppe','ppe_violation','warning',12,{kind:'gate',detail:{missing:['helmet']},boxes:[person(0.39,0.33,'no helmet'),{...person(0.546,0.355,'compliant',true)}],actions:{relayMs:8}});
-  ev('vc-gate','ppe','ppe_violation','warning',190,{kind:'gate',detail:{missing:['helmet','vest']},boxes:[person(0.39,0.33,'no helmet, no vest')],actions:{relayMs:9},status:'resolved',note:'Visitor stopped at the door and given a helmet and vest'});
-  ev('vc-dock','ppe','ppe_violation','warning',400,{kind:'dock',detail:{missing:['boots']},boxes:[person(0.2,0.4,'no safety boots')],status:'acknowledged'});
-  ev('vc-hall','intrusion','intrusion_person','critical',35,{kind:'hall',zoneId:'vz-cell',boxes:[person(0.515,0.39,'person 0.94')],actions:{relayMs:11,broadcastMs:160},status:'acknowledged'});
-  ev('vc-hall','intrusion','intrusion_vehicle','warning',520,{kind:'hall',zoneId:'vz-line',boxes:[{x:0.05,y:0.55,w:0.25,h:0.3,label:'forklift 0.88',confidence:0.88}],status:'resolved',note:'Forklift driver briefed on the walkway marking'});
-  ev('vc-hall','fire_smoke','smoke','critical',260,{kind:'fire',conf:0.86,boxes:[{x:0.28,y:0.1,w:0.25,h:0.3,label:'smoke 0.86',confidence:0.86}],actions:{broadcastMs:180,relayMs:12},status:'false_alarm',note:'Steam from the mould cooling water leak – sent for retraining',retrain:1});
-  ev('vc-gate','fire_smoke','fire','critical',3,{kind:'fire',conf:0.95,boxes:[{x:0.27,y:0.24,w:0.18,h:0.25,label:'fire 0.95',confidence:0.95},{x:0.3,y:0.05,w:0.2,h:0.2,label:'smoke 0.9',confidence:0.9}],actions:{broadcastMs:170,relayMs:10}});
+  await ev('vc-gate','ppe','ppe_violation','warning',12,{kind:'gate',detail:{missing:['helmet']},boxes:[person(0.39,0.33,'no helmet'),{...person(0.546,0.355,'compliant',true)}],actions:{relayMs:8}});
+  await ev('vc-gate','ppe','ppe_violation','warning',190,{kind:'gate',detail:{missing:['helmet','vest']},boxes:[person(0.39,0.33,'no helmet, no vest')],actions:{relayMs:9},status:'resolved',note:'Visitor stopped at the door and given a helmet and vest'});
+  await ev('vc-dock','ppe','ppe_violation','warning',400,{kind:'dock',detail:{missing:['boots']},boxes:[person(0.2,0.4,'no safety boots')],status:'acknowledged'});
+  await ev('vc-hall','intrusion','intrusion_person','critical',35,{kind:'hall',zoneId:'vz-cell',boxes:[person(0.515,0.39,'person 0.94')],actions:{relayMs:11,broadcastMs:160},status:'acknowledged'});
+  await ev('vc-hall','intrusion','intrusion_vehicle','warning',520,{kind:'hall',zoneId:'vz-line',boxes:[{x:0.05,y:0.55,w:0.25,h:0.3,label:'forklift 0.88',confidence:0.88}],status:'resolved',note:'Forklift driver briefed on the walkway marking'});
+  await ev('vc-hall','fire_smoke','smoke','critical',260,{kind:'fire',conf:0.86,boxes:[{x:0.28,y:0.1,w:0.25,h:0.3,label:'smoke 0.86',confidence:0.86}],actions:{broadcastMs:180,relayMs:12},status:'false_alarm',note:'Steam from the mould cooling water leak – sent for retraining',retrain:1});
+  await ev('vc-gate','fire_smoke','fire','critical',3,{kind:'fire',conf:0.95,boxes:[{x:0.27,y:0.24,w:0.18,h:0.25,label:'fire 0.95',confidence:0.95},{x:0.3,y:0.05,w:0.2,h:0.2,label:'smoke 0.9',confidence:0.9}],actions:{broadcastMs:170,relayMs:10}});
   for (const [ago,defect,size,cls,box] of [[6,'scratch',1.6,'A',[0.31,0.4,0.11,0.06]],[44,'sink_mark',2.4,'A',[0.48,0.42,0.08,0.1]],[95,'short_shot',6,'B',[0.73,0.69,0.08,0.12]],[160,'flash',1.4,'B',[0.15,0.7,0.12,0.06]],[300,'burn_mark',3.1,'A',[0.72,0.28,0.08,0.1]]])
-    ev('vc-line','quality','defect',cls==='A'?'warning':'info',ago,{kind:'panel',conf:0.96,detail:{preset:'automotive_plastic',defect,sizeMm:size,surfaceClass:cls,partId:`DTP-${240000+ago}`,inspectionMs:180+ago%40},
+    await ev('vc-line','quality','defect',cls==='A'?'warning':'info',ago,{kind:'panel',conf:0.96,detail:{preset:'automotive_plastic',defect,sizeMm:size,surfaceClass:cls,partId:`DTP-${240000+ago}`,inspectionMs:180+ago%40},
       boxes:[{x:box[0],y:box[1],w:box[2],h:box[3],label:`${defect.replace('_',' ')} ${size} mm`,confidence:0.96}],actions:{plcMs:4},locked:0,status:ago>200?'resolved':'open',note:ago>200?'Part rejected and scrapped':''});
   for (const [ago,defect] of [[20,'dent'],[140,'rust'],[610,'hole']])
-    ev('vc-dock','quality','defect','warning',ago,{kind:'dock',conf:0.93,detail:{preset:'logistics_container',defect,sizeMm:defect==='hole'?40:120,partId:`CONT-MSKU${4410000+ago}`},boxes:[{x:0.47,y:0.37,w:0.12,h:0.21,label:`${defect} 0.93`,confidence:0.93}],locked:0});
+    await ev('vc-dock','quality','defect','warning',ago,{kind:'dock',conf:0.93,detail:{preset:'logistics_container',defect,sizeMm:defect==='hole'?40:120,partId:`CONT-MSKU${4410000+ago}`},boxes:[{x:0.47,y:0.37,w:0.12,h:0.21,label:`${defect} 0.93`,confidence:0.93}],locked:0});
   // The Vision quality page (FPY, PPM, Pareto) shows the inspection line's results too.
-  const line=one("SELECT * FROM vision_cameras WHERE id='vc-line'"); for (let m=0;m<360;m+=1) syncQualityMinute(line,iso(m*60000).slice(0,16));
-  run("UPDATE users SET vision_duties='[\"ehs\",\"security\",\"qa\"]' WHERE id='u-acme'");
-  run("UPDATE users SET vision_duties='[\"ehs\"]' WHERE id='u-acme-maint'");
+  const line=await one("SELECT * FROM vision_cameras WHERE id='vc-line'"); for (let m=0;m<360;m+=1) await syncQualityMinute(line,iso(m*60000).slice(0,16));
+  await run("UPDATE users SET vision_duties='[\"ehs\",\"security\",\"qa\"]' WHERE id='u-acme'");
+  await run("UPDATE users SET vision_duties='[\"ehs\"]' WHERE id='u-acme-maint'");
   return true;
 }

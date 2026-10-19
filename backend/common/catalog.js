@@ -53,7 +53,7 @@ export const SPEC_FIELDS={
 // Breakdown reporting (at creation) and close-out (at completion) code lists. The four failure-coding lists are
 // editable master data (table code_lists, seeded with these ISO 14224 based defaults); read them with codes(list).
 export const CODE_LISTS={failureCategories:'failure_categories',failureModes:'failure_modes',rootCauses:'root_causes',actions:'actions'};
-export const codes=list=>all('SELECT code FROM code_lists WHERE list=? ORDER BY position,code',list).map(r=>r.code);
+export const codes=async list=>(await all('SELECT code FROM code_lists WHERE list=? ORDER BY position,code',list)).map(r=>r.code);
 export const FAILURE_CATEGORIES=['mechanical','hydraulic','pneumatic','electrical','controls','heating','cooling','tooling','material','safety','other'];
 export const MACHINE_STATES=['stopped','reduced_output','quality_issue','running'];
 export const FAILURE_MODES=['fail_to_start','fail_to_stop','breakdown','low_output','erratic_operation','abnormal_noise_vibration','overheating','external_leakage','quality_defect','structural_damage','minor_issue','other'];
@@ -117,11 +117,11 @@ export const parametersFor=type=>Object.entries(CONDITION_PARAMETERS).filter(([,
 // your electricity supplier under Organisation → Company for accurate reporting.
 export const GRID_CO2={IN:0.71,CN:0.58,US:0.37,DE:0.38,GB:0.21,FR:0.06,IT:0.30,ES:0.17,JP:0.47,KR:0.44,BR:0.10,MX:0.42,TH:0.48,VN:0.47,ID:0.68,PL:0.66,TR:0.43,ZA:0.88,AE:0.40,default:0.45};
 
-export const catalog=()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:codes('failure_categories'),machineStates:MACHINE_STATES,failureModes:codes('failure_modes'),rootCauses:codes('root_causes'),actions:codes('actions'),coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS,conditionParameters:CONDITION_PARAMETERS,defectTypes:DEFECT_TYPES,processParams:PROCESS_PARAMS,safetyEvents:SAFETY_EVENTS,zoneKinds:ZONE_KINDS,assetKinds:ASSET_KINDS,tagTypes:TAG_TYPES});
+export const catalog=async ()=>({machineTypes:MACHINE_TYPES,criticality:CRITICALITY,equipmentStatus:EQUIPMENT_STATUS,specFields:SPEC_FIELDS,failureCategories:await codes('failure_categories'),machineStates:MACHINE_STATES,failureModes:await codes('failure_modes'),rootCauses:await codes('root_causes'),actions:await codes('actions'),coverageHours:COVERAGE_HOURS,operatingPatterns:OPERATING_PATTERNS,partUnits:PART_UNITS,partUrgency:PART_URGENCY,fieldRoles:FIELD_ROLES,productionMachines:PRODUCTION_MACHINES,liveStates:LIVE_STATES,downtimeReasons:DOWNTIME_REASONS,productUnits:PRODUCT_UNITS,conditionParameters:CONDITION_PARAMETERS,defectTypes:DEFECT_TYPES,processParams:PROCESS_PARAMS,safetyEvents:SAFETY_EVENTS,zoneKinds:ZONE_KINDS,assetKinds:ASSET_KINDS,tagTypes:TAG_TYPES});
 
 // Validates a full parameter set for a machine type and returns only known keys, typed.
 // linkedEquipment(id) must return the referenced asset (or undefined) so cross-company links are refused.
-export function validateSpecs(type,input,linkedEquipment=()=>undefined) {
+export async function validateSpecs(type,input,linkedEquipment=()=>undefined) {
   const fields=SPEC_FIELDS[type]; if (!fields) bad('Unknown machine type');
   if (input==null||typeof input!=='object'||Array.isArray(input)) bad('specs must be an object');
   const out={}, missing=[];
@@ -133,7 +133,7 @@ export function validateSpecs(type,input,linkedEquipment=()=>undefined) {
       if (!Number.isFinite(n)||(f.type==='integer'&&!Number.isInteger(n))||n<f.min||n>f.max) bad(`${f.label} must be ${f.type==='integer'?'a whole number':'a number'} from ${f.min} to ${f.max}${f.unit?' '+f.unit:''}`);
       out[f.key]=n;
     } else if (f.type==='choice') { if (!f.options.includes(v)) bad(`${f.label} must be one of: ${f.options.join(', ')}`); out[f.key]=v; }
-    else if (f.type==='equipment') { if (typeof v!=='string'||!linkedEquipment(v)) bad(`${f.label} must be a machine of the same company`); out[f.key]=v; }
+    else if (f.type==='equipment') { if (typeof v!=='string'||!(await linkedEquipment(v))) bad(`${f.label} must be a machine of the same company`); out[f.key]=v; }
     else { if (typeof v!=='string'||v.trim().length>f.max) bad(`${f.label} must be text up to ${f.max} characters`); if (v.trim()) out[f.key]=v.trim(); }
   }
   if (missing.length) bad(`Missing mandatory ${type} parameters: ${missing.join(', ')}`);

@@ -1,3 +1,4 @@
+import { t, t as _t } from './i18n.js';
 // Equipment pictures and icons, and chat text formatting, shared by the web workspace and the field app.
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -10,7 +11,7 @@ const GLYPHS={
   auxiliary:'<path d="M20 8h24l-4 22H24z"/><rect x="18" y="30" width="28" height="18" rx="2"/><circle cx="32" cy="39" r="5"/><path d="M24 48v8M40 48v8"/>',
 };
 export function machineIcon(type,size=48,label='') {
-  return `<svg class="machine-icon" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${esc(label||type||'Equipment')}" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">${GLYPHS[type]||GLYPHS.auxiliary}</svg>`;
+  return `<svg class="machine-icon" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${esc(label||type||_t('media.equipment'))}" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">${GLYPHS[type]||GLYPHS.auxiliary}</svg>`;
 }
 
 // Pictures are private: they are fetched with the sign-in token and shown from a blob URL. Markup carries
@@ -27,7 +28,7 @@ export const imageSrc=e=>e?.image_attachment_id?`/api/equipment/${encodeURICompo
 // The asset's picture, or its machine-type icon.
 export function assetVisual(e,size=48,cls='asset-visual') {
   const src=imageSrc(e);
-  return `<span class="${cls}" style="width:${size}px;height:${size}px">${src?`<img data-auth-src="${esc(src)}" alt="${esc(`${e.make||''} ${e.model||''}`.trim()||'Equipment')}" width="${size}" height="${size}">`:machineIcon(e?.machine_type,Math.round(size*0.8),e?.machine_type)}</span>`;
+  return `<span class="${cls}" style="width:${size}px;height:${size}px">${src?`<img data-auth-src="${esc(src)}" alt="${esc(`${e.make||''} ${e.model||''}`.trim()||_t('media.equipment'))}" width="${size}" height="${size}">`:machineIcon(e?.machine_type,Math.round(size*0.8),e?.machine_type)}</span>`;
 }
 
 // Assistant replies use light Markdown: paragraphs, numbered and bulleted lists, **bold**. Everything is escaped first.

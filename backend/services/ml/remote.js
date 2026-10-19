@@ -15,9 +15,9 @@ async function post(e,task,features,fetchFn) {
 // Breakdown risk and unusual pattern (task "failure"), plus scrap-spike risk (task "scrap") while the machine runs.
 export async function scoreMachine(e,at=Date.now(),fetchFn=fetch) {
   if (!mlConfigured()) return null;
-  const features=featureRow(e,at); if (!features) return {status:'learning'};
+  const features=await featureRow(e,at); if (!features) return {status:'learning'};
   try {
-    const out={status:'ok',...await post(e,'failure',features,fetchFn)}, scrapFeatures=scrapFeatureRow(e,at);
+    const out={status:'ok',...await post(e,'failure',features,fetchFn)}, scrapFeatures=await scrapFeatureRow(e,at);
     if (scrapFeatures) out.scrap=(await post(e,'scrap',scrapFeatures,fetchFn)).scrap??null;
     return out;
   } catch { return {status:'unavailable'}; }

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'mouldcare-tracesuite-test-'));
 process.env.MOULDCARE_DATA_DIR=dir;
+process.env.MOULDCARE_DB_SCHEMA='t_'+crypto.randomUUID().replace(/-/g,'').slice(0,20);
 process.env.MOULDCARE_SECRET='test-only-very-long-random-secret-123456';
 process.env.MOULDCARE_INTEGRATION_KEY='test-integration-key';
 delete process.env.EMAIL_PROVIDER;
@@ -14,7 +15,7 @@ const { createServer }=await import('../server.js');
 const { db, one, all }=await import('../common/db.js');
 const server=createServer(); await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
-after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();rmSync(dir,{recursive:true,force:true});});
+after(async()=>{await new Promise(resolve=>server.close(resolve));await db.close({dropSchema:true});rmSync(dir,{recursive:true,force:true});});
 async function call(path,method='GET',body,token,extra={}){const r=await fetch(base+'/api'+path,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{}),...extra},body:body==null?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
 const tokens={};
 for (const [key,email] of Object.entries({acme:'acme@demo.test',maint:'maint@demo.test',nova:'nova@demo.test',engineer:'engineer@demo.test'})) tokens[key]=(await call('/auth/login','POST',{email,password:'DemoPass123!'})).data.token;
@@ -48,11 +49,11 @@ test('real time: process window at start, live readings open deviations, decisio
   const at=m=>new Date(t-m*60000).toISOString();
   let res=await intake([{type:'process',deviceId:'demo-device-a',at:at(3),values:{meltTempC:231,cycleTimeS:4.9}},{type:'process',deviceId:'demo-device-a',at:at(2),values:{meltTempC:246.5}},{type:'process',deviceId:'demo-device-a',at:at(1),values:{meltTempC:249}}]);
   assert.equal(res.data.accepted,3,JSON.stringify(res.data.results));
-  let dev=one("SELECT * FROM process_deviations WHERE batch_id='b-cap3' AND parameter='meltTempC'");
+  let dev=await one("SELECT * FROM process_deviations WHERE batch_id='b-cap3' AND parameter='meltTempC'");
   assert.deepEqual([dev.value,dev.readings,dev.max,dev.ended_at],[249,2,240,null]);
-  assert.ok(one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status='open'",`deviation:${dev.id}`));
+  assert.ok(await one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status='open'",`deviation:${dev.id}`));
   await intake([{type:'process',deviceId:'demo-device-a',at:at(0),values:{meltTempC:232}}]);
-  assert.ok(one('SELECT ended_at FROM process_deviations WHERE id=?',dev.id).ended_at);
+  assert.ok((await one('SELECT ended_at FROM process_deviations WHERE id=?',dev.id)).ended_at);
   assert.equal((await intake([{type:'process',deviceId:'demo-device-n',at:at(0),values:{meltTempC:1}}])).data.accepted,1);
   // Decisions: only managers; a rejected deviation blocks release.
   assert.equal((await call(`/trace/deviations/${dev.id}/decision`,'POST',{decision:'accepted',disposition:'x'},tokens.maint)).status,403);
@@ -60,7 +61,7 @@ test('real time: process window at start, live readings open deviations, decisio
   assert.ok(q.releaseBlockers.includes('Process deviations are waiting for a decision'));
   assert.ok(q.spc.find(s=>s.parameter==='meltTempC').outside>=2);
   assert.equal((await call(`/trace/deviations/${dev.id}/decision`,'POST',{decision:'rejected',disposition:'2 h of production sorted'},tokens.acme)).data.status,'rejected');
-  assert.ok(!one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status='open'",`deviation:${dev.id}`));
+  assert.ok(!await one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status='open'",`deviation:${dev.id}`));
   assert.ok((await call('/trace/batches/b-cap3/quality','GET',null,tokens.acme)).data.releaseBlockers.some(b=>/rejected/.test(b)));
   // Housing: hold on deviation – completing with an open deviation puts the batch on hold.
   await call('/trace/products/pr-hsg','PUT',{customer:'Meridian Automotive',warrantyMonths:36,packQty:40,holdOnDeviation:true,processWindow:{meltTempC:{min:255,max:275}},checkSheets:{}},tokens.acme);
@@ -75,7 +76,7 @@ test('real time: process window at start, live readings open deviations, decisio
 
 test('labels and dispatch: only released batches, the right customer, FIFO warnings, then traceable shipments',async()=>{
   // Labels never exceed the batch quantity; pallets group boxes.
-  const b=one("SELECT * FROM batches WHERE id='b-btl1'");
+  const b=await one("SELECT * FROM batches WHERE id='b-btl1'");
   assert.match((await call('/trace/batches/b-btl1/units','POST',{kind:'box',count:500,perUnit:250},tokens.maint)).data.error,/more than the batch's good quantity/);
   const boxes=(await call('/trace/batches/b-btl1/units','POST',{kind:'box',count:2,perUnit:250},tokens.maint)).data;
   assert.deepEqual(boxes.map(x=>x.serial),[`${b.batch_number}-0041`,`${b.batch_number}-0042`]);
@@ -98,7 +99,7 @@ test('labels and dispatch: only released batches, the right customer, FIFO warni
   assert.match((await call(`/trace/shipments/${cap2.data.id}/scan`,'POST',{serial:'B-CAP-2026-102-0001'},tokens.maint)).data.error,/is completed – only released batches may ship/);
   // Ship; labels are then shipped and a second ship is refused.
   const shipped=(await call(`/trace/shipments/${s.id}/ship`,'POST',{},tokens.maint)).data;
-  assert.equal(shipped.status,'shipped'); assert.equal(one('SELECT status FROM trace_units WHERE serial=?',boxes[1].serial).status,'shipped');
+  assert.equal(shipped.status,'shipped'); assert.equal((await one('SELECT status FROM trace_units WHERE serial=?',boxes[1].serial)).status,'shipped');
   assert.match((await call(`/trace/shipments/${s.id}/ship`,'POST',{},tokens.maint)).data.error,/already closed/);
   assert.equal((await call(`/trace/shipments/${s.id}/scan`,'POST',{serial:'B-BTL-2026-210-0031'},tokens.nova)).status,403);
 });
@@ -119,7 +120,7 @@ test('recall scope, warranty authentication, returns, correlation and supplier s
   // Recording a claim links it to the batch and marks the box returned.
   const fr=await call('/trace/returns','POST',{kind:'warranty_claim',customer:'Meridian Automotive',serial:'B-HSG-2026-041-0010',defect:'Cracked clip',quantity:2},tokens.maint);
   assert.equal(fr.status,201); assert.equal(fr.data.authenticity,'genuine'); assert.equal(fr.data.batch_id,'b-hsg1'); assert.match(fr.data.reference,/^FR-\d{4}-0006$/);
-  assert.equal(one("SELECT status FROM trace_units WHERE serial='B-HSG-2026-041-0010'").status,'returned');
+  assert.equal((await one("SELECT status FROM trace_units WHERE serial='B-HSG-2026-041-0010'")).status,'returned');
   assert.match((await call('/trace/returns','POST',{kind:'complaint',customer:'X',defect:'Y'},tokens.maint)).data.error,/serial on the label, or the batch number/);
   assert.equal((await call('/trace/returns','POST',{kind:'complaint',customer:'X',defect:'Y',batchNumber:'b-cap-2026-101'},tokens.maint)).data.batch_id,'b-cap1');
   assert.equal((await call(`/trace/returns/${fr.data.id}`,'PATCH',{status:'accepted',rootCause:'Dryer dew point'},tokens.maint)).status,403);

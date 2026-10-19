@@ -16,7 +16,9 @@ The MVP covers the core service workflows. This document plans what comes next a
 ## Phase 0: production hardening (before the first live customer)
 
 - **Database:**
-  - Move to PostgreSQL with tenant row-level security as a second line of defence behind `access.js`.
+  - ✅ Move to PostgreSQL (done: see [MIGRATION-POSTGRES.md](MIGRATION-POSTGRES.md)).
+  - Add tenant row-level security as a second line of defence behind `access.js`.
+  - Move the sign-in throttle from memory into PostgreSQL, so more than one instance can run.
   - Keep migration files numbered and run in order.
   - Set up nightly backups and run a restore test.
 - **Identity:**

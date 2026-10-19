@@ -10,8 +10,8 @@ MouldCare is a local, working demo of a multi-tenant maintenance platform for pl
 
 ## Stack and rationale
 
-- **Node.js 22.13+ HTTP API with no dependencies.** One runtime and one API serve both clients. Feature areas are separate route modules in `backend/services/` (shared code in `backend/common/`), and machine-data sources plug in through `backend/services/iot/adapters/`.
-- **SQLite for the local MVP.** It gives transactional migrations, foreign keys and a portable demo database. Node's built-in SQLite module is experimental in Node 22, so move to PostgreSQL before production; see [docs/ROADMAP.md](docs/ROADMAP.md).
+- **Node.js 22.13+ HTTP API with two dependencies** (`pg` for PostgreSQL, the Anthropic SDK for the assistant). One runtime and one API serve both clients. Feature areas are separate route modules in `backend/services/` (shared code in `backend/common/`), and machine-data sources plug in through `backend/services/iot/adapters/`.
+- **PostgreSQL.** Transactional migrations, foreign keys and concurrent reads. Writes run in one serialised transaction per request (the same guarantee the code had on SQLite); reads run in consistent read-only snapshots in parallel. See [docs/MIGRATION-POSTGRES.md](docs/MIGRATION-POSTGRES.md) for the design and for moving an existing SQLite deployment.
 - **Web app and installable mobile web app (PWA).** The field app caches its own code, assigned work and opened tickets on the device. It queues changes in IndexedDB, shows them straight away, and syncs them safely when the connection returns. A native app (Expo) can use the same API later if device features require it.
 
 Security notes for the clients:
@@ -20,12 +20,17 @@ Security notes for the clients:
 - The field app keeps its token in session storage. Cached work and queued actions stay on the device until they are synced or the user signs out.
 - Use managed devices and HTTPS for field rollout.
 
+## Machine monitoring app (`monitor/`)
+
+A separate application for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in. See [monitor/README.md](monitor/README.md).
+
 ## Run the local demo
 
-From this directory in PowerShell:
+You need PostgreSQL 14+ running locally (or start one with `docker compose up -d db`). From this directory in PowerShell:
 
 ```powershell
 node --version                 # 22.13 or newer
+$env:DATABASE_URL = 'postgres://mouldcare:mouldcare@localhost:5432/mouldcare'
 npm run seed
 npm run iot:sync                # pull 6 h of mock machine data
 $env:MOULDCARE_SECRET = 'replace-with-a-long-random-local-secret-32-chars-minimum'
@@ -36,7 +41,7 @@ npm start
 
 Open **http://localhost:3100/** for the web workspace and **http://localhost:3100/mobile/** for the field app. `localhost` works for desktop testing; to install the field app on a phone, serve it over HTTPS.
 
-The database and uploads are stored under `data/`, which Git ignores. Both `npm run seed` and `npm run iot:sync` are safe to repeat: the seed skips data that already exists, and sync carries on from where it stopped without duplicating readings. Database migrations in `backend/migrations/` run automatically, each in its own transaction, so an existing demo database upgrades in place. The richer demo history is only added to a new database: to start fresh, stop the server, delete `data/`, and run the two commands above again.
+Uploads are stored under `data/`, which Git ignores; everything else is in the PostgreSQL database named in `DATABASE_URL`. Both `npm run seed` and `npm run iot:sync` are safe to repeat: the seed skips data that already exists, and sync carries on from where it stopped without duplicating readings. Database migrations in `backend/migrations/` run automatically, each in its own transaction, so an existing demo database upgrades in place. The richer demo history is only added to a new database: to start fresh, stop the server, drop and recreate the database (`dropdb mouldcare && createdb mouldcare`), delete `data/`, and run the commands above again.
 
 Demo password for all accounts: `DemoPass123!`.
 
@@ -181,7 +186,7 @@ What happens on start, and how to configure it:
 - serve over HTTPS
 - use `/api/health` as the health check
 
-Run a single instance: SQLite and the sign-in lockout counter are per instance. Scaling out needs the PostgreSQL step in `docs/ROADMAP.md`.
+Run a single instance for now. The database supports several, but the sign-in lockout counter is still held in memory per instance; move it into PostgreSQL before scaling out.
 
 Behind a hosting proxy, the sign-in lockout effectively applies per email address, because every request arrives from the proxy's address.
 
@@ -191,7 +196,7 @@ Behind a hosting proxy, the sign-in lockout effectively applies per email addres
 npm test
 ```
 
-There are 109 tests in fourteen files. Each file uses its own temporary database and tests with two customers and two providers. Shared, complete request bodies live in `backend/tests/fixtures.js`.
+There are 113 tests in fifteen files. Each test file uses its own temporary PostgreSQL schema (created on start, dropped at the end, so files run in parallel), so set `DATABASE_URL` before `npm test`. Each file tests with two customers and two providers. Shared, complete request bodies live in `backend/tests/fixtures.js`.
 
 **`workflows.test.js`**
 - isolation between customers and between providers
@@ -282,9 +287,13 @@ There are 109 tests in fourteen files. Each file uses its own temporary database
 - false-alarm analytics and threshold advice
 - the opt-in AI second opinion: manual and automatic review, never on fire or critical incidents, and its agreement with people
 
+**`bulk-import.test.js`**
+- the CSV reader (quotes, semicolons, byte-order mark), template downloads for equipment, products and plants
+- uploads that create every row or none
+
 ## Claude Code dev panel
 
-`claude-mods/mouldcare-panel/` is a Claude Code mod: a side panel showing whether the app is running on port 3100, the result of the last test run, the git branch and uncommitted files, with **Run tests** (`t`), **Start demo** (`d`, seeds the demo data and starts the server for the session) and **Refresh** (`r`). It opens by itself in this repository on a wide enough window; `/mouldcare` opens it any time.
+`claude-mods/mouldcare-panel/` is a Claude Code mod: a side panel showing whether the app is running on port 3100, the result of the last test run, the git branch and uncommitted files, with **Run tests** (`t`), **Start demo** (`d`, seeds the demo data and starts the server for the session) and **Refresh** (`r`). It opens by itself in this repository on a wide enough window; `/mouldcare` opens it any time. **Run tests** and **Start demo** need PostgreSQL: start Claude Code with `DATABASE_URL` set (or after `docker compose up -d db`), otherwise the panel says the database is not reachable.
 
 Install it in Claude Code (terminal or desktop):
 
@@ -346,7 +355,7 @@ docs/ROADMAP.md                 Production hardening and later phases (IoT alert
 
 This is a local MVP, not a hosted production release. [docs/ROADMAP.md](docs/ROADMAP.md) lists the production-hardening work:
 
-- PostgreSQL with row-level security
+- tenant row-level security in PostgreSQL (the database itself is now PostgreSQL)
 - a managed identity provider, with token revocation
 - object storage for files, with malware scanning
 - HTTPS and rate limits

@@ -16,10 +16,10 @@ const human=v=>String(v??'—').replaceAll('_',' ');
 const hoursText=h=>h==null?null:h<48?`${h} h`:`${Math.round(h/24)} days`;
 
 // Everything known about the machine, as structured facts (also what the rule-based fallback is built from).
-export function machineFacts(e,{predictions=null,at=Date.now()}={}) {
-  const health=machineHealth(e,at), signals=machineInsights(e,at), scrap=assessScrap(e,at), oee=oeeInsights([e],14,at)[0], forecast=shiftForecast(e,at);
-  const alerts=all("SELECT severity,module,title,created_at FROM alerts WHERE equipment_id=? AND status<>'resolved' ORDER BY created_at DESC LIMIT 10",e.id);
-  const repairs=all("SELECT title,failure_mode,root_cause,action_taken,completed_at,status FROM tickets WHERE equipment_id=? ORDER BY created_at DESC LIMIT 5",e.id);
+export async function machineFacts(e,{predictions=null,at=Date.now()}={}) {
+  const health=await machineHealth(e,at), signals=await machineInsights(e,at), scrap=await assessScrap(e,at), oee=(await oeeInsights([e],14,at))[0], forecast=await shiftForecast(e,at);
+  const alerts=await all("SELECT severity,module,title,created_at FROM alerts WHERE equipment_id=? AND status<>'resolved' ORDER BY created_at DESC LIMIT 10",e.id);
+  const repairs=await all("SELECT title,failure_mode,root_cause,action_taken,completed_at,status FROM tickets WHERE equipment_id=? ORDER BY created_at DESC LIMIT 5",e.id);
   return {machine:{tag:e.asset_tag,type:e.machine_type,make:e.make,model:e.model},health,signals,scrap:{...scrap,explanation:explainScrap(scrap)},oee,forecast,alerts,repairs,predictions};
 }
 
@@ -88,7 +88,7 @@ const cache=new Map(), TTL=10*60000, MAX_CACHE=200;
 export const clearExplainCache=()=>cache.clear();
 
 export async function explainMachine(e,{predictions=null,at=Date.now(),locale='en'}={}) {
-  const facts=machineFacts(e,{predictions,at});
+  const facts=await machineFacts(e,{predictions,at});
   if (!aiEnabled()) return {source:'standard',explanation:standardExplanation(facts),generatedAt:new Date(at).toISOString()};
   const text=factsText(facts), key=e.id+':'+locale+':'+createHash('sha256').update(text).digest('hex'), hit=cache.get(key);
   if (hit&&at-hit.at<TTL) return hit.value;

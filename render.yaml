@@ -1,4 +1,5 @@
-# Render Blueprint: one web service built from the Dockerfile, with a persistent disk for the database and uploads.
+# Render Blueprint: a managed PostgreSQL database plus one web service built from the Dockerfile, with a small
+# persistent disk for uploaded files (photos, manuals, vision evidence).
 # Render generates the secrets; you enter the first admin's email and password when creating the Blueprint.
 # Region is fixed at creation; singapore is closest to India (alternatives: frankfurt, oregon, ohio, virginia).
 services:
@@ -15,6 +16,10 @@ services:
       mountPath: /data
       sizeGB: 1
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: platform-db
+          property: connectionString
       - key: MOULDCARE_SECRET
         generateValue: true
       - key: MOULDCARE_INTEGRATION_KEY
@@ -41,3 +46,10 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+
+databases:
+  - name: platform-db
+    databaseName: mouldcare
+    user: mouldcare
+    plan: basic-256mb   # smallest paid plan; check render.com/pricing. Keep it in the same region as the web service.
+    region: singapore

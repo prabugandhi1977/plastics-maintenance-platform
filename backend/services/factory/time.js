@@ -11,8 +11,8 @@ const DEFAULT_SHIFTS={
   '16x5':[['A','06:00','14:00',WEEKDAYS],['B','14:00','22:00',WEEKDAYS]],
   '8x5':[['Day','08:00','16:00',WEEKDAYS]]
 };
-export function shiftsFor(plant) {
-  const own=all('SELECT name,start_time,end_time,days FROM shifts WHERE plant_id=? ORDER BY start_time',plant.id);
+export async function shiftsFor(plant) {
+  const own=await all('SELECT name,start_time,end_time,days FROM shifts WHERE plant_id=? ORDER BY start_time',plant.id);
   if (own.length) return own.map(s=>({name:s.name,start:s.start_time,end:s.end_time,days:JSON.parse(s.days),custom:true}));
   return (DEFAULT_SHIFTS[plant.operating_pattern]||DEFAULT_SHIFTS['24x7']).map(([name,start,end,days])=>({name,start,end,days,custom:false}));
 }
@@ -22,8 +22,8 @@ const addDays=(date,n)=>{ const d=new Date(`${date}T00:00:00Z`); d.setUTCDate(d.
 const isoWeekday=date=>new Date(`${date}T00:00:00Z`).getUTCDay()||7;
 
 // Shift occurrences overlapping [from,to), clipped to it: [{name,date,start,end}] in epoch ms, sorted.
-export function shiftWindows(plant,from,to) {
-  const shifts=shiftsFor(plant), out=[];
+export async function shiftWindows(plant,from,to) {
+  const shifts=await shiftsFor(plant), out=[];
   for (let date=addDays(localDate(from,plant.timezone),-1), last=localDate(to,plant.timezone); date<=last; date=addDays(date,1)) {
     for (const s of shifts) {
       if (!s.days.includes(isoWeekday(date))) continue;
@@ -35,8 +35,8 @@ export function shiftWindows(plant,from,to) {
 }
 export const inShift=(windows,ms)=>windows.some(w=>ms>=w.start&&ms<w.end);
 // The shift running at `at`, or null.
-export function currentShift(plant,at=Date.now()) {
-  const w=shiftWindows(plant,at-86400000,at+86400000).find(x=>at>=x.fullStart&&at<x.fullEnd);
+export async function currentShift(plant,at=Date.now()) {
+  const w=(await shiftWindows(plant,at-86400000,at+86400000)).find(x=>at>=x.fullStart&&at<x.fullEnd);
   return w?{name:w.name,date:w.date,start:w.fullStart,end:w.fullEnd}:null;
 }
 // Local calendar days covering [from,to): [{date,start,end}] in epoch ms.

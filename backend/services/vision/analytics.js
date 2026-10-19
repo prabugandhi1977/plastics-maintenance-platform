@@ -20,10 +20,10 @@ export function recommendThreshold(list,targetPct) {
   return {status:'raise',currentFalsePct:current,...pick,note:`Raising the minimum confidence to ${Math.round(pick.threshold*100)} % would cut false alarms from ${current} % to ${pick.falsePctAfter} % of incidents, removing ${pick.falseAlarmsRemoved} false alarms and losing ${pick.realIncidentsLost} real ones.`,options};
 }
 
-export function falseAlarmReport(companyIds,{days=30,targetPct=10,now=Date.now()}={}) {
+export async function falseAlarmReport(companyIds,{days=30,targetPct=10,now=Date.now()}={}) {
   const from=new Date(now-days*86400000).toISOString(), where=companyIds?`AND e.company_id IN (${companyIds.map(()=>'?').join(',')})`:'';
-  const rows=all(`SELECT e.module,e.type,e.camera_id,c.name camera,e.confidence,e.occurred_at,e.status FROM vision_events e JOIN vision_cameras c ON c.id=e.camera_id
-    WHERE e.status IN ('resolved','false_alarm') AND e.module<>'system' AND e.occurred_at>=? ${where}`,from,...(companyIds||[]))
+  const rows=(await all(`SELECT e.module,e.type,e.camera_id,c.name camera,e.confidence,e.occurred_at,e.status FROM vision_events e JOIN vision_cameras c ON c.id=e.camera_id
+    WHERE e.status IN ('resolved','false_alarm') AND e.module<>'system' AND e.occurred_at>=? ${where}`,from,...(companyIds||[])))
     .map(r=>({...r,false:r.status==='false_alarm',hour:new Date(r.occurred_at).getUTCHours()}));
   const modules=MODULE_KEYS.map(module=>{
     const list=rows.filter(r=>r.module===module), decided=list.length, falses=list.filter(r=>r.false).length;

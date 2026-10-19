@@ -34,17 +34,17 @@ Write for someone standing at the machine with a phone: short numbered steps, on
 const val=v=>v==null||v===''?'—':String(v);
 const human=v=>val(v).replaceAll('_',' ');
 // The ticket record as plain text: everything the assistant should know, scoped to the ticket's own company.
-export function ticketContext(t) {
-  const e=one('SELECT * FROM equipment WHERE id=?',t.equipment_id), plant=one('SELECT name,country,timezone FROM plants WHERE id=?',t.plant_id);
+export async function ticketContext(t) {
+  const e=await one('SELECT * FROM equipment WHERE id=?',t.equipment_id), plant=await one('SELECT name,country,timezone FROM plants WHERE id=?',t.plant_id);
   const specs=Object.entries(JSON.parse(e.specs||'{}')).map(([k,v])=>`${k}=${v}`).join(', ');
-  const tm=telemetry(e.id), m=tm.metrics;
-  const alerts=all("SELECT severity,title,detail,created_at FROM alerts WHERE equipment_id=? AND status<>'resolved' ORDER BY created_at DESC LIMIT 10",e.id);
-  const checklist=all('SELECT item,done,note FROM checklist_entries WHERE ticket_id=? ORDER BY rowid',t.id);
-  const work=all('SELECT w.description,w.minutes,w.parts_used,w.created_at,u.name FROM work_logs w JOIN users u ON u.id=w.user_id WHERE w.ticket_id=? ORDER BY w.created_at',t.id);
-  const parts=all('SELECT item,part_number,quantity,unit,status FROM parts_requests WHERE ticket_id=?',t.id);
+  const tm=await telemetry(e.id), m=tm.metrics;
+  const alerts=await all("SELECT severity,title,detail,created_at FROM alerts WHERE equipment_id=? AND status<>'resolved' ORDER BY created_at DESC LIMIT 10",e.id);
+  const checklist=await all('SELECT item,done,note FROM checklist_entries WHERE ticket_id=? ORDER BY seq',t.id);
+  const work=await all('SELECT w.description,w.minutes,w.parts_used,w.created_at,u.name FROM work_logs w JOIN users u ON u.id=w.user_id WHERE w.ticket_id=? ORDER BY w.created_at',t.id);
+  const parts=await all('SELECT item,part_number,quantity,unit,status FROM parts_requests WHERE ticket_id=?',t.id);
   // Earlier repairs on this machine, then on the company's machines of the same make and model.
-  const history=all(`SELECT t.title,t.symptoms,t.error_codes,t.failure_category,t.failure_mode,t.root_cause,t.action_taken,t.completed_at,t.equipment_id=? same,
-      (SELECT group_concat(description,' | ') FROM work_logs w WHERE w.ticket_id=t.id) work
+  const history=await all(`SELECT t.title,t.symptoms,t.error_codes,t.failure_category,t.failure_mode,t.root_cause,t.action_taken,t.completed_at,t.equipment_id=? same,
+      (SELECT string_agg(description,' | ') FROM work_logs w WHERE w.ticket_id=t.id) work
     FROM tickets t JOIN equipment x ON x.id=t.equipment_id
     WHERE t.company_id=? AND t.status='completed' AND t.id<>? AND (t.equipment_id=? OR (x.make=? AND x.model=?))
     ORDER BY same DESC,t.completed_at DESC LIMIT 8`,e.id,t.company_id,t.id,e.id,e.make,e.model);
@@ -62,7 +62,7 @@ export function ticketContext(t) {
     `Open alerts: ${alerts.map(a=>`${a.severity} ${a.title}${a.detail?` (${a.detail})`:''}`).join('; ')||'none'}`,
     `Checklist: ${checklist.map(c=>`[${c.done?'x':' '}] ${c.item}${c.note?` (${c.note})`:''}`).join('; ')||'not started'}`,
     `Work done on this ticket: ${work.map(w=>`${w.created_at} ${w.name}: ${w.description} (${w.minutes} min${w.parts_used?`, parts ${w.parts_used}`:''})`).join('; ')||'none yet'}`,
-    `Photos on the ticket: ${one(`SELECT count(*) n FROM attachments WHERE company_id=? AND kind IN ('photo','evidence') AND mime LIKE 'image/%' AND ((entity_type='ticket' AND entity_id=?) OR (entity_type='work_log' AND entity_id IN (SELECT id FROM work_logs WHERE ticket_id=?)))`,t.company_id,t.id,t.id).n} (the newest are attached as images)`,
+    `Photos on the ticket: ${(await one(`SELECT count(*) n FROM attachments WHERE company_id=? AND kind IN ('photo','evidence') AND mime ILIKE 'image/%' AND ((entity_type='ticket' AND entity_id=?) OR (entity_type='work_log' AND entity_id IN (SELECT id FROM work_logs WHERE ticket_id=?)))`,t.company_id,t.id,t.id)).n} (the newest are attached as images)`,
     `Parts requested: ${parts.map(p=>`${p.item} ${p.part_number} ×${p.quantity} ${p.unit} (${p.status})`).join('; ')||'none'}`,
     `Earlier repairs (${history.length}): ${history.map(h=>`[${h.same?'this machine':'same model'}, ${h.completed_at?.slice(0,10)}] "${h.title}" — symptoms: ${h.symptoms}; codes: ${val(h.error_codes)}; failure mode: ${human(h.failure_mode)}; root cause: ${human(h.root_cause)}; action: ${human(h.action_taken)}; work: ${val(h.work)}`).join(' || ')||'none recorded'}`,
   ].join('\n');
@@ -70,18 +70,18 @@ export function ticketContext(t) {
 
 // The asset's PDF manuals (up to two, 5 MB each) as document blocks; the last one carries the cache breakpoint so
 // follow-up questions on the same machine reuse them from the prompt cache.
-export function manualBlocks(equipmentId) {
-  const docs=all("SELECT * FROM attachments WHERE entity_type='equipment' AND entity_id=? AND kind='manual' AND mime='application/pdf' ORDER BY created_at LIMIT 2",equipmentId);
+export async function manualBlocks(equipmentId) {
+  const docs=await all("SELECT * FROM attachments WHERE entity_type='equipment' AND entity_id=? AND kind='manual' AND mime='application/pdf' ORDER BY created_at LIMIT 2",equipmentId);
   return docs.map((a,i)=>({type:'document',title:a.filename,source:{type:'base64',media_type:'application/pdf',data:readStoredFile(a).toString('base64')},...(i===docs.length-1?{cache_control:{type:'ephemeral'}}:{})}));
 }
 
 // Photos on the ticket (the report, work logs and questions), newest last, as image blocks with a caption each.
 const IMAGE_TYPES=['image/jpeg','image/png','image/webp'];
-export function photoBlocks(t,limit=6) {
-  const rows=all(`SELECT a.*,u.name uploader FROM attachments a JOIN users u ON u.id=a.uploaded_by
+export async function photoBlocks(t,limit=6) {
+  const rows=(await all(`SELECT a.*,u.name uploader FROM attachments a JOIN users u ON u.id=a.uploaded_by
     WHERE a.company_id=? AND a.kind IN ('photo','evidence') AND a.mime IN (${IMAGE_TYPES.map(()=>'?').join(',')})
       AND ((a.entity_type='ticket' AND a.entity_id=?) OR (a.entity_type='work_log' AND a.entity_id IN (SELECT id FROM work_logs WHERE ticket_id=?)))
-    ORDER BY a.created_at DESC LIMIT ?`,t.company_id,...IMAGE_TYPES,t.id,t.id,limit).reverse();
+    ORDER BY a.created_at DESC LIMIT ?`,t.company_id,...IMAGE_TYPES,t.id,t.id,limit)).reverse();
   return rows.flatMap((a,i)=>[{type:'text',text:`Photo ${i+1} of ${rows.length}: "${a.filename}", added by ${a.uploader} at ${a.created_at}${a.entity_type==='work_log'?' with a work log':''}.`},
     {type:'image',source:{type:'base64',media_type:a.mime,data:readStoredFile(a).toString('base64')}}]);
 }
@@ -142,11 +142,11 @@ const HAZARDS={
 };
 const PPE={injection:['Safety glasses or face shield','Heat-resistant gloves','Safety shoes'],blow:['Safety glasses','Heat-resistant gloves','Safety shoes','Hearing protection'],
   extrusion:['Face shield','Heat-resistant gloves and sleeves','Safety shoes'],mould:['Safety shoes','Cut-resistant gloves','Hard hat when lifting'],auxiliary:['Safety glasses','Gloves','Safety shoes']};
-export function standardGuide(t) {
-  const e=one('SELECT machine_type,make,model,asset_tag FROM equipment WHERE id=?',t.equipment_id);
-  const items=all('SELECT item FROM checklist_entries WHERE ticket_id=? ORDER BY rowid',t.id).map(x=>x.item);
-  const checklist=items.length?items:all('SELECT item FROM checklist_templates WHERE machine_type=? ORDER BY position',e.machine_type).map(x=>x.item);
-  const last=one("SELECT title,action_taken,root_cause,completed_at FROM tickets WHERE equipment_id=? AND status='completed' AND id<>? ORDER BY completed_at DESC LIMIT 1",t.equipment_id,t.id);
+export async function standardGuide(t) {
+  const e=await one('SELECT machine_type,make,model,asset_tag FROM equipment WHERE id=?',t.equipment_id);
+  const items=(await all('SELECT item FROM checklist_entries WHERE ticket_id=? ORDER BY seq',t.id)).map(x=>x.item);
+  const checklist=items.length?items:(await all('SELECT item FROM checklist_templates WHERE machine_type=? ORDER BY position',e.machine_type)).map(x=>x.item);
+  const last=await one("SELECT title,action_taken,root_cause,completed_at FROM tickets WHERE equipment_id=? AND status='completed' AND id<>? ORDER BY completed_at DESC LIMIT 1",t.equipment_id,t.id);
   const steps=[
     {title:'Make the machine safe',instruction:'Stop the machine, apply lock-out/tag-out at the main isolator, release stored hydraulic and pneumatic pressure, and let heated zones cool or wear heat protection.',check:'Isolator locked and tagged; pressure gauges read zero.'},
     {title:'Confirm the reported fault',instruction:`Compare what you find with the report: ${t.symptoms}${t.error_codes?` Error codes: ${t.error_codes}.`:''}`,check:'Fault confirmed, or the difference noted in a work log.'},

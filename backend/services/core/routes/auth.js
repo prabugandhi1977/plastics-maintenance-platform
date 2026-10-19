@@ -26,39 +26,39 @@ function fail(address) {
 // Passwords set through the app are stored trimmed; one pasted into a hosting dashboard may carry stray spaces.
 // Accept either form so a copy-paste difference never locks someone out.
 const passwordMatches=(raw,hash)=>verifyPassword(raw.trim(),hash)||(raw!==raw.trim()&&verifyPassword(raw,hash));
-export function preferences(u) {
-  const c=u.company_id?byId('companies',u.company_id):null;
+export async function preferences(u) {
+  const c=u.company_id?await byId('companies',u.company_id):null;
   return {locale:u.locale||c?.locale||'en',timezone:c?.timezone||'UTC',currency:c?.currency||'USD',units:c?.units||'metric'};
 }
-const profile=u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,preferences:preferences(u),visionDuties:(()=>{ try { return JSON.parse(u.vision_duties||'[]'); } catch { return []; } })()});
+const profile=async u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,preferences:await preferences(u),visionDuties:(()=>{ try { return JSON.parse(u.vision_duties||'[]'); } catch { return []; } })()});
 
 export function register(r) {
   r.get('/health',()=>({ok:true,time:now()}),{public:true});
   // What the sign-in page needs before anyone is signed in: whether demo accounts exist (demo copies only).
-  r.get('/config',()=>({demoAccounts:!!one("SELECT 1 FROM users WHERE email='admin@demo.test' AND active=1")}),{public:true});
-  r.post('/auth/login',({body})=>{
+  r.get('/config',async ()=>({demoAccounts:!!await one("SELECT 1 FROM users WHERE email='admin@demo.test' AND active=1")}),{public:true});
+  r.post('/auth/login',async ({body})=>{
     const address=email(body.email); if (typeof body.password!=='string'||!body.password||body.password.length>200) bad('Enter your password');
     throttle(address);
-    const u=one('SELECT * FROM users WHERE email=? AND active=1',address);
+    const u=await one('SELECT * FROM users WHERE email=? AND active=1',address);
     const ok=passwordMatches(body.password,u?.password_hash??DUMMY_HASH);
     if (!ok||!u) fail(address);
     failures.delete(address);
-    return {token:tokenFor(u),user:profile(u)};
+    return {token:tokenFor(u),user:await profile(u)};
   },{public:true});
-  r.get('/me',({u})=>profile(one('SELECT * FROM users WHERE id=?',u.id)));
-  r.patch('/me',({u,body})=>{
+  r.get('/me',async ({u})=>await profile(await one('SELECT * FROM users WHERE id=?',u.id)));
+  r.patch('/me',async ({u,body})=>{
     if (body.locale!==undefined && body.locale!==null && !LOCALES.includes(body.locale)) bad(`locale must be one of: ${LOCALES.join(', ')}`);
-    run('UPDATE users SET locale=? WHERE id=?',body.locale??null,u.id);
-    return profile(one('SELECT * FROM users WHERE id=?',u.id));
+    await run('UPDATE users SET locale=? WHERE id=?',body.locale??null,u.id);
+    return await profile(await one('SELECT * FROM users WHERE id=?',u.id));
   });
-  r.post('/me/password',({u,body})=>{
-    const current=one('SELECT password_hash FROM users WHERE id=?',u.id), next=required(body.newPassword,'newPassword',200);
+  r.post('/me/password',async ({u,body})=>{
+    const current=await one('SELECT password_hash FROM users WHERE id=?',u.id), next=required(body.newPassword,'newPassword',200);
     if (typeof body.currentPassword!=='string'||!passwordMatches(body.currentPassword,current.password_hash)) throw new HttpError(403,'Current password is incorrect');
     if (next.length<12) bad('Password must have at least 12 characters');
     // Signs out all other sessions; the caller gets a fresh token so this one continues.
-    run('UPDATE users SET password_hash=?,must_change_password=0,session_version=session_version+1 WHERE id=?',hashPassword(next),u.id);
-    audit(u,'user.password_change','user',u.id,isCustomer(u)?u.company_id:null);
-    const updated=one('SELECT * FROM users WHERE id=?',u.id);
-    return {ok:true,token:tokenFor(updated),user:profile(updated)};
+    await run('UPDATE users SET password_hash=?,must_change_password=0,session_version=session_version+1 WHERE id=?',hashPassword(next),u.id);
+    await audit(u,'user.password_change','user',u.id,isCustomer(u)?u.company_id:null);
+    const updated=await one('SELECT * FROM users WHERE id=?',u.id);
+    return {ok:true,token:tokenFor(updated),user:await profile(updated)};
   });
 }
