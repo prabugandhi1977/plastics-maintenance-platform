@@ -71,7 +71,7 @@ The menu follows the plant's functions:
 | **Production (IMM)** | Live shop floor, OEE performance, Products & cycle times, Machine alerts |
 | **Vision inspection & quality** | Vision overview, Inspection results (FPY, PPM), Vision incidents, Cameras & AI modules, Edge nodes & licences |
 | **Traceability** | Trace search & genealogy, Batches & material lots, Process control (SPC), Dispatch & shipments, Field returns & warranty |
-| **Maintenance** | Maintenance overview, Breakdown tickets, Equipment register, Condition monitoring, Service contracts, Spare parts requests, Asset tracking |
+| **Maintenance** | Maintenance overview, Breakdown tickets, Preventive maintenance, Equipment register, Condition monitoring, Service contracts, Spare parts requests, Asset tracking |
 | **Energy (EMS)** | Energy & CO₂ |
 | **Safety** | Safety events (camera PPE, fire and intrusion alarms come from Vision AI) |
 | **Administration** | Companies, plants & users, Service providers, Settings, Machine data (IoT), Audit trail |
@@ -97,6 +97,22 @@ Built on the practice of leading MES traceability products (genealogy, process w
 - **Real time:** each product has a validated **process window**. A batch cannot start outside it. Live readings from the machine (`process` events on the machine-data intake, e.g. from an OPC UA / Euromap 77 gateway) outside the window open a **deviation** with an alert, which a manager accepts or rejects. **Quality gates** (first article, in-process, final QC, packaging) are digital check sheets with OK/Not OK items and measured values with limits; a failed gate puts a finished batch on hold. A batch is released only when every gate passed, every deviation is decided, and no material lot is quarantined. **SPC:** Cp/Cpk per setting and control charts with UCL/LCL and the window.
 - **Forward:** box labels and serialised parts with QR codes (printable labels), pallets, and **dispatch** by scanning labels onto a delivery note. Loading refuses labels of batches not released, parts made for another customer, and boxes already on a pallet or shipment; it warns when older stock should go first. **Recall scope** of a lot or batch: batches, labels still in stock, quantities at each customer and delivery note, compared with recalling the whole production.
 - **Field returns & warranty:** complaints, warranty claims and field failures recorded by label serial (or batch number). Each claim is authenticated: label printed by us, shipped, to this customer, within warranty, not claimed before. **Field correlation** ranks lots, suppliers, machines, moulds, operators and process settings by returns per 1,000 shipped.
+
+## Preventive maintenance
+
+**Maintenance → Preventive maintenance** plans servicing ahead of failure:
+
+- **What a plan counts.** Each plan belongs to one machine and counts one of three things:
+  - calendar days
+  - machine running hours, from the machine-state history
+  - mould shots: parts produced while the mould was in a batch (or for a product made with it), divided by its cavities. A new mould plan starts from the mould's recorded shot count past its last whole interval.
+- **Status.** A plan is *Due soon* at 90 % of its interval, *Due* at 100 % and *Overdue* at 110 %.
+- **Jobs.** A plan that falls due opens a job. An overdue plan raises a warning alert, which resolves when the job is done.
+- **Completing a job.** The job is closed with a result for every checklist item, and a reason for any item not done. The count then restarts.
+- **PM compliance** is the share of jobs that came due in the last 90 days and were done within 110 % of their interval.
+- **Separate from breakdowns.** PM jobs are not breakdown tickets, so MTBF, MTTR and breakdown downtime still count failures only.
+
+Customer admins, plant managers, dispatchers and platform admins create, edit and pause plans. Maintenance staff complete jobs. A background check every 15 minutes opens jobs and raises alerts.
 
 ## Smart factory
 
@@ -246,6 +262,13 @@ Each test file uses its own temporary PostgreSQL schema (created on start, dropp
 - contract, spare-part, quote-validity and purchase-order rules
 - service areas, field-engineer contacts, and provider approval needing valid insurance
 - default response targets, editable standard checklists, and the MTTR/MTBF/availability KPIs
+
+**`pm.test.js`**
+- status bands at 90, 100 and 110 % of the interval
+- running hours from machine states, mould shots from batches and products, and the starting shot count
+- one open job per plan, the overdue alert, and its resolution on completion
+- checklist results with notes for skipped items, on-time and late completion, and PM compliance
+- who may plan, complete and see plans across tenants
 
 **`platform.test.js`**
 - login lockout and security headers
