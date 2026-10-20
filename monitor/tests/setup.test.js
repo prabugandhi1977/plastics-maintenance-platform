@@ -82,8 +82,9 @@ test('signals: add with sensor details and limits, take readings, edit, delete',
 });
 
 test('photos and documents for machines and signals, checked by their content', async () => {
-  const up = (q, raw, token = t.engineer) => call(`/machines/${mid}/files?${new URLSearchParams(q)}`, { method: 'POST', raw, token });
+  const up = (q, raw, token = t.admin) => call(`/machines/${mid}/files?${new URLSearchParams(q)}`, { method: 'POST', raw, token });
   assert.equal((await up({ kind: 'photo', name: 'm.png' }, PNG, t.viewer)).status, 403);
+  assert.match((await up({ kind: 'photo', name: 'm.png' }, PNG, t.engineer)).data.error, /super user/, 'only the super user manages files');
   assert.match((await up({ kind: 'photo', name: 'm.png' }, PDF)).data.error, /JPEG, PNG or WebP/);
   assert.match((await up({ kind: 'document', name: 'x.exe' }, Buffer.from([0x4d, 0x5a, 0, 0]))).data.error, /Documents may be/);
   assert.match((await up({ kind: 'document', name: 'macro.docm' }, Buffer.from('504b030414000000', 'hex'))).data.error, /Word \(\.docx\)/);
@@ -103,7 +104,8 @@ test('photos and documents for machines and signals, checked by their content', 
   assert.match((await call(`/files/${csv.data.id}`, { token: t.viewer })).headers.get('content-disposition'), /^attachment/);
   assert.equal((await call(`/files/${doc.data.id}`)).status, 401);
   assert.equal((await call(`/files/${doc.data.id}`, { method: 'DELETE', token: t.viewer })).status, 403);
-  assert.equal((await call(`/files/${doc.data.id}`, { method: 'DELETE', token: t.engineer })).data.deleted, doc.data.id);
+  assert.equal((await call(`/files/${doc.data.id}`, { method: 'DELETE', token: t.engineer })).status, 403);
+  assert.equal((await call(`/files/${doc.data.id}`, { method: 'DELETE', token: t.admin })).data.deleted, doc.data.id);
 });
 
 test('deleting a machine needs its tag and removes everything that belongs to it', async () => {

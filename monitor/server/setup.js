@@ -1,13 +1,13 @@
 // Machine and signal set-up: add, edit and delete machines and their signals, with basic parameters, sensor details,
-// a photo and documents for each. Administrators manage machines and signals; engineers may add and remove files.
+// a photo and documents for each. Only the super user (the administrator role) changes any of it; everyone signed in
+// can read it and download the files.
 import { id, one, all, run, transaction, audit } from './db.js';
 import { HttpError, bad, deny, missing, text, choice, optNumber, reply } from './http.js';
 import { can } from './auth.js';
 import { MACHINE_TYPES, signalsFor, specsFor, MACHINE_SPECS, SENSOR_TYPES, sensorFor } from './catalog.js';
 import { forgetAnalysis } from './ml/analyze.js';
 
-const admin = u => { if (!can(u, 'admin')) deny('Only an administrator can do this'); };
-const write = u => { if (!can(u, 'admin', 'engineer')) deny('Your role can view but not change anything'); };
+const admin = u => { if (!can(u, 'admin')) deny('Only a super user (administrator) can change machine and signal set-up'); };
 const machineOr404 = mid => one('SELECT * FROM machines WHERE id=?', mid) ?? missing('Machine not found');
 const signalOr404 = (mid, key) => one('SELECT * FROM signals WHERE machine_id=? AND key=?', mid, key) ?? missing('Signal not found');
 const opt = (v, name, max) => v == null ? '' : typeof v === 'string' ? (v.length > max ? bad(`${name} is too long (max ${max})`) : v.trim()) : bad(`${name} must be text`);
@@ -181,7 +181,7 @@ export function registerSetup(r) {
 
   // Upload: the file itself is the request body (no base64); name, kind, signal and title come in the query.
   r.post('/machines/:id/files', ({ user, params, query, body }) => {
-    write(user); const m = machineOr404(params.id);
+    admin(user); const m = machineOr404(params.id);
     const kind = choice(query.get('kind'), 'kind', ['photo', 'document']), key = query.get('signal') || null;
     if (key) signalOr404(m.id, key);
     if (!Buffer.isBuffer(body) || !body.length) bad('Send the file as the request body');
@@ -203,7 +203,7 @@ export function registerSetup(r) {
     res.end(Buffer.from(f.data));
   });
   r.delete('/files/:id', ({ user, params }) => {
-    write(user); const f = one('SELECT id,machine_id,kind,filename FROM files WHERE id=?', params.id) ?? missing('File not found');
+    admin(user); const f = one('SELECT id,machine_id,kind,filename FROM files WHERE id=?', params.id) ?? missing('File not found');
     run('DELETE FROM files WHERE id=?', f.id); audit(user.id, 'file.delete', 'machine', f.machine_id, { file: f.id, filename: f.filename });
     return { deleted: f.id };
   });

@@ -7,9 +7,7 @@ Machine and condition monitoring for plastics plants, with machine learning that
 - **Live machine health:** every machine with its state, a health score, its most important finding and a sparkline of the signal that matters most. It refreshes every 30 seconds.
 - **Condition monitoring per signal:** hydraulic oil, vibration, barrel and die temperatures, pressures, cooling water, motor current, chiller, dryer and compressor signals, with recommended limits per machine type (vibration per ISO 20816). Charts show the readings, the learned normal band, the limits and the projected trend.
 - **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed. Every decision is kept with the finding and in the audit log.
-- **Machines and signals, set up from the dashboard:** the **Machines** page lists every machine with its photo. On each machine's page:
-  - administrators add, edit and delete machines and their signals
-  - administrators and engineers add photos and documents (details below)
+- **Machine and signal set-up under Settings, for the super user only:** the super user (the administrator role) adds, edits and deletes machines and signals, with their parameters, photos and documents (details below). Everyone else sees each machine's details, photo and documents on its page and can download them.
 - **AI features:** an explanation for each finding, maintenance-ticket drafts, shift and weekly health reports, and a chat about the machines (details below).
 
 ## How the machine learning works
@@ -49,7 +47,7 @@ npm start
 
 Open **http://localhost:3300/**. Demo accounts (password `MonitorDemo123!`):
 
-- `admin@monitor.test`: everything, including limits and retraining
+- `admin@monitor.test`: the super user. Everything, including machine and signal set-up, limits and retraining
 - `engineer@monitor.test`: acts on findings, drafts tickets, writes reports, asks the AI
 - `viewer@monitor.test`: read only
 
@@ -63,7 +61,13 @@ The three other machines stay healthy.
 
 ## Machines and signals
 
-**Add a machine** (administrators, on the **Machines** page):
+Set-up lives under **Settings**, which only the super user sees. The server refuses set-up changes from any other role. Settings has three tabs:
+
+- **Machines:** every machine with its photo. Open one to edit it, delete it, add its photo and documents, and set up its signals.
+- **Signals:** pick a machine, then add, edit or delete its signals.
+- **Connections & models:** the AI, gateway and simulator status, and retraining the pattern models.
+
+**Add a machine** (Settings › Machines):
 
 - **Basic data:** tag, name, type, device ID (what the gateway sends), make, model, serial number, year built, line and notes.
 - **Parameters for its type:**
@@ -76,7 +80,7 @@ The three other machines stay healthy.
 - **Standard signals:** a new machine gets the standard signals for its type, with recommended limits, unless you untick that.
 - **Fixed once added:** the type. The tag and device ID can change but must stay unique.
 
-**Signals** (administrators, under *Signal set-up* on the machine's page):
+**Signals** (Settings › Signals, or under the machine in Settings › Machines):
 
 - **Each signal has:**
   - a key (what the gateway sends, fixed once added), name and unit
@@ -85,7 +89,7 @@ The three other machines stay healthy.
   - warning and critical limits, and notes
 - **Adding:** start from a standard signal or make a custom one. A new signal is accepted from the gateway at once, and the machine's pattern model retrains.
 
-**Photos and documents** (administrators and engineers; everyone can view and download):
+**Photos and documents** (the super user adds and removes them; everyone can view and download):
 
 - **What can be attached:** one photo and any number of documents, for each machine and for each signal (sensor data sheets, calibration certificates).
 - **Photos:** JPEG, PNG or WebP, up to 5 MB. A new photo replaces the old one.
@@ -118,7 +122,7 @@ How the intake handles a request:
 - **Machine state:** `state` is `running`, `idle`, `down` or `off`. Only running time counts towards a machine's normal.
 - **Errors:** each reading comes back accepted or rejected with a reason: an unknown device, a time in the future or more than 30 days old, or a value that is not a number. Unknown signal names are skipped and listed.
 
-Machines and their device IDs are on the **Machines** page and under **Settings**. Administrators also edit limits there.
+Machines, their device IDs and signal limits are set up under **Settings** by the super user.
 
 ## Tests
 

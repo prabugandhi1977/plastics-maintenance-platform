@@ -1,15 +1,17 @@
-// Machine and signal set-up: the Machines page, and on each machine's page its details, photo, documents and the
-// signals with their sensor details. Administrators add, edit and delete machines and signals; engineers add and
-// remove photos and documents; everyone can view and download.
+// Machine and signal set-up, under Settings and for the super user (administrator) only: add, edit and delete
+// machines and signals, with their parameters, sensor details, photos and documents. Everyone else sees a
+// read-only details card on each machine's page, with the photo and documents to download.
+import { icon, tile, heading } from '/icons.js';
 let ctx; // { api, esc, state, render }
 export const initSetup = c => { ctx = c; };
 const esc = v => ctx.esc(v);
 const isAdmin = () => ctx.state.user?.role === 'admin';
-const canFiles = () => ['admin', 'engineer'].includes(ctx.state.user?.role);
 let catalog = null;
 const cat = async () => catalog ??= await ctx.api('/catalog');
 const size = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} kB`;
 const num = v => v == null || v === '' ? '—' : String(v);
+const btn = (act, label, ico, { cls = 'sm', data = {} } = {}) => `<button class="btn ${cls}" type="button" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}>${icon(ico, 'bi')}<span>${label}</span></button>`;
+const TYPE_ICON = { injection: 'machine', extrusion: 'machine', blow: 'machine', chiller: 'sensor', dryer: 'sensor', compressor: 'sensor' };
 
 // ---- Pictures and downloads (the API needs the sign-in token, so files are fetched, not linked) ----
 const blobs = new Map();
@@ -24,50 +26,69 @@ async function download(id, name) {
   const url = URL.createObjectURL(await fileBlob(id)), a = Object.assign(document.createElement('a'), { href: url, download: name });
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
-const photo = (id, alt, cls = 'photo') => id ? `<img class="${cls}" data-file="${esc(id)}" alt="${esc(alt)}">` : `<div class="${cls} photo-none" aria-hidden="true">No photo</div>`;
-const docList = (docs, empty = 'No documents yet.') => docs.length ? `<ul class="docs">${docs.map(d => `<li><a href="#" data-act="file-get" data-id="${esc(d.id)}" data-name="${esc(d.filename)}">${esc(d.title || d.filename)}</a> <span class="small muted">${esc(d.title ? d.filename + ' · ' : '')}${size(d.size)} · ${new Date(d.uploadedAt).toLocaleDateString()}${d.uploadedBy ? ' · ' + esc(d.uploadedBy) : ''}</span>${canFiles() ? ` <button class="btn sm danger" type="button" data-act="file-del" data-id="${esc(d.id)}" data-name="${esc(d.filename)}">Remove</button>` : ''}</li>`).join('')}</ul>` : `<p class="small muted">${empty}</p>`;
+const photo = (id, alt, cls = 'photo') => id ? `<img class="${cls}" data-file="${esc(id)}" alt="${esc(alt)}">` : `<div class="${cls} photo-none" aria-hidden="true">${icon('image')}<span>No photo</span></div>`;
+const docList = (docs, empty = 'No documents yet.') => docs.length ? `<ul class="docs">${docs.map(d => `<li>${icon('file', 'i doc-i')}<a href="#" data-act="file-get" data-id="${esc(d.id)}" data-name="${esc(d.filename)}">${esc(d.title || d.filename)}</a> <span class="small muted">${esc(d.title ? d.filename + ' · ' : '')}${size(d.size)} · ${new Date(d.uploadedAt).toLocaleDateString()}${d.uploadedBy ? ' · ' + esc(d.uploadedBy) : ''}</span>
+  <span class="row">${btn('file-get', 'Download', 'download', { data: { id: d.id, name: d.filename } })}${isAdmin() ? btn('file-del', 'Remove', 'trash', { cls: 'sm danger', data: { id: d.id, name: d.filename } }) : ''}</span></li>`).join('')}</ul>` : `<p class="small muted">${empty}</p>`;
+const factsOf = m => [['Type', m.typeLabel], ['Make / model', `${m.make} ${m.model}`.trim() || '—'], ['Serial number', m.serialNumber || '—'], ['Year built', num(m.yearBuilt)], ['Line / location', m.line || '—'],
+  ['Device ID', `<code>${esc(m.deviceId)}</code>`, true], ...m.specList.map(p => [p.label, `${typeof p.value === 'number' ? p.value.toLocaleString() : p.value}${p.unit ? ' ' + p.unit : ''}`])];
+const detailsBody = (m, edit) => `<div class="details"><figure>${photo(m.photoId, `${m.tag} ${m.name}`)}${edit ? btn('upload', m.photoId ? 'Replace photo' : 'Add photo', 'image', { data: { kind: 'photo', id: m.id } }) : ''}</figure>
+  <div class="grid"><dl class="facts">${factsOf(m).map(([k, v, raw]) => `<dt>${esc(k)}</dt><dd>${raw ? v : esc(v)}</dd>`).join('')}</dl>${m.notes ? `<p class="small">${esc(m.notes)}</p>` : ''}
+  <div><div class="row">${heading('file', 'Documents', 3)}${edit ? btn('upload', 'Add document', 'upload', { data: { kind: 'document', id: m.id } }) : ''}</div>${docList(m.documents, 'No manuals, drawings or certificates yet.')}</div></div></div>`;
 
-// ---- Machines page ----
-export async function pageMachines() {
-  const list = await ctx.api('/machines');
-  return `<div class="head"><div class="grow"><h1>Machines</h1><p>Every monitored machine with its basic data, photo, documents and signals.${isAdmin() ? ' Add a machine here, then connect its gateway with the device ID.' : ''}</p></div>
-      ${isAdmin() ? '<button class="btn primary" type="button" data-act="machine-new">Add machine</button>' : ''}</div>
-    ${list.length ? `<section class="grid machines">${list.map(m => `<a class="card machine-tile" href="#/machine/${esc(m.id)}">${photo(m.photoId, `${m.tag} ${m.name}`, 'thumb')}
-      <div><div class="row"><b class="grow"><span class="tag">${esc(m.tag)}</span> <span class="sub">${esc(m.name)}</span></b></div>
-      <div class="sub">${esc(m.typeLabel)}${m.make || m.model ? ` · ${esc(m.make)} ${esc(m.model)}` : ''}${m.line ? ` · ${esc(m.line)}` : ''}</div>
-      <div class="small muted">${m.signalCount} signal${m.signalCount === 1 ? '' : 's'} · ${m.documents.length} document${m.documents.length === 1 ? '' : 's'} · device <code>${esc(m.deviceId)}</code></div></div></a>`).join('')}</section>`
-      : `<div class="card empty">No machines yet.${isAdmin() ? ' Choose “Add machine” to start.' : ''}</div>`}`;
+// ---- Machine page: read-only details for everyone ----
+export async function machineInfo(mid) {
+  const m = await ctx.api(`/machines/${mid}/setup`);
+  return `<section class="card"><div class="row">${heading('machine', 'Machine details')}${isAdmin() ? `<a class="btn sm" href="#/settings/machine/${esc(m.id)}">${icon('settings', 'bi')}<span>Set up</span></a>` : ''}</div>${detailsBody(m, false)}</section>`;
 }
 
-// ---- On the machine page ----
-export async function machineSections(mid) {
+// ---- Settings › Machines ----
+export async function machinesTab() {
+  const list = await ctx.api('/machines');
+  return `<section class="card"><div class="row">${heading('machine', `Machines <span class="count-chip">${list.length}</span>`)}${btn('machine-new', 'Add machine', 'plus', { cls: 'sm primary' })}</div>
+    <p class="small muted">Add a machine, then connect its gateway with the device ID. Open a machine to edit it, add its photo and documents, and set up its signals.</p>
+    ${list.length ? `<div class="grid machines">${list.map(m => `<a class="card machine-tile" href="#/settings/machine/${esc(m.id)}">${photo(m.photoId, `${m.tag} ${m.name}`, 'thumb')}
+      <div><div class="row"><b class="grow"><span class="tag">${esc(m.tag)}</span> <span class="sub">${esc(m.name)}</span></b>${icon('chevron', 'i muted')}</div>
+      <div class="sub">${icon(TYPE_ICON[m.type], 'i xs')} ${esc(m.typeLabel)}${m.make || m.model ? ` · ${esc(m.make)} ${esc(m.model)}` : ''}${m.line ? ` · ${esc(m.line)}` : ''}</div>
+      <div class="small muted meta">${icon('signal', 'i xs')} ${m.signalCount} signal${m.signalCount === 1 ? '' : 's'} ${icon('file', 'i xs')} ${m.documents.length} document${m.documents.length === 1 ? '' : 's'} ${icon('plug', 'i xs')} <code>${esc(m.deviceId)}</code></div></div></a>`).join('')}</div>`
+      : '<div class="empty">No machines yet. Choose “Add machine” to start.</div>'}</section>`;
+}
+export async function machineSetup(mid) {
   const m = await ctx.api(`/machines/${mid}/setup`);
-  const facts = [['Type', m.typeLabel], ['Make / model', `${m.make} ${m.model}`.trim() || '—'], ['Serial number', m.serialNumber || '—'], ['Year built', num(m.yearBuilt)], ['Line / location', m.line || '—'],
-    ['Device ID', `<code>${esc(m.deviceId)}</code>`, true], ...m.specList.map(p => [p.label, `${typeof p.value === 'number' ? p.value.toLocaleString() : p.value}${p.unit ? ' ' + p.unit : ''}`])];
-  const details = `<section class="card"><div class="row"><h2 class="grow">Machine details</h2>${isAdmin() ? `<button class="btn sm" type="button" data-act="machine-edit" data-id="${esc(m.id)}">Edit</button><button class="btn sm danger" type="button" data-act="machine-del" data-id="${esc(m.id)}" data-tag="${esc(m.tag)}">Delete machine</button>` : ''}</div>
-    <div class="details"><figure>${photo(m.photoId, `${m.tag} ${m.name}`)}${canFiles() ? `<button class="btn sm" type="button" data-act="upload" data-kind="photo" data-id="${esc(m.id)}">${m.photoId ? 'Replace photo' : 'Add photo'}</button>` : ''}</figure>
-      <div class="grid"><dl class="facts">${facts.map(([k, v, raw]) => `<dt>${esc(k)}</dt><dd>${raw ? v : esc(v)}</dd>`).join('')}</dl>${m.notes ? `<p class="small">${esc(m.notes)}</p>` : ''}
-      <div><div class="row"><h3 class="grow">Documents</h3>${canFiles() ? `<button class="btn sm" type="button" data-act="upload" data-kind="document" data-id="${esc(m.id)}">Add document</button>` : ''}</div>${docList(m.documents, 'No manuals, drawings or certificates yet.')}</div></div></div></section>`;
+  return `<p><a href="#/settings/machines">${icon('back', 'i xs')} All machines</a></p>
+    <section class="card"><div class="row">${heading('machine', `${esc(m.tag)} · ${esc(m.name)}`)}<a class="btn sm" href="#/machine/${esc(m.id)}">${icon('signal', 'bi')}<span>Monitoring</span></a>
+      ${btn('machine-edit', 'Edit', 'edit', { data: { id: m.id } })}${btn('machine-del', 'Delete machine', 'trash', { cls: 'sm danger', data: { id: m.id, tag: m.tag } })}</div>${detailsBody(m, true)}</section>
+    ${signalTable(m)}`;
+}
+
+// ---- Settings › Signals ----
+export async function signalsTab(mid) {
+  const list = await ctx.api('/machines');
+  if (!list.length) return '<section class="card empty">Add a machine first, under Machines.</section>';
+  const current = list.find(m => m.id === mid) ?? list[0], m = await ctx.api(`/machines/${current.id}/setup`);
+  return `<section class="card"><div class="row">${heading('signal', 'Choose a machine')}</div>
+    <div class="pickers">${list.map(x => `<a class="pick ${x.id === m.id ? 'on' : ''}" href="#/settings/signals/${esc(x.id)}" ${x.id === m.id ? 'aria-current="page"' : ''}>${icon(TYPE_ICON[x.type], 'i xs')}<b>${esc(x.tag)}</b><span class="muted">${x.signalCount}</span></a>`).join('')}</div></section>
+    ${signalTable(m)}`;
+}
+function signalTable(m) {
   const lim = s => [s.crit_low, s.warn_low, s.warn_high, s.crit_high].map(num).join(' / ');
-  const signals = `<section class="card"><div class="row"><h2 class="grow">Signal set-up</h2>${isAdmin() ? `<button class="btn sm primary" type="button" data-act="signal-new" data-id="${esc(m.id)}">Add signal</button>` : ''}</div>
+  return `<section class="card"><div class="row">${heading('signal', `Signal set-up · ${esc(m.tag)} <span class="count-chip">${m.signals.length}</span>`)}${btn('signal-new', 'Add signal', 'plus', { cls: 'sm primary', data: { id: m.id } })}</div>
     <p class="small muted">What each sensor measures and where its value comes from. Gateways send values under the signal key with device ID <code>${esc(m.deviceId)}</code>.</p>
     ${m.signals.length ? `<div class="table-wrap"><table><thead><tr><th>Signal</th><th>Key</th><th>Sensor</th><th>Range</th><th>Source</th><th>Limits <span class="muted">crit / warn low · warn / crit high</span></th><th>Files</th><th></th></tr></thead><tbody>
     ${m.signals.map(s => `<tr><td><b>${esc(s.label)}</b> <span class="muted">${esc(s.unit)}</span>${s.notes ? `<div class="small muted">${esc(s.notes)}</div>` : ''}</td><td><code>${esc(s.key)}</code></td>
-      <td>${esc(s.sensorTypeLabel || '—')}${s.sensorMake ? `<div class="small muted">${esc(s.sensorMake)}</div>` : ''}</td><td class="num">${s.rangeMin != null || s.rangeMax != null ? `${num(s.rangeMin)} – ${num(s.rangeMax)} ${esc(s.unit)}` : '—'}</td>
+      <td>${s.sensorTypeLabel ? `${icon('sensor', 'i xs')} ${esc(s.sensorTypeLabel)}` : '—'}${s.sensorMake ? `<div class="small muted">${esc(s.sensorMake)}</div>` : ''}</td><td class="num">${s.rangeMin != null || s.rangeMax != null ? `${num(s.rangeMin)} – ${num(s.rangeMax)} ${esc(s.unit)}` : '—'}</td>
       <td>${s.sourceAddress ? `<code class="small">${esc(s.sourceAddress)}</code>` : '—'}</td><td class="num small">${lim(s)}</td>
-      <td><button class="btn sm" type="button" data-act="signal-files" data-id="${esc(m.id)}" data-key="${esc(s.key)}">${s.photoId ? 'Photo' : ''}${s.photoId && s.documents.length ? ' + ' : ''}${s.documents.length ? `${s.documents.length} doc${s.documents.length > 1 ? 's' : ''}` : s.photoId ? '' : 'None'}</button></td>
-      <td class="row">${isAdmin() ? `<button class="btn sm" type="button" data-act="signal-edit" data-id="${esc(m.id)}" data-key="${esc(s.key)}">Edit</button><button class="btn sm danger" type="button" data-act="signal-del" data-id="${esc(m.id)}" data-key="${esc(s.key)}" data-label="${esc(s.label)}">Delete</button>` : ''}</td></tr>`).join('')}
-    </tbody></table></div>` : '<p class="muted">No signals yet.</p>'}</section>`;
-  return { machine: m, details, signals };
+      <td>${btn('signal-files', `${s.photoId ? 'Photo' : ''}${s.photoId && s.documents.length ? ' + ' : ''}${s.documents.length ? `${s.documents.length} doc${s.documents.length > 1 ? 's' : ''}` : s.photoId ? '' : 'Add'}`, s.photoId ? 'image' : 'file', { data: { id: m.id, key: s.key } })}</td>
+      <td><span class="row nowrap">${btn('signal-edit', 'Edit', 'edit', { data: { id: m.id, key: s.key } })}${btn('signal-del', 'Delete', 'trash', { cls: 'sm danger', data: { id: m.id, key: s.key, label: s.label } })}</span></td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="muted">No signals yet. Choose “Add signal”.</p>'}</section>`;
 }
 
 // ---- Dialogs ----
-function dialog(title, body, { submit = 'Save', onSubmit, onOpen, wide = false } = {}) {
+function dialog(title, body, { submit = 'Save', onSubmit, onOpen, wide = false, dlgIcon = 'settings', submitIcon = 'check' } = {}) {
   document.getElementById('dlg')?.remove();
   const d = document.createElement('dialog'); d.id = 'dlg'; d.className = `dlg${wide ? ' wide' : ''}`;
-  d.innerHTML = `<form method="dialog" class="grid"><div class="row"><h2 class="grow">${esc(title)}</h2><button class="btn sm" type="button" data-close aria-label="Close">✕</button></div>
+  d.innerHTML = `<form method="dialog" class="grid"><div class="row">${heading(dlgIcon, esc(title))}<button class="btn sm icon-only" type="button" data-close aria-label="Close">${icon('x', 'bi')}</button></div>
     <div class="grid">${body}</div><div class="error" hidden></div>
-    <div class="row"><span class="grow"></span><button class="btn" type="button" data-close>${onSubmit ? 'Cancel' : 'Close'}</button>${onSubmit ? `<button class="btn primary">${esc(submit)}</button>` : ''}</div></form>`;
+    <div class="row"><span class="grow"></span><button class="btn" type="button" data-close>${onSubmit ? 'Cancel' : 'Close'}</button>${onSubmit ? `<button class="btn primary">${icon(submitIcon, 'bi')}<span>${esc(submit)}</span></button>` : ''}</div></form>`;
   document.body.append(d);
   d.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => d.close()));
   d.addEventListener('close', () => d.remove());
@@ -104,12 +125,12 @@ export async function machineForm(m) {
     ${field('yearBuilt', 'Year built', { value: m?.yearBuilt, type: 'number', min: 1950, max: new Date().getFullYear() + 1 })}${field('line', 'Line / location', { value: m?.line, maxlength: 100 })}
     <div class="span" id="spec-fields">${specFields(c, type, m?.specs)}</div>${textarea('notes', 'Notes', m?.notes)}
     ${m ? '' : `<label class="check span"><input type="checkbox" name="standardSignals" checked> Add the standard signals for this type, with recommended limits</label>`}</div>`;
-  dialog(m ? `Edit ${m.tag}` : 'Add machine', body, { wide: true, submit: m ? 'Save' : 'Add machine',
+  dialog(m ? `Edit ${m.tag}` : 'Add machine', body, { wide: true, submit: m ? 'Save' : 'Add machine', dlgIcon: 'machine', submitIcon: m ? 'check' : 'plus',
     onOpen: d => d.querySelector('[name=type]')?.addEventListener('change', e => { d.querySelector('#spec-fields').innerHTML = specFields(c, e.target.value); }),
     onSubmit: async fd => {
       const v = Object.fromEntries(fd), out = { tag: v.tag, name: v.name, deviceId: v.deviceId, make: v.make, model: v.model, serialNumber: v.serialNumber, line: v.line, notes: v.notes, yearBuilt: v.yearBuilt === '' ? null : Number(v.yearBuilt), specs: specsFrom(fd) };
       if (m) await ctx.api(`/machines/${m.id}`, 'PATCH', out);
-      else { const r = await ctx.api('/machines', 'POST', { ...out, type: v.type, standardSignals: fd.has('standardSignals') }); location.hash = `#/machine/${r.id}`; }
+      else { const r = await ctx.api('/machines', 'POST', { ...out, type: v.type, standardSignals: fd.has('standardSignals') }); location.hash = `#/settings/machine/${r.id}`; }
     } });
 }
 
@@ -123,7 +144,7 @@ export async function signalForm(m, s) {
     ${field('rangeMin', 'Measuring range from', { value: s?.rangeMin, type: 'number', step: 'any' })}${field('rangeMax', 'Measuring range to', { value: s?.rangeMax, type: 'number', step: 'any' })}
     <fieldset class="form-grid span"><legend>Limits (any may be empty)</legend>${field('crit_low', 'Critical low', { value: s?.crit_low, type: 'number', step: 'any' })}${field('warn_low', 'Warning low', { value: s?.warn_low, type: 'number', step: 'any' })}
     ${field('warn_high', 'Warning high', { value: s?.warn_high, type: 'number', step: 'any' })}${field('crit_high', 'Critical high', { value: s?.crit_high, type: 'number', step: 'any' })}</fieldset>${textarea('notes', 'Notes', s?.notes)}</div>`;
-  dialog(s ? `Edit ${s.label}` : `Add signal to ${m.tag}`, body, { wide: true, submit: s ? 'Save' : 'Add signal',
+  dialog(s ? `Edit ${s.label}` : `Add signal to ${m.tag}`, body, { wide: true, submit: s ? 'Save' : 'Add signal', dlgIcon: 'signal', submitIcon: s ? 'check' : 'plus',
     onOpen: d => d.querySelector('#sig-pick')?.addEventListener('change', e => {
       const x = suggestions.find(y => y.key === e.target.value); if (!x) return;
       for (const k of ['key', 'label', 'unit', 'warn_low', 'warn_high', 'crit_low', 'crit_high']) d.querySelector(`[name=${k}]`).value = x[k] ?? '';
@@ -141,7 +162,7 @@ export async function uploadForm(mid, kind, signalKey, label) {
   const c = await cat(), max = c.limits[kind] / 1048576;
   const accept = kind === 'photo' ? 'image/jpeg,image/png,image/webp' : '.pdf,.docx,.xlsx,.txt,.csv,image/jpeg,image/png,image/webp';
   dialog(`${kind === 'photo' ? 'Photo' : 'Document'} for ${label}`, `<label><span>File <span class="req">*</span></span><input type="file" name="file" accept="${accept}" required><small class="muted">${kind === 'photo' ? 'JPEG, PNG or WebP' : 'PDF, Word, Excel, text, CSV or an image'}, up to ${max} MB${kind === 'photo' ? '. Replaces the current photo.' : ''}</small></label>
-    ${kind === 'document' ? field('title', 'Title', { maxlength: 200, help: 'e.g. Operating manual, Calibration certificate 2026' }) : ''}`, { submit: 'Upload',
+    ${kind === 'document' ? field('title', 'Title', { maxlength: 200, help: 'e.g. Operating manual, Calibration certificate 2026' }) : ''}`, { submit: 'Upload', dlgIcon: kind === 'photo' ? 'image' : 'file', submitIcon: 'upload',
     onSubmit: async fd => {
       const f = fd.get('file'); if (!f?.size) throw new Error('Choose a file');
       if (f.size > c.limits[kind]) throw new Error(`The file is ${size(f.size)}; the limit is ${max} MB`);
@@ -152,9 +173,9 @@ export async function uploadForm(mid, kind, signalKey, label) {
 }
 
 function signalFiles(m, s) {
-  dialog(`${s.label}: photo and documents`, `<div class="details small-photo"><figure>${photo(s.photoId, s.label)}${canFiles() ? `<button class="btn sm" type="button" data-act="upload" data-kind="photo" data-id="${esc(m.id)}" data-key="${esc(s.key)}">${s.photoId ? 'Replace photo' : 'Add photo'}</button>` : ''}</figure>
-    <div><div class="row"><h3 class="grow">Documents</h3>${canFiles() ? `<button class="btn sm" type="button" data-act="upload" data-kind="document" data-id="${esc(m.id)}" data-key="${esc(s.key)}">Add document</button>` : ''}</div>${docList(s.documents, 'No data sheets or calibration certificates yet.')}</div></div>`,
-    { onOpen: d => { loadImages(); bind(d); } });
+  dialog(`${s.label}: photo and documents`, `<div class="details small-photo"><figure>${photo(s.photoId, s.label)}${btn('upload', s.photoId ? 'Replace photo' : 'Add photo', 'image', { data: { kind: 'photo', id: m.id, key: s.key } })}</figure>
+    <div><div class="row">${heading('file', 'Documents', 3)}${btn('upload', 'Add document', 'upload', { data: { kind: 'document', id: m.id, key: s.key } })}</div>${docList(s.documents, 'No data sheets or calibration certificates yet.')}</div></div>`,
+    { dlgIcon: 'sensor', onOpen: d => { loadImages(); bind(d); } });
 }
 
 // ---- Actions ----
@@ -168,7 +189,7 @@ export async function action(act, el) {
   if (act === 'machine-del') {
     const typed = prompt(`Delete ${el.dataset.tag} with all its readings, findings, signals, photos and documents? This cannot be undone.\n\nType the tag ${el.dataset.tag} to confirm.`);
     if (typed == null) return;
-    const r = await ctx.api(`/machines/${id}?confirm=${encodeURIComponent(typed)}`, 'DELETE'); alert(`${r.deleted} deleted, with ${r.readings.toLocaleString()} readings.`); location.hash = '#/machines'; return;
+    const r = await ctx.api(`/machines/${id}?confirm=${encodeURIComponent(typed)}`, 'DELETE'); alert(`${r.deleted} deleted, with ${r.readings.toLocaleString()} readings.`); location.hash = '#/settings/machines'; return;
   }
   if (act === 'signal-new') return signalForm(await setupOf(id));
   if (act === 'signal-edit') { const m = await setupOf(id); return signalForm(m, m.signals.find(s => s.key === key)); }

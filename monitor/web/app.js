@@ -1,7 +1,8 @@
 // MouldCare Monitor dashboard: plain modules, no build step. Routes live in the URL hash (#/machine/<id>), the
 // sign-in token in session storage, and every page refreshes itself every 30 seconds while open.
 import { signalChart, sparkline } from '/charts.js';
-import { initSetup, pageMachines, machineSections, loadImages, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
+import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
+import { icon, tile, heading } from '/icons.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = s => document.querySelector(s);
@@ -25,16 +26,10 @@ const STATUS = { open: 'Open', acknowledged: 'Acknowledged', confirmed: 'Confirm
 const URGENCY = { stop_now: 'Stop the machine now', this_shift: 'Act this shift', this_week: 'Plan this week', monitor: 'Keep monitoring' };
 const chip = (cls, label) => `<span class="chip ${esc(cls)}">${esc(label)}</span>`;
 
-const ICONS = {
-  overview: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
-  machines: '<path d="M3 20h18M5 20V9l5 3V9l5 3V6l4 2v12M8 16h2m4 0h2"/>',
-  findings: '<path d="M12 3 2 21h20L12 3zm0 6v5m0 3v.5"/>',
-  tickets: '<path d="M4 5h16v4a2 2 0 0 0 0 4v4H4v-4a2 2 0 0 0 0-4z"/>',
-  reports: '<path d="M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3"/>',
-  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
-  settings: '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0-5v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M7.7 16.3l-2.1 2.1m12.8 0-2.1-2.1M7.7 7.7 5.6 5.6"/>',
-};
-const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
+// A button with an icon; label text is escaped by the caller where it is user data.
+const ib = (name, label) => `${icon(name, 'bi')}<span>${label}</span>`;
+const ROLE = { admin: 'Super user', engineer: 'Engineer', viewer: 'Viewer' };
+const head = (ico, title, sub = '', actions = '', tone) => `<div class="head">${tile(ico, tone)}<div class="grow"><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${actions}</div>`;
 
 function signOut() { store.set('monitor-token', null); store.set('monitor-user', null); state.token = null; state.user = null; render(); }
 function setTheme(choice) {
@@ -45,18 +40,18 @@ function setTheme(choice) {
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (document.documentElement.dataset.theme === 'auto') setTheme('auto'); });
 
-function route() { const [page, arg] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/'); return { page: page || 'overview', arg }; }
+function route() { const [page, arg, sub] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/'); return { page: page || 'overview', arg, sub }; }
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
 
 let openFindings = 0;
 function layout(inner) {
   const { page } = route(), theme = document.documentElement.dataset.theme || 'auto';
-  const links = [['overview', 'Overview'], ['machines', 'Machines'], ['findings', 'Findings'], ['tickets', 'Ticket drafts'], ['reports', 'Reports'], ['chat', 'Ask AI'], ...(state.user.role === 'admin' ? [['settings', 'Settings']] : [])];
+  const links = [['overview', 'Overview'], ['findings', 'Findings'], ['tickets', 'Ticket drafts'], ['reports', 'Reports'], ['chat', 'Ask AI'], ...(state.user.role === 'admin' ? [['settings', 'Settings']] : [])];
   return `<div class="shell"><aside class="side"><div class="brand"><b>Mould<span>Care</span> Monitor</b><small>Machine &amp; condition monitoring</small></div>
-    <nav class="nav" aria-label="Main">${links.map(([id, label]) => `<a href="#/${id}" class="${page === id || (id === 'overview' && page === 'machine') ? 'active' : ''}">${icon(id)}<span class="label">${label}</span>${id === 'findings' && openFindings ? `<span class="count">${openFindings}</span>` : ''}</a>`).join('')}</nav></aside>
+    <nav class="nav" aria-label="Main">${links.map(([id, label]) => `<a href="#/${id}" class="${page === id || (id === 'overview' && page === 'machine') ? 'active' : ''}">${icon(id, 'i nav-i')}<span class="label">${label}</span>${id === 'findings' && openFindings ? `<span class="count">${openFindings}</span>` : ''}</a>`).join('')}</nav></aside>
     <div class="main"><header class="topbar">${state.config?.simulator ? '<span class="pill-env" title="Readings come from the built-in simulator, not real machines">Simulated data</span>' : ''}<span class="grow"></span>
-      <div class="seg" role="group" aria-label="Theme">${['light', 'dark', 'auto'].map(t => `<button type="button" data-theme="${t}" class="${theme === t ? 'on' : ''}" aria-pressed="${theme === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
-      <span class="small"><b>${esc(state.user.name)}</b> <span class="muted">${esc(state.user.role)}</span></span><button class="btn sm" id="signout" type="button">Sign out</button></header>
+      <div class="seg" role="group" aria-label="Theme">${[['light', 'sun'], ['dark', 'moon'], ['auto', 'auto']].map(([t, i]) => `<button type="button" data-theme="${t}" class="${theme === t ? 'on' : ''}" aria-pressed="${theme === t}">${icon(i, 'bi')}<span>${t[0].toUpperCase() + t.slice(1)}</span></button>`).join('')}</div>
+      <span class="who">${tile(state.user.role === 'admin' ? 'shield' : 'user', state.user.role === 'admin' ? 'ai' : 'brand')}<span class="small"><b>${esc(state.user.name)}</b><br><span class="muted">${esc(ROLE[state.user.role] || state.user.role)}</span></span></span><button class="btn sm" id="signout" type="button">${ib('logout', 'Sign out')}</button></header>
     <main class="content" id="main">${inner}</main></div></div>`;
 }
 
@@ -66,8 +61,8 @@ async function render() {
   const gen = ++generation;
   if (!state.config) state.config = await api('/config').catch(() => ({}));
   if (!state.token) return renderLogin();
-  const { page, arg } = route();
-  const pages = { overview: pageOverview, machines: pageMachines, machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: pageSettings };
+  const { page, arg, sub } = route();
+  const pages = { overview: pageOverview, machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: () => pageSettings(arg, sub) };
   const draw = async () => {
     // A slower, older page must never paint over the page the person has since moved to.
     try { const html = await (pages[page] || pageOverview)(); if (gen === generation) paint(layout(html)); }
@@ -100,10 +95,10 @@ function renderLogin(error = '') {
 // ---- Overview ----
 async function pageOverview() {
   const o = await api('/overview'); openFindings = o.counts.critical + o.counts.warning;
-  const k = (cls, v, l) => `<div class="card kpi ${cls}"><div class="v num">${v}</div><div class="l">${l}</div></div>`;
-  return `<div class="head"><div class="grow"><h1>Machine health</h1><p>Every machine judged against its limits, its own learned normal, its trends and its usual pattern. Updated ${time(o.at)}.</p></div></div>
-    <section class="grid kpis">${k('good', o.counts.good, 'Machines in good health')}${k('watch', o.counts.watch, 'To watch')}${k('risk', o.counts.atRisk, 'At risk')}${k(o.counts.critical ? 'risk' : '', o.counts.critical, 'Critical findings')}${k(o.counts.warning ? 'watch' : '', o.counts.warning, 'Warnings')}</section>
-    <section class="grid machines">${o.machines.map(machineCard).join('') || '<div class="empty card">No machines yet. Run the seed or add machines to start monitoring.</div>'}</section>`;
+  const k = (cls, ico, v, l) => `<div class="card kpi ${cls}">${tile(ico, cls === 'risk' ? 'risk' : cls || 'brand')}<div><div class="l">${l}</div><div class="v num">${v}</div></div></div>`;
+  return `${head('health', 'Machine health', `Every machine judged against its limits, its own learned normal, its trends and its usual pattern. Updated ${time(o.at)}.`)}
+    <section class="grid kpis">${k('good', 'health', o.counts.good, 'Machines in good health')}${k('watch', 'watch', o.counts.watch, 'To watch')}${k('risk', 'risk', o.counts.atRisk, 'At risk')}${k(o.counts.critical ? 'risk' : '', 'findings', o.counts.critical, 'Critical findings')}${k(o.counts.warning ? 'watch' : '', 'trend', o.counts.warning, 'Warnings')}</section>
+    <section class="grid machines">${o.machines.map(machineCard).join('') || `<div class="empty card">No machines yet.${state.user.role === 'admin' ? ' Add them under <a href="#/settings/machines">Settings › Machines</a>.' : ' A super user adds them under Settings.'}</div>`}</section>`;
 }
 function machineCard(m) {
   const f = m.topFinding, s = m.focus;
@@ -118,21 +113,19 @@ function machineCard(m) {
 
 // ---- Machine ----
 async function pageMachine(mid) {
-  const [d, setup] = await Promise.all([api(`/machines/${mid}`), machineSections(mid)]), m = d.machine, a = d.analysis, hours = state.hours[mid] || 24;
+  const [d, info] = await Promise.all([api(`/machines/${mid}`), machineInfo(mid)]), m = d.machine, a = d.analysis, hours = state.hours[mid] || 24;
   const series = await Promise.all(a.signals.map(s => api(`/machines/${mid}/series?signal=${encodeURIComponent(s.key)}&hours=${hours}`)));
   const active = d.findings.filter(f => ['open', 'acknowledged', 'confirmed'].includes(f.status)), closed = d.findings.filter(f => !active.includes(f));
   const model = a.model;
-  return `<div class="head"><div class="grow"><p><a href="#/overview">← All machines</a></p><h1>${esc(m.tag)} · ${esc(m.name)}</h1><p>${esc(m.typeLabel)} · ${esc(m.make)} ${esc(m.model)} · ${esc(m.line)}</p></div>
-      <div class="row">${chip(a.state, a.state)}${chip(a.health.status, `${HEALTH[a.health.status]} · ${a.health.score}`)}</div></div>
-    ${setup.details}
-    <section class="card"><div class="row"><h2 class="grow">Findings</h2><span class="small muted">Last data ${ago(a.lastData)}</span></div>
+  return `<p><a href="#/overview">${icon('back', 'i xs')} All machines</a></p>${head('machine', `${esc(m.tag)} · ${esc(m.name)}`, `${esc(m.typeLabel)} · ${esc(m.make)} ${esc(m.model)} · ${esc(m.line)}`, `<div class="row">${chip(a.state, a.state)}${chip(a.health.status, `${HEALTH[a.health.status]} · ${a.health.score}`)}</div>`)}
+    ${info}
+    <section class="card"><div class="row">${heading('findings', 'Findings', 2, active.some(f => f.severity === 'critical') ? 'risk' : active.length ? 'watch' : 'good')}<span class="small muted">${icon('clock', 'i xs')} Last data ${ago(a.lastData)}</span></div>
       ${active.length ? active.map(findingCard).join('') : '<p class="muted">Nothing open on this machine.</p>'}
       ${closed.length ? `<details><summary class="small muted">${closed.length} closed in the last 14 days</summary><div class="grid" style="margin-top:10px">${closed.map(findingCard).join('')}</div></details>` : ''}</section>
-    <div class="row"><h2 class="grow">Signals</h2><div class="seg" role="group" aria-label="Period"><button type="button" data-act="hours" data-id="${mid}" data-hours="24" class="${hours === 24 ? 'on' : ''}">24 hours</button><button type="button" data-act="hours" data-id="${mid}" data-hours="168" class="${hours === 168 ? 'on' : ''}">7 days</button></div></div>
+ <div class="row">${heading('signal', 'Signals')}<div class="seg" role="group" aria-label="Period"><button type="button" data-act="hours" data-id="${mid}" data-hours="24" class="${hours === 24 ? 'on' : ''}">24 hours</button><button type="button" data-act="hours" data-id="${mid}" data-hours="168" class="${hours === 168 ? 'on' : ''}">7 days</button></div></div>
     <div class="legend"><span><i style="background:var(--chart-line)"></i>Readings</span><span><i style="background:var(--chart-band);height:9px"></i>Learned normal (±3 spreads)</span><span><i style="background:var(--chart-warn)"></i>Warning limit</span><span><i style="background:var(--chart-crit)"></i>Critical limit / trend</span></div>
     <section class="grid signals">${a.signals.map((s, i) => signalCard(s, series[i])).join('') || '<div class="card empty">No signals yet.</div>'}</section>
-    ${setup.signals}
-    <section class="card"><h2>Pattern model</h2>
+    <section class="card"><div class="row">${heading('model', 'Pattern model', 2, 'ai')}</div>
       ${model.trainedAt ? `<p class="small">Two models learn this machine's own running history (all signals together, in fifteen-minute windows), retrained every 6 hours. The <b>relationship distance</b> rises when signals that normally move together stop doing so, such as motor current climbing while pressure falls. The <b>isolation forest</b> rises when the machine runs in a state it has never shown before. Either can flag a problem while every signal alone still looks normal.</p>
         <dl class="facts"><dt>Trained</dt><dd>${time(model.trainedAt)} on ${model.rows} windows</dd>
         <dt>Relationship distance</dt><dd class="num">${model.pattern?.distance ?? '—'} <span class="muted">(alarm above ${model.distanceThreshold})</span></dd>
@@ -149,20 +142,20 @@ function findingCard(f) {
   const isActive = ['open', 'acknowledged', 'confirmed'].includes(f.status), d = f.detail, e = f.explanation, show = state.openExplain.has(f.id);
   const facts = f.kind === 'limit' ? `${d.latest} ${esc(f.unit)} against the ${d.severity} limit ${d.limit}` : f.kind === 'degrading' ? `${d.slopePerDay > 0 ? '+' : ''}${d.slopePerDay} ${esc(f.unit)}/day · critical limit in ~${d.hoursToCritical} h` : f.kind === 'unusual' ? `normal ${d.baseline} → now ${d.recent} ${esc(f.unit)} (${d.score} spreads)` : `${d.method === 'new_state' ? `new operating state, score ${d.score} (alarm above ${d.threshold})` : `signals out of step, distance ${d.distance} (alarm above ${d.distanceThreshold})`} · ${d.contributors.map(c => esc(c.key)).join(', ')}`;
   return `<div class="card finding ${f.severity} ${isActive ? '' : 'closed'}">
-    <div class="row"><b class="grow">${route().page === 'machine' ? '' : `<a href="#/machine/${f.machineId}">${esc(f.machineTag)}</a> · `}${esc(f.title)}</b>${chip(f.severity, f.severity)}${chip(f.status, STATUS[f.status])}</div>
+    <div class="row"><b class="grow ih">${icon(f.kind === 'degrading' ? 'trend' : f.kind === 'pattern' ? 'model' : f.kind === 'unusual' ? 'watch' : 'findings', 'i sev')}<span>${route().page === 'machine' ? '' : `<a href="#/machine/${f.machineId}">${esc(f.machineTag)}</a> · `}${esc(f.title)}</span></b>${chip(f.severity, f.severity)}${chip(f.status, STATUS[f.status])}</div>
     <div class="small muted">${esc(KIND[f.kind])} · ${facts} · since ${time(f.firstSeen)}${isActive ? '' : ` · closed ${time(f.resolvedAt || f.lastSeen)}`}${f.note ? ` · note: “${esc(f.note)}”` : ''}</div>
     <div class="row">
-      <button class="btn sm" data-act="explain" data-id="${f.id}" type="button">${show ? 'Hide explanation' : state.config?.ai ? 'Explain with AI' : 'Explain'}</button>
-      ${canWrite() && isActive ? `${f.status === 'open' ? `<button class="btn sm" data-act="status" data-status="acknowledged" data-id="${f.id}" type="button">Acknowledge</button>` : ''}
-        ${f.status !== 'confirmed' ? `<button class="btn sm" data-act="status" data-status="confirmed" data-id="${f.id}" type="button">Confirm real</button>` : ''}
-        <button class="btn sm" data-act="status" data-status="false_alarm" data-id="${f.id}" type="button">False alarm</button>
-        <button class="btn sm" data-act="status" data-status="resolved" data-id="${f.id}" type="button">Mark fixed</button>
-        <button class="btn sm primary" data-act="ticket" data-id="${f.id}" type="button">Draft ticket</button>` : ''}
+      <button class="btn sm" data-act="explain" data-id="${f.id}" type="button">${ib(show ? 'x' : 'sparkles', show ? 'Hide explanation' : state.config?.ai ? 'Explain with AI' : 'Explain')}</button>
+      ${canWrite() && isActive ? `${f.status === 'open' ? `<button class="btn sm" data-act="status" data-status="acknowledged" data-id="${f.id}" type="button">${ib('watch', 'Acknowledge')}</button>` : ''}
+        ${f.status !== 'confirmed' ? `<button class="btn sm" data-act="status" data-status="confirmed" data-id="${f.id}" type="button">${ib('check', 'Confirm real')}</button>` : ''}
+        <button class="btn sm" data-act="status" data-status="false_alarm" data-id="${f.id}" type="button">${ib('x', 'False alarm')}</button>
+        <button class="btn sm" data-act="status" data-status="resolved" data-id="${f.id}" type="button">${ib('wrench', 'Mark fixed')}</button>
+        <button class="btn sm primary" data-act="ticket" data-id="${f.id}" type="button">${ib('tickets', 'Draft ticket')}</button>` : ''}
     </div>
     ${show ? (e ? explanationView(e) : '<div class="explain muted">Working out the explanation…</div>') : ''}</div>`;
 }
 function explanationView(e) {
-  return `<div class="explain"><div class="row"><b class="grow">${esc(URGENCY[e.urgency] || '')}</b>${e.source === 'ai' ? chip('ai', 'AI') : chip('', 'Standard')}</div>
+  return `<div class="explain"><div class="row"><b class="grow ih">${icon(e.urgency === 'stop_now' ? 'risk' : 'clock', 'i')}<span>${esc(URGENCY[e.urgency] || '')}</span></b>${e.source === 'ai' ? chip('ai', 'AI') : chip('', 'Standard')}</div>
     <p style="margin:0">${esc(e.summary)}</p>
     <div><b class="small">Likely causes</b><ul>${e.likelyCauses.map(c => `<li><b>${esc(c.cause)}</b> <span class="chip">${esc(c.likelihood)}</span><br><span class="small muted">${esc(c.evidence)}</span></li>`).join('')}</ul></div>
     <div><b class="small">Check first</b><ol>${e.checkFirst.map(c => `<li>${esc(c)}</li>`).join('')}</ol></div>
@@ -176,8 +169,7 @@ async function pageFindings() {
   const list = await api(`/findings?status=${status}`);
   if (status === 'active') openFindings = list.length;
   const tabs = [['active', 'Active'], ['all', 'All'], ['false_alarm', 'False alarms'], ['resolved', 'Resolved']];
-  return `<div class="head"><div class="grow"><h1>Findings</h1><p>What the analysis found. Confirm the real ones and mark false alarms: a false alarm stays quiet for 24 hours, and your decisions are kept with each finding.</p></div>
-    <div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="filter" data-status="${k}" class="${status === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+  return `${head('findings', 'Findings', 'What the analysis found. Confirm the real ones and mark false alarms: a false alarm stays quiet for 24 hours, and your decisions are kept with each finding.', `<div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="filter" data-status="${k}" class="${status === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
     ${list.length ? `<div class="grid">${list.map(findingCard).join('')}</div>` : '<div class="card empty">Nothing here.</div>'}`;
 }
 
@@ -185,13 +177,13 @@ async function pageFindings() {
 const PRIORITY = { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' };
 async function pageTickets() {
   const list = await api('/tickets');
-  return `<div class="head"><div class="grow"><h1>Ticket drafts</h1><p>Drafted from findings for a planner to check. Approve a draft, then copy it into MouldCare as a breakdown ticket.</p></div></div>
+  return `${head('tickets', 'Ticket drafts', 'Drafted from findings for a planner to check. Approve a draft, then copy it into MouldCare as a breakdown ticket.')}
     ${list.length ? `<div class="grid">${list.map(t => { const d = t.draft; return `<article class="card grid">
-      <div class="row"><h2 class="grow">${esc(d.title)}</h2>${t.source === 'ai' ? chip('ai', 'AI draft') : chip('', 'Standard draft')}${chip(t.status, t.status)}${chip(d.priority === 'critical' || d.priority === 'high' ? 'critical' : 'warning', PRIORITY[d.priority] + ' priority')}</div>
+      <div class="row">${heading('tickets', esc(d.title), 2, d.priority === 'critical' || d.priority === 'high' ? 'risk' : 'watch')}${t.source === 'ai' ? chip('ai', 'AI draft') : chip('', 'Standard draft')}${chip(t.status, t.status)}${chip(d.priority === 'critical' || d.priority === 'high' ? 'critical' : 'warning', PRIORITY[d.priority] + ' priority')}</div>
       <dl class="facts"><dt>Machine</dt><dd><a href="#/machine/${t.machineId}">${esc(d.machineTag)}</a> ${esc(d.machineName)}</dd><dt>Category</dt><dd>${esc(d.failureCategory)}</dd><dt>Machine state</dt><dd>${esc(String(d.machineState).replace('_', ' '))}</dd><dt>Symptoms</dt><dd>${esc(d.symptoms)}</dd>
       <dt>Actions</dt><dd><ol style="margin:0;padding-left:18px">${d.suggestedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></dd>${d.partsToCheck?.length ? `<dt>Parts to check</dt><dd>${d.partsToCheck.map(esc).join(', ')}</dd>` : ''}
       <dt>Drafted</dt><dd>${time(t.createdAt)} by ${esc(t.createdBy)}</dd></dl>
-      <div class="row"><button class="btn sm" data-act="copy" data-id="${t.id}" type="button">Copy text</button>${canWrite() && t.status === 'draft' ? `<button class="btn sm primary" data-act="ticket-status" data-status="approved" data-id="${t.id}" type="button">Approve</button><button class="btn sm danger" data-act="ticket-status" data-status="discarded" data-id="${t.id}" type="button">Discard</button>` : ''}</div>
+      <div class="row"><button class="btn sm" data-act="copy" data-id="${t.id}" type="button">${ib('copy', 'Copy text')}</button>${canWrite() && t.status === 'draft' ? `<button class="btn sm primary" data-act="ticket-status" data-status="approved" data-id="${t.id}" type="button">${ib('check', 'Approve')}</button><button class="btn sm danger" data-act="ticket-status" data-status="discarded" data-id="${t.id}" type="button">${ib('trash', 'Discard')}</button>` : ''}</div>
       <textarea class="sr-only" id="copy-${t.id}" readonly>${esc(ticketText(t))}</textarea></article>`; }).join('')}</div>` : '<div class="card empty">No drafts yet. Open a finding and choose “Draft ticket”.</div>'}`;
 }
 const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}`; };
@@ -212,22 +204,20 @@ function markdown(src) {
 }
 async function pageReports() {
   const list = await api('/reports'), busy = state.busy.has('report');
-  return `<div class="head"><div class="grow"><h1>Health reports</h1><p>A written summary of machine health, trends and what to do next${state.config?.ai ? ', written by AI from the monitoring data' : ''}.</p></div>
-    ${canWrite() ? `<div class="row"><button class="btn" data-act="report" data-period="shift" type="button" ${busy ? 'disabled' : ''}>Shift report</button><button class="btn primary" data-act="report" data-period="week" type="button" ${busy ? 'disabled' : ''}>Weekly report</button></div>` : ''}</div>
+  return `${head('reports', 'Health reports', `A written summary of machine health, trends and what to do next${state.config?.ai ? ', written by AI from the monitoring data' : ''}.`, canWrite() ? `<div class="row"><button class="btn" data-act="report" data-period="shift" type="button" ${busy ? 'disabled' : ''}>${ib('clock', 'Shift report')}</button><button class="btn primary" data-act="report" data-period="week" type="button" ${busy ? 'disabled' : ''}>${ib('calendar', 'Weekly report')}</button></div>` : '')}
     ${busy ? '<div class="notice">Writing the report…</div>' : ''}
-    ${list.length ? list.map(r => `<article class="card"><div class="row"><h2 class="grow">${r.period === 'week' ? 'Weekly' : 'Shift'} report · ${time(r.to)}</h2>${r.source === 'ai' ? chip('ai', 'AI') : chip('', 'Standard')}<span class="small muted">by ${esc(r.author)}</span></div><div class="md">${markdown(r.body)}</div></article>`).join('') : '<div class="card empty">No reports yet.</div>'}`;
+    ${list.length ? list.map(r => `<article class="card"><div class="row">${heading(r.period === 'week' ? 'calendar' : 'clock', `${r.period === 'week' ? 'Weekly' : 'Shift'} report · ${time(r.to)}`)}${r.source === 'ai' ? chip('ai', 'AI') : chip('', 'Standard')}<span class="small muted">by ${esc(r.author)}</span></div><div class="md">${markdown(r.body)}</div></article>`).join('') : '<div class="card empty">No reports yet.</div>'}`;
 }
 
 // ---- Chat ----
 const SUGGESTIONS = ['Which machine needs attention first, and why?', 'Why is IMM-02\'s hydraulic oil getting hotter?', 'Has BM-01\'s vibration changed this week?', 'Summarise the chiller\'s last 24 hours.'];
 async function pageChat() {
   const c = await api('/chat'), busy = state.busy.has('chat');
-  if (!c.enabled) return `<div class="head"><div class="grow"><h1>Ask AI</h1></div></div><div class="card"><p>The AI assistant is off. An administrator switches it on by setting <code>ANTHROPIC_API_KEY</code> on the server and restarting it.</p><p class="muted">Explanations, ticket drafts and reports still work without it, using the built-in knowledge.</p></div>`;
-  return `<div class="head"><div class="grow"><h1>Ask AI</h1><p>Ask about your machines in plain language. The assistant looks up live and historical data before answering and shows what it looked at.</p></div>
-    ${c.messages.length && canWrite() ? '<button class="btn" data-act="chat-new" type="button">New conversation</button>' : ''}</div>
-    <section class="card chat"><div class="msgs" id="msgs">${c.messages.length ? c.messages.map(m => `<div class="msg ${m.role}">${esc(m.text)}${m.lookups?.length ? `<div class="lookups">Looked at: ${m.lookups.map(esc).join(' · ')}</div>` : ''}</div>`).join('') : `<div class="suggest">${SUGGESTIONS.map(s => `<button class="btn sm" data-act="suggest" type="button">${esc(s)}</button>`).join('')}</div>`}
+  if (!c.enabled) return `${head('chat', 'Ask AI', '', '', 'ai')}<div class="card"><p>The AI assistant is off. An administrator switches it on by setting <code>ANTHROPIC_API_KEY</code> on the server and restarting it.</p><p class="muted">Explanations, ticket drafts and reports still work without it, using the built-in knowledge.</p></div>`;
+  return `${head('chat', 'Ask AI', 'Ask about your machines in plain language. The assistant looks up live and historical data before answering and shows what it looked at.', c.messages.length && canWrite() ? `<button class="btn" data-act="chat-new" type="button">${ib('plus', 'New conversation')}</button>` : '', 'ai')}
+    <section class="card chat"><div class="msgs" id="msgs">${c.messages.length ? c.messages.map(m => `<div class="msg ${m.role}">${esc(m.text)}${m.lookups?.length ? `<div class="lookups">Looked at: ${m.lookups.map(esc).join(' · ')}</div>` : ''}</div>`).join('') : `<div class="suggest">${SUGGESTIONS.map(s => `<button class="btn sm" data-act="suggest" type="button">${icon('sparkles', 'bi')}<span>${esc(s)}</span></button>`).join('')}</div>`}
       ${busy ? '<div class="msg muted">Looking at the data…</div>' : ''}${state.chatNotice ? `<div class="notice">${esc(state.chatNotice)}</div>` : ''}</div>
-      ${canWrite() ? (c.isFull ? '<div class="composer"><p class="muted">This conversation is full. Start a new one to keep asking.</p></div>' : `<form class="composer" id="ask"><label class="sr-only" for="q">Question</label><textarea id="q" name="q" placeholder="e.g. Which machines could fail this week?" ${busy ? 'disabled' : ''}></textarea><button class="btn primary" ${busy ? 'disabled' : ''}>Ask</button></form>`) : '<div class="composer"><p class="muted">Your role can read but not ask.</p></div>'}</section>`;
+      ${canWrite() ? (c.isFull ? '<div class="composer"><p class="muted">This conversation is full. Start a new one to keep asking.</p></div>' : `<form class="composer" id="ask"><label class="sr-only" for="q">Question</label><textarea id="q" name="q" placeholder="e.g. Which machines could fail this week?" ${busy ? 'disabled' : ''}></textarea><button class="btn primary" ${busy ? 'disabled' : ''}>${ib('send', 'Ask')}</button></form>`) : '<div class="composer"><p class="muted">Your role can read but not ask.</p></div>'}</section>`;
 }
 async function ask(text) {
   if (!text.trim()) return;
@@ -237,21 +227,28 @@ async function ask(text) {
   state.busy.delete('chat'); await render(); const m = $('#msgs'); if (m) m.scrollTop = m.scrollHeight;
 }
 
-// ---- Settings ----
-async function pageSettings() {
+// ---- Settings (super user only) ----
+// Tabs: Machines (#/settings/machines, one machine at #/settings/machine/<id>), Signals (#/settings/signals/<id>),
+// Connections & models (#/settings/connections).
+const SETTINGS_TABS = [['machines', 'Machines', 'machine'], ['signals', 'Signals', 'signal'], ['connections', 'Connections & models', 'plug']];
+async function pageSettings(arg, sub) {
+  if (state.user.role !== 'admin') return `${head('settings', 'Settings')}<div class="card empty">${icon('shield', 'i')} Settings are for the super user (administrator).</div>`;
+  const tab = arg === 'machine' ? 'machines' : SETTINGS_TABS.some(([k]) => k === arg) ? arg : 'machines';
+  const body = arg === 'machine' && sub ? await machineSetup(sub) : tab === 'signals' ? await signalsTab(sub) : tab === 'connections' ? await connectionsTab() : await machinesTab();
+  return `${head('settings', 'Settings', 'Machines, signals, connections and the models.', `<span class="chip ai">${icon('shield', 'i xs')} Super user access</span>`)}
+    <nav class="tabs" aria-label="Settings">${SETTINGS_TABS.map(([k, l, i]) => `<a href="#/settings/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${icon(i, 'bi')}<span>${l}</span></a>`).join('')}</nav>${body}`;
+}
+async function connectionsTab() {
   const s = await api('/settings');
-  const v = x => x == null ? '' : x;
-  return `<div class="head"><div class="grow"><h1>Settings</h1><p>Limits, connections and the models.</p></div><button class="btn" data-act="retrain" type="button">Retrain models now</button></div>
-    <section class="card"><h2>Connections</h2><dl class="facts"><dt>AI assistant</dt><dd>${s.ai ? `On (${esc(s.aiModel)})` : 'Off: set ANTHROPIC_API_KEY on the server'}</dd>
-      <dt>Gateway intake</dt><dd>${s.ingestKeySet ? 'On' : 'Off: set MONITOR_INGEST_KEY on the server'} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code></dd>
-      <dt>Simulator</dt><dd>${s.simulator ? 'On (demo data)' : 'Off'}</dd></dl>
+  const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
+  return `<section class="card"><div class="row">${heading('plug', 'Connections')}</div><dl class="facts">${row('sparkles', 'AI assistant', s.ai ? `${chip('good', 'On')} ${esc(s.aiModel)}` : `${chip('', 'Off')} set ANTHROPIC_API_KEY on the server`)}
+      ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
+      ${row('refresh', 'Simulator', s.simulator ? `${chip('watch', 'On')} demo data` : chip('', 'Off'))}</dl>
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
       <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
   -d '{"readings":[{"device":"${esc(s.machines[0]?.deviceId || 'plc-imm-01')}","at":"2026-10-19T08:15:00Z","state":"running","values":{"hydraulic_oil_temp":47.2}}]}'</pre></details></section>
-    ${s.machines.map(m => `<section class="card"><div class="row"><h2 class="grow">${esc(m.tag)} · ${esc(m.name)}</h2><span class="small muted">Device ID <code>${esc(m.deviceId)}</code></span></div>
-      <form data-limits="${m.id}"><div class="table-wrap"><table><thead><tr><th>Signal</th><th>Crit low</th><th>Warn low</th><th>Warn high</th><th>Crit high</th></tr></thead><tbody>
-      ${m.signals.map(sg => `<tr><td>${esc(sg.label)} <span class="muted">${esc(sg.unit)}</span></td>${['crit_low', 'warn_low', 'warn_high', 'crit_high'].map(k => `<td><input type="number" step="any" name="${sg.key}:${k}" value="${v(sg[k])}" aria-label="${esc(sg.label)} ${k.replace('_', ' ')}"></td>`).join('')}</tr>`).join('')}
-      </tbody></table></div><div class="row" style="margin-top:10px"><button class="btn primary sm">Save limits</button><span class="small muted" data-saved="${m.id}"></span></div></form></section>`).join('')}`;
+    <section class="card"><div class="row">${heading('model', 'Pattern models', 2, 'ai')}<button class="btn sm" data-act="retrain" type="button">${ib('refresh', 'Retrain models now')}</button></div>
+      <p class="small muted">Each machine's pattern models retrain every 6 hours on its own history, and again after its signals change. Retrain now after a repair or a change in how a machine runs.</p></section>`;
 }
 
 // ---- Actions ----
@@ -283,13 +280,6 @@ function bindActions() {
   }));
   $('#ask')?.addEventListener('submit', e => { e.preventDefault(); ask(e.target.q.value); });
   $('#q')?.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(e.target.value); } });
-  document.querySelectorAll('form[data-limits]').forEach(f => f.addEventListener('submit', async e => {
-    e.preventDefault(); const mid = f.dataset.limits, byKey = {};
-    for (const [name, value] of new FormData(f)) { const [key, k] = name.split(':'); (byKey[key] ||= { key })[k] = value === '' ? null : Number(value); }
-    const out = document.querySelector(`[data-saved="${mid}"]`);
-    try { await api(`/machines/${mid}/limits`, 'PUT', { limits: Object.values(byKey) }); out.textContent = 'Saved. The analysis now uses the new limits.'; }
-    catch (err) { out.textContent = err.message; }
-  }));
 }
 
 render();
