@@ -72,3 +72,28 @@ export const KNOWLEDGE = {
 };
 
 export const signalsFor = type => SIGNALS[type] || [];
+
+// Basic parameters per machine type, shown and checked when a machine is added or edited. `options` makes a choice;
+// otherwise the value is a number within min..max. All are optional except where `required` is set.
+const P = (key, label, unit, more = {}) => ({ key, label, unit, ...more });
+export const MACHINE_SPECS = {
+  injection: [P('clampForceKn', 'Clamp force', 'kN', { min: 50, max: 60000, required: true }), P('shotVolumeCm3', 'Shot volume', 'cm³', { min: 1, max: 100000 }), P('screwDiameterMm', 'Screw diameter', 'mm', { min: 10, max: 200 }),
+    P('driveType', 'Drive', '', { options: ['hydraulic', 'electric', 'hybrid'], required: true }), P('motorKw', 'Main motor power', 'kW', { min: 0.5, max: 2000 }), P('controller', 'Controller', '', { text: true })],
+  extrusion: [P('screwDiameterMm', 'Screw diameter', 'mm', { min: 10, max: 400, required: true }), P('ldRatio', 'L/D ratio', '', { min: 10, max: 60 }), P('screwConfig', 'Screw configuration', '', { options: ['single', 'twin', 'counter-rotating twin'] }),
+    P('outputKgH', 'Rated output', 'kg/h', { min: 1, max: 10000 }), P('motorKw', 'Main motor power', 'kW', { min: 1, max: 5000 }), P('controller', 'Controller', '', { text: true })],
+  blow: [P('process', 'Process', '', { options: ['extrusion blow', 'injection blow', 'stretch blow'], required: true }), P('cavities', 'Cavities', '', { min: 1, max: 64 }), P('maxVolumeL', 'Largest container', 'L', { min: 0.01, max: 2000 }),
+    P('clampForceKn', 'Clamp force', 'kN', { min: 10, max: 5000 }), P('motorKw', 'Main motor power', 'kW', { min: 0.5, max: 1000 })],
+  chiller: [P('coolingCapacityKw', 'Cooling capacity', 'kW', { min: 1, max: 5000, required: true }), P('refrigerant', 'Refrigerant', '', { text: true }), P('compressorType', 'Compressor', '', { options: ['scroll', 'screw', 'reciprocating', 'centrifugal'] }),
+    P('setpointC', 'Supply set point', '°C', { min: -20, max: 40 })],
+  dryer: [P('dryerType', 'Dryer type', '', { options: ['desiccant', 'hot air', 'vacuum', 'compressed air'], required: true }), P('hopperCapacityL', 'Hopper capacity', 'L', { min: 1, max: 20000 }), P('airflowM3h', 'Air flow', 'm³/h', { min: 1, max: 10000 }),
+    P('throughputKgH', 'Throughput', 'kg/h', { min: 1, max: 5000 })],
+  compressor: [P('compressorType', 'Compressor', '', { options: ['screw', 'piston', 'scroll', 'centrifugal'], required: true }), P('freeAirM3min', 'Free air delivery', 'm³/min', { min: 0.1, max: 500 }), P('maxPressureBar', 'Maximum pressure', 'bar', { min: 1, max: 50 }),
+    P('motorKw', 'Motor power', 'kW', { min: 0.5, max: 2000 })],
+};
+export const specsFor = type => MACHINE_SPECS[type] || [];
+
+// What measures a signal.
+export const SENSOR_TYPES = { thermocouple: 'Thermocouple', rtd: 'RTD (Pt100)', pressure: 'Pressure transducer', accelerometer: 'Vibration sensor (accelerometer)', current: 'Current transformer',
+  flow: 'Flow meter', dew_point: 'Dew point sensor', level: 'Level sensor', power: 'Power meter', plc: 'PLC / controller value', other: 'Other' };
+// A sensible sensor for each catalogue signal, used when the standard signals are added to a new machine.
+export const sensorFor = key => /vibration/.test(key) ? 'accelerometer' : /dew_point/.test(key) ? 'dew_point' : /temp/.test(key) ? 'thermocouple' : /pressure|compressed_air/.test(key) ? 'pressure' : /current/.test(key) ? 'current' : 'plc';

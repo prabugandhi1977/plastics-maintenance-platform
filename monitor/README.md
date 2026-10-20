@@ -7,6 +7,9 @@ Machine and condition monitoring for plastics plants, with machine learning that
 - **Live machine health:** every machine with its state, a health score, its most important finding and a sparkline of the signal that matters most. It refreshes every 30 seconds.
 - **Condition monitoring per signal:** hydraulic oil, vibration, barrel and die temperatures, pressures, cooling water, motor current, chiller, dryer and compressor signals, with recommended limits per machine type (vibration per ISO 20816). Charts show the readings, the learned normal band, the limits and the projected trend.
 - **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed. Every decision is kept with the finding and in the audit log.
+- **Machines and signals, set up from the dashboard:** the **Machines** page lists every machine with its photo. On each machine's page:
+  - administrators add, edit and delete machines and their signals
+  - administrators and engineers add photos and documents (details below)
 - **AI features:** an explanation for each finding, maintenance-ticket drafts, shift and weekly health reports, and a chat about the machines (details below).
 
 ## How the machine learning works
@@ -58,6 +61,44 @@ Open **http://localhost:3300/**. Demo accounts (password `MonitorDemo123!`):
 
 The three other machines stay healthy.
 
+## Machines and signals
+
+**Add a machine** (administrators, on the **Machines** page):
+
+- **Basic data:** tag, name, type, device ID (what the gateway sends), make, model, serial number, year built, line and notes.
+- **Parameters for its type:**
+  - injection moulding: clamp force, shot volume, screw diameter, drive, motor power, controller
+  - extruder: screw diameter, L/D ratio, configuration, output, motor power, controller
+  - blow moulding: process, cavities, largest container, clamp force, motor power
+  - chiller: cooling capacity, refrigerant, compressor, set point
+  - dryer: type, hopper capacity, air flow, throughput
+  - compressor: type, free air delivery, maximum pressure, motor power
+- **Standard signals:** a new machine gets the standard signals for its type, with recommended limits, unless you untick that.
+- **Fixed once added:** the type. The tag and device ID can change but must stay unique.
+
+**Signals** (administrators, under *Signal set-up* on the machine's page):
+
+- **Each signal has:**
+  - a key (what the gateway sends, fixed once added), name and unit
+  - sensor type and make, measuring range
+  - source address (PLC tag, OPC UA node ID or MQTT topic)
+  - warning and critical limits, and notes
+- **Adding:** start from a standard signal or make a custom one. A new signal is accepted from the gateway at once, and the machine's pattern model retrains.
+
+**Photos and documents** (administrators and engineers; everyone can view and download):
+
+- **What can be attached:** one photo and any number of documents, for each machine and for each signal (sensor data sheets, calibration certificates).
+- **Photos:** JPEG, PNG or WebP, up to 5 MB. A new photo replaces the old one.
+- **Documents:** PDF, Word (.docx), Excel (.xlsx), text, CSV or images, up to 15 MB.
+- **Checks:** the file type is read from the file's content, not its name. Files are served so they can never run script in the browser.
+- **Storage:** files are kept in the database, so a backup of `monitor.sqlite` holds them too.
+
+**Deleting:**
+
+- **A machine:** confirm with its tag. It is removed with all its readings, findings, models, ticket drafts and files.
+- **A signal:** it is removed with its readings, findings and files.
+- **Audit trail:** every change is recorded.
+
 ## Connect real machines
 
 Gateways (a PLC, an OPC UA or MQTT bridge, or an edge PC) post readings with the `X-Ingest-Key` header:
@@ -77,7 +118,7 @@ How the intake handles a request:
 - **Machine state:** `state` is `running`, `idle`, `down` or `off`. Only running time counts towards a machine's normal.
 - **Errors:** each reading comes back accepted or rejected with a reason: an unknown device, a time in the future or more than 30 days old, or a value that is not a number. Unknown signal names are skipped and listed.
 
-Machines and their device IDs are listed under **Settings**, where an administrator also edits the limits.
+Machines and their device IDs are on the **Machines** page and under **Settings**. Administrators also edit limits there.
 
 ## Tests
 
@@ -86,11 +127,15 @@ cd monitor
 npm test
 ```
 
-There are 20 tests in four files:
+There are 25 tests in five files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
 - `seed.test.js`: demo machines without demo accounts, and the first admin from the environment.
+- `setup.test.js`: adding, editing and deleting machines and signals, covering:
+  - the parameter and limit checks, unique tags and device IDs, and who may do what
+  - photos and documents checked by their content, served safely, and the photo replaced
+  - deleting a machine with everything that belongs to it
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 
 ## Deploy
