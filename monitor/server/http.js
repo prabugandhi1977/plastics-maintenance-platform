@@ -17,7 +17,14 @@ export async function bodyOf(req, limit = 2 * 1024 * 1024) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { bad('Invalid JSON'); }
 }
 
-// Options: public (no sign-in), roles (allowed roles).
+export async function rawOf(req, limit) {
+  if (Number(req.headers['content-length']) > limit) throw new HttpError(413, `File too large (max ${Math.round(limit / 1048576)} MB)`);
+  const chunks = []; let size = 0;
+  for await (const c of req) { size += c.length; if (size > limit) throw new HttpError(413, `File too large (max ${Math.round(limit / 1048576)} MB)`); chunks.push(c); }
+  return Buffer.concat(chunks);
+}
+
+// Options: public (no sign-in), raw (body as bytes, with this size limit).
 export function createRouter() {
   const routes = [];
   const add = method => (pattern, handler, options = {}) => routes.push({ method, re: new RegExp('^/api' + pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), handler, ...options });

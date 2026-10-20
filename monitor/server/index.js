@@ -4,7 +4,7 @@ import http from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { ROOT, one, all, run, audit } from './db.js';
-import { HttpError, createRouter, bodyOf, json, Reply, reply, bad, deny, missing, text, choice, optNumber } from './http.js';
+import { HttpError, createRouter, bodyOf, rawOf, json, Reply, reply, bad, deny, missing, text, choice, optNumber } from './http.js';
 import { authenticate, tokenFor, verifyPassword, checkLockout, recordFailure, clearFailures, ingestKeyOk, can } from './auth.js';
 import { ingest } from './ingest.js';
 import { MACHINE_TYPES } from './catalog.js';
@@ -12,6 +12,7 @@ import { analysisOf, analyzeAll, analyzeMachine, forgetAnalysis } from './ml/ana
 import { median } from './ml/stats.js';
 import { simulate, simulatorEnabled, FAULTS } from './simulator.js';
 import { seedDemo, bootstrapAdmin } from './seed.js';
+import { registerSetup } from './setup.js';
 import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle } from './ai/claude.js';
 
 const r = createRouter();
@@ -153,18 +154,22 @@ r.post('/models/retrain', ({ user }) => { admin(user); run('DELETE FROM models')
 r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
   machines: all('SELECT * FROM machines ORDER BY tag').map(m => ({ id: m.id, tag: m.tag, name: m.name, deviceId: m.device_id, signals: all('SELECT key,label,unit,warn_low,warn_high,crit_low,crit_high FROM signals WHERE machine_id=? ORDER BY rowid', m.id) })) }; });
 
+registerSetup(r);
+
 // ---- HTTP plumbing ----
 const STATIC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
-  'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'" };
+  'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'" };
 const MIME = { '.ico': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 
 async function api(req, res, url) {
   const { route, params, pathExists } = r.match(req.method, url.pathname);
   if (!route) throw new HttpError(pathExists ? 405 : 404, pathExists ? 'Method not allowed' : 'Endpoint not found');
-  const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await bodyOf(req) : {};
+  // Routes marked raw take the request body as bytes (file uploads), up to their limit.
+  const body = route.raw ? await rawOf(req, route.raw) : ['POST', 'PATCH', 'PUT'].includes(req.method) ? await bodyOf(req) : {};
   const user = route.public ? null : authenticate(req);
   if (!route.public && !user) throw new HttpError(401, 'Sign in required');
-  const out = await route.handler({ user, body, params, query: url.searchParams, req });
+  const out = await route.handler({ user, body, params, query: url.searchParams, req, res });
+  if (res.writableEnded) return; // the handler sent a file itself
   if (out instanceof Reply) return json(res, out.status, out.value);
   json(res, 200, out);
 }

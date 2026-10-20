@@ -1,6 +1,7 @@
 // MouldCare Monitor dashboard: plain modules, no build step. Routes live in the URL hash (#/machine/<id>), the
 // sign-in token in session storage, and every page refreshes itself every 30 seconds while open.
 import { signalChart, sparkline } from '/charts.js';
+import { initSetup, pageMachines, machineSections, loadImages, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = s => document.querySelector(s);
@@ -14,6 +15,7 @@ async function api(path, method = 'GET', body) {
   if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
   return data;
 }
+initSetup({ api, esc, state, render });
 const canWrite = () => ['admin', 'engineer'].includes(state.user?.role);
 const time = t => t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const ago = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -25,6 +27,7 @@ const chip = (cls, label) => `<span class="chip ${esc(cls)}">${esc(label)}</span
 
 const ICONS = {
   overview: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
+  machines: '<path d="M3 20h18M5 20V9l5 3V9l5 3V6l4 2v12M8 16h2m4 0h2"/>',
   findings: '<path d="M12 3 2 21h20L12 3zm0 6v5m0 3v.5"/>',
   tickets: '<path d="M4 5h16v4a2 2 0 0 0 0 4v4H4v-4a2 2 0 0 0 0-4z"/>',
   reports: '<path d="M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3"/>',
@@ -48,7 +51,7 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); }
 let openFindings = 0;
 function layout(inner) {
   const { page } = route(), theme = document.documentElement.dataset.theme || 'auto';
-  const links = [['overview', 'Overview'], ['findings', 'Findings'], ['tickets', 'Ticket drafts'], ['reports', 'Reports'], ['chat', 'Ask AI'], ...(state.user.role === 'admin' ? [['settings', 'Settings']] : [])];
+  const links = [['overview', 'Overview'], ['machines', 'Machines'], ['findings', 'Findings'], ['tickets', 'Ticket drafts'], ['reports', 'Reports'], ['chat', 'Ask AI'], ...(state.user.role === 'admin' ? [['settings', 'Settings']] : [])];
   return `<div class="shell"><aside class="side"><div class="brand"><b>Mould<span>Care</span> Monitor</b><small>Machine &amp; condition monitoring</small></div>
     <nav class="nav" aria-label="Main">${links.map(([id, label]) => `<a href="#/${id}" class="${page === id || (id === 'overview' && page === 'machine') ? 'active' : ''}">${icon(id)}<span class="label">${label}</span>${id === 'findings' && openFindings ? `<span class="count">${openFindings}</span>` : ''}</a>`).join('')}</nav></aside>
     <div class="main"><header class="topbar">${state.config?.simulator ? '<span class="pill-env" title="Readings come from the built-in simulator, not real machines">Simulated data</span>' : ''}<span class="grow"></span>
@@ -64,20 +67,21 @@ async function render() {
   if (!state.config) state.config = await api('/config').catch(() => ({}));
   if (!state.token) return renderLogin();
   const { page, arg } = route();
-  const pages = { overview: pageOverview, machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: pageSettings };
+  const pages = { overview: pageOverview, machines: pageMachines, machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: pageSettings };
   const draw = async () => {
     // A slower, older page must never paint over the page the person has since moved to.
     try { const html = await (pages[page] || pageOverview)(); if (gen === generation) paint(layout(html)); }
     catch (e) { if (gen === generation) paint(layout(`<div class="error">${esc(e.message)}</div>`)); }
   };
   await draw();
-  if (gen === generation && ['overview', 'machine', 'findings'].includes(page)) state.timer = setInterval(() => { if (!document.hidden && !state.busy.size && !document.activeElement?.matches('input,textarea,select')) draw(); }, 30000);
+  if (gen === generation && ['overview', 'machine', 'findings'].includes(page)) state.timer = setInterval(() => { if (!document.hidden && !state.busy.size && !document.getElementById('dlg') && !document.activeElement?.matches('input,textarea,select')) draw(); }, 30000);
 }
 function paint(html) {
   const y = window.scrollY; $('#app').innerHTML = html; window.scrollTo(0, y);
   $('#signout')?.addEventListener('click', signOut);
-  document.querySelectorAll('[data-theme]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
-  bindActions();
+  // Only the buttons: <html> carries data-theme too, and a listener on it would pile up with every repaint.
+  document.querySelectorAll('button[data-theme]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
+  bindActions(); loadImages();
 }
 
 function renderLogin(error = '') {
@@ -114,18 +118,20 @@ function machineCard(m) {
 
 // ---- Machine ----
 async function pageMachine(mid) {
-  const d = await api(`/machines/${mid}`), m = d.machine, a = d.analysis, hours = state.hours[mid] || 24;
+  const [d, setup] = await Promise.all([api(`/machines/${mid}`), machineSections(mid)]), m = d.machine, a = d.analysis, hours = state.hours[mid] || 24;
   const series = await Promise.all(a.signals.map(s => api(`/machines/${mid}/series?signal=${encodeURIComponent(s.key)}&hours=${hours}`)));
   const active = d.findings.filter(f => ['open', 'acknowledged', 'confirmed'].includes(f.status)), closed = d.findings.filter(f => !active.includes(f));
   const model = a.model;
   return `<div class="head"><div class="grow"><p><a href="#/overview">← All machines</a></p><h1>${esc(m.tag)} · ${esc(m.name)}</h1><p>${esc(m.typeLabel)} · ${esc(m.make)} ${esc(m.model)} · ${esc(m.line)}</p></div>
       <div class="row">${chip(a.state, a.state)}${chip(a.health.status, `${HEALTH[a.health.status]} · ${a.health.score}`)}</div></div>
+    ${setup.details}
     <section class="card"><div class="row"><h2 class="grow">Findings</h2><span class="small muted">Last data ${ago(a.lastData)}</span></div>
       ${active.length ? active.map(findingCard).join('') : '<p class="muted">Nothing open on this machine.</p>'}
       ${closed.length ? `<details><summary class="small muted">${closed.length} closed in the last 14 days</summary><div class="grid" style="margin-top:10px">${closed.map(findingCard).join('')}</div></details>` : ''}</section>
     <div class="row"><h2 class="grow">Signals</h2><div class="seg" role="group" aria-label="Period"><button type="button" data-act="hours" data-id="${mid}" data-hours="24" class="${hours === 24 ? 'on' : ''}">24 hours</button><button type="button" data-act="hours" data-id="${mid}" data-hours="168" class="${hours === 168 ? 'on' : ''}">7 days</button></div></div>
     <div class="legend"><span><i style="background:var(--chart-line)"></i>Readings</span><span><i style="background:var(--chart-band);height:9px"></i>Learned normal (±3 spreads)</span><span><i style="background:var(--chart-warn)"></i>Warning limit</span><span><i style="background:var(--chart-crit)"></i>Critical limit / trend</span></div>
-    <section class="grid signals">${a.signals.map((s, i) => signalCard(s, series[i])).join('')}</section>
+    <section class="grid signals">${a.signals.map((s, i) => signalCard(s, series[i])).join('') || '<div class="card empty">No signals yet.</div>'}</section>
+    ${setup.signals}
     <section class="card"><h2>Pattern model</h2>
       ${model.trainedAt ? `<p class="small">Two models learn this machine's own running history (all signals together, in fifteen-minute windows), retrained every 6 hours. The <b>relationship distance</b> rises when signals that normally move together stop doing so, such as motor current climbing while pressure falls. The <b>isolation forest</b> rises when the machine runs in a state it has never shown before. Either can flag a problem while every signal alone still looks normal.</p>
         <dl class="facts"><dt>Trained</dt><dd>${time(model.trainedAt)} on ${model.rows} windows</dd>
@@ -250,9 +256,10 @@ async function pageSettings() {
 
 // ---- Actions ----
 function bindActions() {
-  document.querySelectorAll('[data-act]').forEach(el => el.addEventListener('click', async () => {
+  document.querySelectorAll('[data-act]').forEach(el => el.addEventListener('click', async e => {
     const { act, id } = el.dataset;
     try {
+      if (SETUP_ACTIONS.includes(act)) { e.preventDefault(); return await setupAction(act, el); }
       if (act === 'hours') { state.hours[id] = Number(el.dataset.hours); return render(); }
       if (act === 'filter') { location.hash = `#/findings?status=${el.dataset.status}`; return; }
       if (act === 'explain') {
