@@ -2110,6 +2110,17 @@ const en={
   "scan.theCameraCouldNotStart":"The camera could not start{value}.",
   "scan.nfcCouldNotStart":"NFC could not start{value}.",
   "vr.stepOf":"Step {value} of {length}",
+  "ws.notifications":"Notifications",
+  "ws.notificationsHelp":"Machine alerts (critical by default) by email and WhatsApp. On WhatsApp you also hear when a ticket is assigned to you and when a ticket you reported is completed.",
+  "ws.receiveAlertEmails":"Receive alert emails",
+  "ws.receiveWhatsappMessages":"Receive WhatsApp messages (alerts and ticket updates)",
+  "ws.whatsappPhoneHelp":"For WhatsApp, enter the phone number in international format: + country code and number, e.g. +919876543210",
+  "ws.notificationSettingsSaved":"Notification settings saved",
+  "ws.whatsappAlertsHelp":"WhatsApp messages go to the same people who opted in to WhatsApp and have a phone number in international format. Sending needs a WhatsApp Business account: set WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TEMPLATE on the server. Until then messages wait here as \"not configured\".",
+  "ws.channel":"Channel",
+  "ws.whatsapp":"WhatsApp",
+  "ws.configured":"Configured",
+  "ws.notConfigured":"Not configured",
 };
 const de={
   'app.tagline':'Service-Arbeitsplatz für die Kunststoffverarbeitung','nav.menu':'Menü','app.brandLine':'Instandhaltung · Fertigung · Qualität','theme.light':'Hell','theme.dark':'Dunkel','theme.auto':'Auto','theme.label':'Farbschema','label.viewingAs':'Ansicht als','env.demo':'Demodaten','env.demoHelp':'Diese Kopie enthält die Demo-Firmen und -Konten. Keine echten Daten eingeben.','env.live':'Live-System','env.liveHelp':'Die echten Daten Ihrer Firma.','app.field':'Mobiler Arbeitsplatz für Techniker',
@@ -2126,7 +2137,11 @@ const de={
   'priority.low':'Niedrig','priority.medium':'Mittel','priority.high':'Hoch','priority.critical':'Kritisch',
   'severity.info':'Info','severity.warning':'Warnung','severity.critical':'Kritisch',
   'machine.injection':'Spritzgießen','machine.blow':'Blasformen','machine.extrusion':'Extrusion','machine.mould':'Werkzeug','machine.auxiliary':'Peripherie',
-  'role.platform_admin':'Plattform-Admin','role.dispatcher':'Disposition','role.engineer':'Servicetechniker','role.customer_admin':'Kunden-Admin','role.plant_manager':'Werksleitung','role.maintenance':'Instandhaltung','role.provider_admin':'Partner-Admin','role.provider_engineer':'Partner-Techniker'
+  'role.platform_admin':'Plattform-Admin','role.dispatcher':'Disposition','role.engineer':'Servicetechniker','role.customer_admin':'Kunden-Admin','role.plant_manager':'Werksleitung','role.maintenance':'Instandhaltung','role.provider_admin':'Partner-Admin','role.provider_engineer':'Partner-Techniker',
+  'ws.notifications':'Benachrichtigungen','ws.notificationsHelp':'Maschinenalarme (standardmäßig kritische) per E-Mail und WhatsApp. Per WhatsApp erfahren Sie außerdem, wenn Ihnen eine Störmeldung zugewiesen wird und wenn eine von Ihnen gemeldete Störung abgeschlossen ist.',
+  'ws.receiveAlertEmails':'Alarme per E-Mail erhalten','ws.receiveWhatsappMessages':'WhatsApp-Nachrichten erhalten (Alarme und Störmeldungen)','ws.whatsappPhoneHelp':'Für WhatsApp die Telefonnummer im internationalen Format eingeben: + Ländervorwahl und Nummer, z. B. +492215550100',
+  'ws.notificationSettingsSaved':'Benachrichtigungen gespeichert','ws.whatsappAlertsHelp':'WhatsApp-Nachrichten gehen an dieselben Personen, sofern sie WhatsApp aktiviert haben und eine Telefonnummer im internationalen Format hinterlegt ist. Zum Senden wird ein WhatsApp-Business-Konto benötigt: WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID und WHATSAPP_TEMPLATE auf dem Server setzen. Bis dahin warten die Nachrichten hier als „not configured“.',
+  'ws.channel':'Kanal','ws.whatsapp':'WhatsApp','ws.email':'E-Mail','ws.configured':'Eingerichtet','ws.notConfigured':'Nicht eingerichtet',
 };
 const catalogues={en,de};
 let current='en';

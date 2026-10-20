@@ -47,6 +47,17 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+      # WhatsApp alerts and ticket updates (Meta WhatsApp Business Cloud API); see README → WhatsApp notifications.
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_TEMPLATE
+        sync: false
+      - key: WHATSAPP_TEMPLATE_LANG
+        sync: false
+      - key: WHATSAPP_API_VERSION
+        sync: false
 
   # MouldCare Monitor: machine and condition monitoring with ML and AI (monitor/README.md). Its database is SQLite on
   # its own disk. It shows the six demo machines with simulated readings and no demo accounts (their password is

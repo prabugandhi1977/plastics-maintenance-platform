@@ -1,7 +1,9 @@
 import { now, one, run } from '../../../common/db.js';
 import { hashPassword, verifyPassword, tokenFor, isCustomer } from '../../../common/security.js';
 import { audit, byId } from '../../../common/access.js';
-import { HttpError, bad, email, required } from '../../../common/validate.js';
+import { HttpError, bad, email, phone, required } from '../../../common/validate.js';
+import { FIELD_ROLES } from '../../../common/catalog.js';
+import { flag, requireWhatsappPhone } from '../../../common/whatsapp.js';
 
 export const LOCALES=['en','de'];
 // Failed sign-ins are counted per account (email). Behind a hosting proxy every request arrives from a changing set of
@@ -30,7 +32,7 @@ export async function preferences(u) {
   const c=u.company_id?await byId('companies',u.company_id):null;
   return {locale:u.locale||c?.locale||'en',timezone:c?.timezone||'UTC',currency:c?.currency||'USD',units:c?.units||'metric'};
 }
-const profile=async u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,preferences:await preferences(u),visionDuties:(()=>{ try { return JSON.parse(u.vision_duties||'[]'); } catch { return []; } })()});
+const profile=async u=>({id:u.id,name:u.name,email:u.email,role:u.role,companyId:u.company_id,providerId:u.provider_id,mustChangePassword:!!u.must_change_password,phone:u.phone||'',alertEmails:!!u.alert_emails,alertWhatsapp:!!u.alert_whatsapp,preferences:await preferences(u),visionDuties:(()=>{ try { return JSON.parse(u.vision_duties||'[]'); } catch { return []; } })()});
 
 export function register(r) {
   r.get('/health',()=>({ok:true,time:now()}),{public:true});
@@ -46,9 +48,15 @@ export function register(r) {
     return {token:tokenFor(u),user:await profile(u)};
   },{public:true});
   r.get('/me',async ({u})=>await profile(await one('SELECT * FROM users WHERE id=?',u.id)));
+  // Own settings: language, phone and notification choices. Only the fields sent are changed.
   r.patch('/me',async ({u,body})=>{
+    const me=await one('SELECT * FROM users WHERE id=?',u.id);
     if (body.locale!==undefined && body.locale!==null && !LOCALES.includes(body.locale)) bad(`locale must be one of: ${LOCALES.join(', ')}`);
-    await run('UPDATE users SET locale=? WHERE id=?',body.locale??null,u.id);
+    const contact=body.phone==null?me.phone:FIELD_ROLES.includes(me.role)||body.phone?phone(body.phone):'';
+    const alertEmails=body.alertEmails==null?me.alert_emails:flag(body.alertEmails,'alertEmails'), alertWhatsapp=body.alertWhatsapp==null?me.alert_whatsapp:flag(body.alertWhatsapp,'alertWhatsapp');
+    if (alertWhatsapp&&(body.alertWhatsapp===true||body.phone!=null)) requireWhatsappPhone(contact);
+    await run('UPDATE users SET locale=?,phone=?,alert_emails=?,alert_whatsapp=? WHERE id=?',body.locale===undefined?me.locale:body.locale,contact,alertEmails,alertWhatsapp,u.id);
+    if (body.alertEmails!=null||body.alertWhatsapp!=null||body.phone!=null) await audit(u,'user.notifications','user',u.id,isCustomer(u)?u.company_id:null,{alertEmails:!!alertEmails,alertWhatsapp:!!alertWhatsapp});
     return await profile(await one('SELECT * FROM users WHERE id=?',u.id));
   });
   r.post('/me/password',async ({u,body})=>{

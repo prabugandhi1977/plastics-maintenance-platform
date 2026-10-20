@@ -9,6 +9,7 @@ import { coverageFor, responseTarget } from './contracts.js';
 import { HttpError, bad, choice, date, deny, integer, missing, required } from '../../../common/validate.js';
 import { MACHINE_STATES, codes } from '../../../common/catalog.js';
 import { resolveScan, scanFor, scanPolicy } from '../../../common/scan.js';
+import { notifyTicketAssigned, notifyTicketCompleted } from '../../../common/whatsapp.js';
 
 const TRANSITIONS={assigned:['accepted','declined','escalated'],accepted:['in_progress','escalated'],in_progress:['escalated','completed'],escalated:['in_progress','completed']};
 const note=(body,max=2000)=>typeof body.note==='string'?body.note.trim().slice(0,max):'';
@@ -90,6 +91,7 @@ async function serviceAction(u,t,body) {
   }
   if (status==='accepted') await applyChecklistTemplate(u,t);
   await ticketEvent(t.id,u,status,note(body),stamp); await audit(u,'ticket.status','ticket',t.id,t.company_id,{status});
+  if (status==='completed') await notifyTicketCompleted(t.id,u.id);
   return await ticketDetail(u,t.id);
 }
 
@@ -141,6 +143,7 @@ export function register(r) {
     if (!target.eligible) bad(`${type==='engineer'?'Engineer':'Provider'} is not eligible: ${target.reasons.join(', ')}`);
     await run('UPDATE tickets SET assigned_user_id=?,assigned_provider_id=?,status=? WHERE id=?',type==='engineer'?target.id:null,type==='provider'?target.id:null,'assigned',t.id);
     await ticketEvent(t.id,u,'assigned',`Assigned to ${target.name}`); await audit(u,'ticket.assign','ticket',t.id,t.company_id,{assigneeType:type,assigneeId:target.id});
+    await notifyTicketAssigned(t.id);
     return await ticketDetail(u,t.id);
   });
   r.post('/tickets/:id/status',async ({u,body,params})=>await serviceAction(u,await getTicket(u,params.id),body),{offline:true});

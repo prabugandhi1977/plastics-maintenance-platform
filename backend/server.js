@@ -18,6 +18,7 @@ import { factory, factoryOps, simulateAll, simulatorEnabled, checkMissing } from
 import { traceability } from './services/traceability/index.js';
 import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
+import { sendQueuedWhatsapp } from './common/whatsapp.js';
 
 export const router=createRouter();
 for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,bulk,factory,factoryOps,traceability,assistant,vision]) area.register(router);
@@ -93,6 +94,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   // Vision: silent edge nodes raise an alert; closed, unlocked evidence past its retention is deleted (locked never).
   setInterval(async ()=>{ try { await transaction(async ()=>await checkNodes()); } catch(e) { console.error('Vision node check failed:',e.message); } },60000).unref();
   setInterval(async ()=>{ try { const n=await transaction(async ()=>await pruneMedia()); if (n) console.log(`Vision: pruned ${n} media files past retention`); } catch(e) { console.error('Vision pruning failed:',e.message); } },6*3600000).unref();
+  // WhatsApp messages waiting in the outbox (e.g. queued while their request was still open) go out within a minute.
+  setInterval(()=>{ sendQueuedWhatsapp().catch(e=>console.error('WhatsApp sending failed:',e.message)); },60000).unref();
   // Simulated machine data (local demos only): backfills a week on first start, then keeps the factory live.
   if (simulatorEnabled()) { const tick=async ()=>{ try { const n=await transaction(async ()=>await simulateAll()); if (n) console.log(`Factory simulator: ${n} slots generated`); } catch(e) { console.error('Factory simulator failed:',e.message); } }; await tick(); setInterval(tick,60000).unref(); }
   const every=Number(process.env.IOT_SYNC_INTERVAL_SECONDS||0);
