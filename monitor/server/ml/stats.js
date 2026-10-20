@@ -42,17 +42,22 @@ export function assessSignal(points, { limits = {}, recentHours = 12, minBaselin
   return out;
 }
 
-// True when two flat levels with one break explain the series clearly better than a straight line.
+// True when two flat levels with one break explain the series clearly better than a straight line, and the change
+// happens at the break: the two hours either side of it differ by at least half the gap between the levels. A steady
+// rise with a daily swing can also look like two levels, but it gets there a little every hour.
 export function isStep(points, fit = linearFit(points)) {
   if (!fit || points.length < 12) return false;
   const sse = (xs, f) => xs.reduce((a, p) => a + (p.y - f(p)) ** 2, 0);
   const lineSse = sse(points, p => fit.at(p.x));
-  let best = Infinity;
+  let best = Infinity, at = 0;
   for (let i = 3; i <= points.length - 3; i++) {
     const a = points.slice(0, i), b = points.slice(i), ma = a.reduce((s, p) => s + p.y, 0) / a.length, mb = b.reduce((s, p) => s + p.y, 0) / b.length;
-    best = Math.min(best, sse(a, () => ma) + sse(b, () => mb));
+    const e = sse(a, () => ma) + sse(b, () => mb); if (e < best) { best = e; at = i; }
   }
-  return best < 0.6 * lineSse;
+  if (best >= 0.6 * lineSse) return false;
+  const mean = xs => xs.reduce((s, p) => s + p.y, 0) / xs.length;
+  const gap = Math.abs(mean(points.slice(at)) - mean(points.slice(0, at)));
+  return Math.abs(mean(points.slice(at, at + 2)) - mean(points.slice(at - 2, at))) >= 0.5 * gap;
 }
 
 // Where a value stands against its limits: 'critical', 'warning' or null, and which side.

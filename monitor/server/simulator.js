@@ -19,7 +19,7 @@ const LEVELS = {
 export const FAULTS = [
   { tag: 'IMM-02', key: 'hydraulic_oil_temp', story: 'Oil cooler fouling: oil temperature rising about 2.6 °C a day', from: -3 * DAY, effect: (dt) => Math.min(23, 2.6 * dt / DAY) },
   { tag: 'BM-01', key: 'pump_vibration', story: 'Pump bearing wear: vibration stepped up and stays higher, still under the limit', from: -18 * HOUR, effect: () => 1.5 },
-  { tag: 'CH-01', key: 'supply_temp', story: 'Condenser fan stopped for 90 minutes: chilled water above its limit', from: -50 * 60000, to: 40 * 60000, effect: () => 4.6 },
+  { tag: 'CH-01', key: 'supply_temp', story: 'Condenser fan stopped for 90 minutes: chilled water above its limit', from: -50 * 60000, to: 40 * 60000, effect: () => 5 },
 ];
 
 // Hash of (text, number) to a uniform number in [0,1).
@@ -40,7 +40,7 @@ export function stateAt(machine, ts) {
 }
 
 export function valueAt(machine, key, ts, anchor) {
-  const [base, sd, swing] = LEVELS[key] ?? [0, 1, 0];
+  const [base, sd, swing] = LEVELS[key] ?? machine.levels?.[key] ?? [0, 1, 0];
   const n = Math.floor(ts / 60000);
   let v = base + sd * gauss(`${machine.tag}:${key}`, n) + swing * Math.sin(2 * Math.PI * ((ts % DAY) / DAY - 0.25));
   for (const f of FAULTS) {
@@ -51,10 +51,17 @@ export function valueAt(machine, key, ts, anchor) {
   return Math.round(v * 100) / 100;
 }
 
+// Signals added from the dashboard have no simulated level of their own: they sit between their warning limits, or in
+// the middle of their measuring range, with 1 % noise.
+function levelOf(s) {
+  const lo = s.warn_low ?? s.range_min, hi = s.warn_high ?? s.range_max;
+  const base = lo != null && hi != null ? (lo + hi) / 2 : hi != null ? hi - Math.abs(hi) * 0.2 : lo != null ? lo + Math.abs(lo) * 0.2 : 50;
+  return [base, Math.max(0.01, Math.abs(base) * 0.01), 0];
+}
 function machinesWithSignals() {
   const ms = all('SELECT id,tag,type,device_id FROM machines');
-  const sig = all('SELECT machine_id,key FROM signals');
-  return ms.map(m => ({ ...m, keys: sig.filter(s => s.machine_id === m.id).map(s => s.key) }));
+  const sig = all('SELECT machine_id,key,warn_low,warn_high,range_min,range_max FROM signals');
+  return ms.map(m => { const own = sig.filter(s => s.machine_id === m.id); return { ...m, keys: own.map(s => s.key), levels: Object.fromEntries(own.map(s => [s.key, levelOf(s)])) }; });
 }
 
 // Generates every minute from the last generated one up to now (7 days on the first run). Returns readings stored.
