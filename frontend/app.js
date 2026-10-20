@@ -212,7 +212,7 @@ function pmView(){
   const plans=state.data.pmPlans||[], jobs=state.data.pmJobs||[], c=state.data.pmCompliance||{}, open=jobs.filter(j=>j.status==='open');
   const progress=p=>`<div class="pm-bar" role="img" aria-label="${Math.round(p.progress*100)} %"><span class="pm-${esc(p.status)}" style="width:${Math.min(100,Math.round(p.progress*100))}%"></span></div><div class="muted">${formatNumber(p.usage)} / ${formatNumber(p.interval_value)} ${esc(pmUnit(p.unit))} · ${Math.round(p.progress*100)} %</div>`;
   const kpis=`<section class="kpis" aria-label="${_t('ws.keyFigures')}">${statTile(_t('ws.pmCompliance'),c.compliancePct==null?'—':`${formatNumber(c.compliancePct,1)} %`,{status:c.compliancePct==null?'':c.compliancePct>=90?'good':c.compliancePct>=75?'warning':'critical',note:_t('ws.pmOnTimeOfDue',{onTime:c.onTime??0,due:c.due??0,days:c.periodDays??90})})}${statTile(_t('ws.pmOpenJobs'),formatNumber(open.length))}${statTile(_t('ws.pmOverdue'),formatNumber(plans.filter(p=>p.status==='overdue').length),{status:plans.some(p=>p.status==='overdue')?'critical':'good'})}${statTile(_t('ws.pmDueSoon'),formatNumber(plans.filter(p=>p.status==='due_soon').length))}</section>`;
-  return header(t('nav.pm'),_t('ws.pmSub'),dispatch()||is('customer_admin','plant_manager')?btn(_t('ws.pmAddPlan'),'newPmPlan','primary'):'')+kpis
+  return header(t('nav.pm'),_t('ws.pmSub'),(dispatch()||is('customer_admin','plant_manager')?btn(_t('ws.pmAddPlan'),'newPmPlan','primary'):'')+btn(_t('ws.iatfPack'),'iatfPack','secondary'))+kpis
     +`<div class="panel"><h2>${_t('ws.pmJobsToDo')}</h2>${simpleTable([_t('ws.machine'),_t('ws.pmPlan'),_t('ws.pmDueSince'),''],open.map(j=>`<tr><td><a data-action="equipment" data-id="${esc(j.equipment_id)}">${esc(assetName(j.equipment_id))}</a></td><td>${esc(j.title)}</td><td>${when(j.due_at)}</td><td class="row">${btn(_t('ws.pmComplete'),'completePm','small',j.id)}</td></tr>`),_t('ws.pmNothingDue'))}</div>`
     +`<div class="panel"><h2>${_t('ws.pmPlans')}</h2>${dataTable('pm',{rows:plans,search:p=>`${p.title} ${assetName(p.equipment_id)}`,
       filters:[{key:'status',label:t('label.status'),options:Object.keys(PM_STATUS).map(k=>[k,_t('ws.pmStatus_'+k)]),match:(r,v)=>r.status===v},{key:'trigger',label:_t('ws.pmTrigger'),options:['calendar','runtime','shots'].map(k=>[k,_t('ws.pmTrigger_'+k)]),match:(r,v)=>r.trigger===v}],
@@ -234,6 +234,17 @@ function pmPlanForm(plan){
       const body={title:v.title||undefined,intervalValue:Number(v.intervalValue),...(items.length||plan?{checklist:items}:{})};
       if (plan) return await save(`/pm/plans/${plan.id}`,'PATCH',body);
       await save('/pm/plans','POST',{...body,equipmentId:v.equipmentId,trigger:v.trigger,lastDoneAt:v.lastDoneAt||undefined,startUsage:v.startUsage===''?undefined:Number(v.startUsage)},_t('ws.pmPlanAdded')); }});
+}
+// IATF 16949 evidence pack: a printable HTML report (print to PDF) or the same data as JSON, for one company and period.
+function iatfPackForm(){
+  const companies=state.data.companies||[];
+  const body=`<p class="muted">${esc(_t('ws.iatfPackHelp'))}</p><div class="form-grid">${dispatch()?select('companyId',_t('ws.company'),companies.map(c=>[c.id,c.name]),{required:true,wide:true}):''}${field('from',_t('ws.iatfFrom'),{type:'date',required:true,value:today(-90),max:today()})}${field('to',_t('ws.iatfTo'),{type:'date',required:true,value:today(),max:today()})}${select('format',_t('ws.iatfFormat'),[['html',_t('ws.iatfHtml')],['json','JSON']],{required:true,value:'html'})}</div>`;
+  openDialog(_t('ws.iatfPack'),body,{submitLabel:_t('ws.iatfDownload'),onSubmit:async fd=>{
+    const q=new URLSearchParams(Object.fromEntries([...fd].filter(([,v])=>v)));
+    const r=await fetch('/api/reports/iatf/download?'+q,{headers:{authorization:`Bearer ${state.token}`}});
+    if (!r.ok) throw Error((await r.json().catch(()=>({}))).error||_t('ws.unableToDownload'));
+    const name=/filename="([^"]+)"/.exec(r.headers.get('content-disposition')||'')?.[1]||'iatf-evidence.'+fd.get('format');
+    const url=URL.createObjectURL(await r.blob()), a=document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); toast(_t('ws.iatfReady')); }});
 }
 function pmCompleteForm(job){
   const items=job.checklist.map((item,i)=>`<div class="fld wide pm-item"><label class="check-opt"><input type="checkbox" name="done-${i}" checked> ${esc(item)}</label><input name="note-${i}" placeholder="${esc(_t('ws.pmNotDoneNote'))}" aria-label="${esc(_t('ws.pmNotDoneNote'))}: ${esc(item)}" maxlength="500"></div>`).join('');
@@ -675,6 +686,7 @@ async function action(name,id){
   if(name==='removeImage'){if(!await confirmAction(_t('ws.removeThePicture'),_t('ws.theMachineShowsItsType'),{confirmLabel:_t('ws.remove')}))return;return api(`/equipment/${state.detail.value.id}/image`,'DELETE').then(()=>{toast(_t('ws.pictureRemoved'));return refresh()}).catch(fail)}
   if(name==='newTicket')return ticketForm();
   if(name==='newPmPlan')return pmPlanForm();
+  if(name==='iatfPack')return iatfPackForm();
   if(name==='editPmPlan')return pmPlanForm(d.pmPlans.find(p=>p.id===id));
   if(name==='togglePmPlan'){const p=d.pmPlans.find(x=>x.id===id); if (p.active&&!await confirmAction(_t('ws.pmPauseQ',{title:p.title}),_t('ws.pmPauseMsg'),{confirmLabel:_t('ws.pmPause')})) return; return save(`/pm/plans/${id}`,'PATCH',{active:!p.active}).catch(fail)}
   if(name==='completePm'){const j=(d.pmJobs||[]).find(x=>x.id===id); return j?pmCompleteForm(j):undefined}

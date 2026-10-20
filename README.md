@@ -114,6 +114,28 @@ Built on the practice of leading MES traceability products (genealogy, process w
 
 Customer admins, plant managers, dispatchers and platform admins create, edit and pause plans. Maintenance staff complete jobs. A background check every 15 minutes opens jobs and raises alerts.
 
+### IATF 16949 evidence pack
+
+**IATF evidence pack** on the Preventive maintenance page downloads one company's maintenance evidence for a period of up to a year (90 days by default). It comes as a printable HTML report (open it and print to PDF) or as JSON.
+
+What it contains:
+
+- **Findings to address before the audit:**
+  - criticality A machines without a PM plan
+  - moulds without a PM plan
+  - overdue plans
+  - late PM jobs
+  - checklist items not done
+  - breakdowns closed without a root cause, action or customer sign-off
+- **8.5.1.5 Total productive maintenance:**
+  - the PM plan register with each plan's jobs, and PM compliance
+  - breakdowns, downtime, MTTR, MTBF, availability and OEE per machine
+  - replacement-part requests
+- **8.5.1.6 Tooling management:** every mould with its cavities, recorded shots, PM interval, plan status, PM jobs done and breakdowns.
+- **10.2 Breakdown records:** failure category and mode, root cause, action, downtime and sign-off.
+
+Each pack carries a SHA-256 fingerprint of its data, and every download is written to the audit trail. Customers get their own company's pack; dispatchers and platform admins choose the company.
+
 ## Smart factory
 
 The platform monitors production as well as maintaining machines:
@@ -269,6 +291,12 @@ Each test file uses its own temporary PostgreSQL schema (created on start, dropp
 - one open job per plan, the overdue alert, and its resolution on completion
 - checklist results with notes for skipped items, on-time and late completion, and PM compliance
 - who may plan, complete and see plans across tenants
+
+**`evidence.test.js`**
+- the IATF pack for one company and period, with no other tenant's records
+- gaps that close once plans exist, PM compliance, and skipped checklist items
+- breakdown records, escaping in the printable copy, its security header, and the audit entry for each download
+- who may request which company, and the period limits
 
 **`platform.test.js`**
 - login lockout and security headers
