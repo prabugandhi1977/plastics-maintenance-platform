@@ -86,6 +86,8 @@ Data scoping and auditing:
 | `GET` | `/pm/jobs?status=open\|completed` | Jobs of the visible companies |
 | `POST` | `/pm/jobs/:id/complete` | `{results:[{done, note?}], notes?}`, one result per checklist item; an item not done needs a note. Returns `onTime` |
 | `GET` | `/pm/compliance?days=90` | `{due, onTime, late, openOverdue, compliancePct}`: jobs done within 110 % of their interval, out of all that came due |
+| `GET` | `/reports/iatf?companyId&from&to` | IATF 16949 maintenance evidence for one company: PM plans, jobs and compliance; KPIs and OEE per machine; moulds; breakdown records; replacement parts; `gaps`; and a SHA-256 `fingerprint`. Default period: the last 90 days, at most one year. Customers get their own company |
+| `GET` | `/reports/iatf/download?companyId&from&to&format=html\|json` | The same pack as a download: a printable HTML report or JSON. Each download is audited (`report.iatf`) |
 | `POST` | `/attachments` | Upload a PDF or image as base64, max 5 MB (works offline) |
 | `GET` | `/attachments/:id` | Download a file the caller is allowed to see |
 | `GET` | `/audit` | Recent audit trail |

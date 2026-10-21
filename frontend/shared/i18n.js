@@ -2157,6 +2157,14 @@ const en={
   "ws.pmNotes":"Work notes",
   "ws.pmDoneOnTime":"Job completed on time",
   "ws.pmDoneLate":"Job completed late (past 110 % of the interval)",
+  "ws.iatfPack":"IATF evidence pack",
+  "ws.iatfPackHelp":"Maintenance evidence for an IATF 16949 audit: PM plans and compliance, KPIs and OEE, mould management, breakdown records, replacement parts and the gaps to close first. Open the HTML file and print it to PDF.",
+  "ws.iatfFrom":"From",
+  "ws.iatfTo":"To",
+  "ws.iatfFormat":"Format",
+  "ws.iatfHtml":"Printable report (HTML)",
+  "ws.iatfDownload":"Download",
+  "ws.iatfReady":"Evidence pack downloaded",
 };
 const de={
   'app.tagline':'Service-Arbeitsplatz für die Kunststoffverarbeitung','nav.menu':'Menü','app.brandLine':'Instandhaltung · Fertigung · Qualität','theme.light':'Hell','theme.dark':'Dunkel','theme.auto':'Auto','theme.label':'Farbschema','label.viewingAs':'Ansicht als','env.demo':'Demodaten','env.demoHelp':'Diese Kopie enthält die Demo-Firmen und -Konten. Keine echten Daten eingeben.','env.live':'Live-System','env.liveHelp':'Die echten Daten Ihrer Firma.','app.field':'Mobiler Arbeitsplatz für Techniker',
@@ -2221,6 +2229,14 @@ const de={
   "ws.pmNotes":"Arbeitsnotizen",
   "ws.pmDoneOnTime":"Auftrag pünktlich abgeschlossen",
   "ws.pmDoneLate":"Auftrag verspätet abgeschlossen (über 110 % des Intervalls)",
+  "ws.iatfPack":"IATF-Nachweispaket",
+  "ws.iatfPackHelp":"Instandhaltungsnachweise für ein IATF-16949-Audit: Wartungspläne und Termintreue, Kennzahlen und OEE, Werkzeugmanagement, Störungsberichte, Ersatzteile und die zuerst zu schließenden Lücken. Die HTML-Datei öffnen und als PDF drucken.",
+  "ws.iatfFrom":"Von",
+  "ws.iatfTo":"Bis",
+  "ws.iatfFormat":"Format",
+  "ws.iatfHtml":"Druckbarer Bericht (HTML)",
+  "ws.iatfDownload":"Herunterladen",
+  "ws.iatfReady":"Nachweispaket heruntergeladen",
 };
 const catalogues={en,de};
 let current='en';
