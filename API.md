@@ -79,6 +79,15 @@ Data scoping and auditing:
 | `POST` | `/quotes/:id/decision` | Customer admin or plant manager approves or rejects a quote |
 | `POST` | `/parts/:id/fulfilment` | `{status: ordered\|shipped\|fulfilled, reference}`; the reference is a PO, tracking number or delivery note |
 | `POST` | `/parts/:id/fulfil` | Shortcut: mark fulfilled |
+| `GET` | `/pm/plans` | Visible preventive maintenance plans with `usage`, `progress`, `status` (`ok`, `due_soon`, `due`, `overdue`, `inactive`), `remaining`, `unit` and `openJobId` |
+| `GET` | `/pm/plans/:id` | One plan with its jobs |
+| `POST` | `/pm/plans` | `{equipmentId, trigger, intervalValue, title?, checklist?, lastDoneAt?, startUsage?}`. `trigger` is `runtime` or `calendar` for machines, `shots` or `calendar` for moulds. Customer admins, plant managers, dispatchers and platform admins |
+| `PATCH` | `/pm/plans/:id` | `{title?, intervalValue?, checklist?, active?}`; pausing withdraws the open job and clears the overdue alert |
+| `GET` | `/pm/jobs?status=open\|completed` | Jobs of the visible companies |
+| `POST` | `/pm/jobs/:id/complete` | `{results:[{done, note?}], notes?}`, one result per checklist item; an item not done needs a note. Returns `onTime` |
+| `GET` | `/pm/compliance?days=90` | `{due, onTime, late, openOverdue, compliancePct}`: jobs done within 110 % of their interval, out of all that came due |
+| `GET` | `/reports/iatf?companyId&from&to` | IATF 16949 maintenance evidence for one company: PM plans, jobs and compliance; KPIs and OEE per machine; moulds; breakdown records; replacement parts; `gaps`; and a SHA-256 `fingerprint`. Default period: the last 90 days, at most one year. Customers get their own company |
+| `GET` | `/reports/iatf/download?companyId&from&to&format=html\|json` | The same pack as a download: a printable HTML report or JSON. Each download is audited (`report.iatf`) |
 | `POST` | `/attachments` | Upload a PDF or image as base64, max 5 MB (works offline) |
 | `GET` | `/attachments/:id` | Download a file the caller is allowed to see |
 | `GET` | `/audit` | Recent audit trail |

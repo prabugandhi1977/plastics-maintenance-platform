@@ -9,7 +9,8 @@ import { ROOT, now, one, run, transaction, readOnly } from './common/db.js';
 import { authenticate } from './common/security.js';
 import { HttpError, bad } from './common/validate.js';
 import { createRouter, bodyOf, json, Reply, API_HEADERS } from './common/http.js';
-import { auth, org, equipment, contracts, tickets, parts, dashboard, settings, bulk } from './services/core/index.js';
+import { auth, org, equipment, contracts, tickets, parts, dashboard, settings, bulk, pm, evidence } from './services/core/index.js';
+import { syncAll as syncPm } from './services/core/routes/pm.js';
 import { iot, runSync, createAdapter } from './services/iot/index.js';
 import { scanPredictive } from './services/ml/insights.js';
 import { scanQuality } from './services/ml/quality.js';
@@ -21,7 +22,7 @@ import { assistant } from './services/assistant/index.js';
 import { sendQueuedWhatsapp } from './common/whatsapp.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,contracts,tickets,parts,dashboard,settings,bulk,factory,factoryOps,traceability,assistant,vision]) area.register(router);
+for (const area of [auth,org,equipment,iot,contracts,tickets,parts,pm,evidence,dashboard,settings,bulk,factory,factoryOps,traceability,assistant,vision]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
@@ -87,6 +88,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   createServer().listen(port,()=>console.log(`MouldCare listening on port ${port}`));
   // Asset tags that stop reporting are flagged as missing whether the data is real or simulated.
   setInterval(async ()=>{ try { await transaction(async ()=>await checkMissing()); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
+  // Preventive maintenance: plans that fall due open a job; plans 10 % past their interval raise an alert.
+  setInterval(async ()=>{ try { await transaction(async ()=>await syncPm()); } catch(e) { console.error('Preventive maintenance check failed:',e.message); } },15*60000).unref();
   // Machine learning: predictive alerts from learned baselines (degrading or unusual signals).
   setInterval(async ()=>{ try { await transaction(async ()=>await scanPredictive()); await transaction(async ()=>await scanQuality()); } catch(e) { console.error('Predictive scan failed:',e.message); } },10*60000).unref();
   // Vision AI second opinions for companies that opted in to automatic review (a few non-critical incidents per minute).

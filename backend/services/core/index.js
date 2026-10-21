@@ -1,4 +1,4 @@
-// Core service: accounts and organisations, equipment, contracts, tickets, spare parts, dashboard and settings.
+// Core service: accounts and organisations, equipment, contracts, tickets, spare parts, preventive maintenance, IATF evidence pack, dashboard and settings.
 export * as auth from './routes/auth.js';
 export * as org from './routes/org.js';
 export * as equipment from './routes/equipment.js';
@@ -8,3 +8,5 @@ export * as parts from './routes/parts.js';
 export * as dashboard from './routes/dashboard.js';
 export * as settings from './routes/settings.js';
 export * as bulk from './routes/bulk.js';
+export * as pm from './routes/pm.js';
+export * as evidence from './routes/evidence.js';

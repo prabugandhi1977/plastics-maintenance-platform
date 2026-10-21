@@ -79,6 +79,7 @@ td a{font-weight:650} td.row{white-space:nowrap}
 .pill.critical,.pill.escalated,.pill.rejected,.pill.cancelled,.pill.expired,.pill.failed,.pill.out_of_service,.pill.breakdown{background:var(--bad-wash);color:var(--bad)}
 .pill.high,.pill.open,.pill.quoted,.pill.ordered,.pill.shipped,.pill.pending,.pill.assigned,.pill.declined,.pill.stale,.pill.missing,.pill.inactive,.pill.warning,.pill.running,.pill.standby,.pill.urgent,.pill.incomplete{background:var(--warn-wash);color:var(--warn)}
 .pill.fulfilled,.pill.approved,.pill.completed,.pill.signed_off,.pill.succeeded,.pill.in_service,.pill.current,.pill.active{background:var(--good-wash);color:var(--good)}
+.pill.due-soon{text-transform:none}
 .pill.decommissioned,.pill.unmapped,.pill.superseded{background:#eef1f2;color:#55686d} .pill.incomplete{text-transform:none;cursor:help}
 .crit{display:inline-flex;width:26px;height:26px;border-radius:7px;align-items:center;justify-content:center;font-weight:800;font-size:13px;border:1px solid var(--line-2)} .crit-A{background:var(--bad-wash);color:var(--bad);border-color:#efc4b9} .crit-B{background:var(--warn-wash);color:var(--warn);border-color:#f0d9a8} .crit-C{background:#eef1f2;color:#55686d}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px} .chip{background:var(--surface-2);border:1px solid var(--line);border-radius:16px;padding:3px 10px;font-size:12.5px}
@@ -317,3 +318,8 @@ html.dark .chip.mod-intrusion,html.dark .module-card.mod-intrusion{background:#1
 html.dark .chip.mod-quality,html.dark .module-card.mod-quality{background:#163527;border-color:#2f6a4c}
 .topbar .bell{padding:6px 11px}
 .detail>*{min-width:0}
+/* Preventive maintenance: progress since the last service against the plan's interval */
+.pm-bar{height:8px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden;min-width:120px;margin-bottom:4px}
+.pm-bar span{display:block;height:100%;background:var(--good)} .pm-bar .pm-due_soon{background:var(--brand)} .pm-bar .pm-due{background:var(--warn)} .pm-bar .pm-overdue{background:var(--bad)} .pm-bar .pm-inactive{background:#9aa9ad}
+.pm-item{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center}
+@media (max-width:640px){.pm-item{grid-template-columns:1fr}}
