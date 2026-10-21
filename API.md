@@ -39,11 +39,11 @@ Data scoping and auditing:
 | --- | --- | --- |
 | `GET` | `/health` | Liveness |
 | `POST` | `/auth/login` | Email and password → 8-hour signed token, plus profile and preferences |
-| `GET, PATCH` | `/me` | Profile with `preferences` (locale, timezone, currency, units). PATCH `{locale}` with `en` or `de` |
+| `GET, PATCH` | `/me` | Profile with `preferences` (locale, timezone, currency, units), `phone`, `alertEmails`, `alertWhatsapp`. PATCH any of `{locale, phone, alertEmails, alertWhatsapp}`; only the fields sent change. `alertWhatsapp:true` needs a phone in E.164 form (see *WhatsApp*) |
 | `POST` | `/me/password` | `{currentPassword, newPassword}`; at least 12 characters. Signs out other sessions and returns a fresh `token` for this one |
 | `GET` | `/dashboard` | Work and service metrics (see below) |
 | `GET, POST` | `/companies`, `/providers`, `/users`, `/plants`, `/equipment`, `/contracts`, `/tickets` | List visible records, or create one (role checks apply) |
-| `PATCH` | `/users/:id` | Activate/deactivate, rename; service areas and skills for engineers |
+| `PATCH` | `/users/:id` | Activate/deactivate, rename; service areas and skills for engineers; `alertEmails` and `alertWhatsapp` (true/false, also accepted by `POST /users`) |
 | `POST` | `/users/:id/password` | Admin reset to a temporary password `{newPassword}`: signs the user out everywhere, clears sign-in lockouts, requires a new password at next sign-in. Same permissions as managing the user; not for your own account |
 | `PATCH` | `/companies/:id` | Platform admin or the company's customer admin: name, time zone, currency, units, language. Applies from now on; existing quotes keep their currency |
 | `PATCH` | `/plants/:id` | Same permissions: name, address, country, service area code, time zone. A new service area affects future assignments only |
@@ -243,7 +243,8 @@ The monitoring modules live in the same platform as maintenance, so a problem a 
 | `GET` | `/alerts?status=active\|all` | Alerts from every module |
 | `GET` | `/alerts/summary` | Open alerts by severity (for the alert bell) |
 | `POST` | `/alerts/:id/acknowledge`, `/alerts/:id/resolve` | Work an alert. Raising a ticket with `alertId` links the two and acknowledges the alert |
-| `GET` | `/alerts/emails` | Platform admin: the email outbox |
+| `GET` | `/alerts/emails` | Platform admin: the notification outbox (email and WhatsApp; `channel` on each row) |
+| `GET` | `/alerts/channels` | Platform admin: whether email and WhatsApp are configured (`{email:{configured,provider}, whatsapp:{configured,template,lang,apiVersion}, minSeverity}`); never returns keys or tokens |
 | `POST` | `/integrations/factory/events` | Machine-data intake (server-to-server, `X-Integration-Key`) |
 | `GET, POST` | `/factory/simulator`, `/factory/simulator/run` | Platform admin: simulator status and a manual run |
 
@@ -287,6 +288,14 @@ Counts are idempotent per machine and period start. Without `partNumber`, the pr
 - Critical alerts are emailed to the customer's admins, plant managers and maintenance staff (anyone who hasn't opted out), and to dispatchers.
 - The lowest emailed severity is the `alert_email_min_severity` setting; the default is `critical`.
 - Sending uses an email API: set `EMAIL_PROVIDER` (`brevo`, `sendgrid` or `resend`), `EMAIL_API_KEY` and `EMAIL_FROM`. Until those are set, messages stay in the outbox as `not_configured`.
+
+**WhatsApp** (WhatsApp Business Cloud API from Meta; code in `backend/common/whatsapp.js`).
+- Who: a user gets WhatsApp messages only when opted in (`alertWhatsapp`, off by default) and with a phone number in E.164 form: `+`, country code and number, 8–15 digits (`+919876543210`; spaces and dashes are ignored). Turning WhatsApp on with any other number, or changing the number to one while opted in, is rejected with a 400.
+- What: (a) the alerts that are emailed, at the same `alert_email_min_severity` threshold and to the same roles, sent to those who opted in to WhatsApp; (b) a ticket assigned to an engineer goes to that engineer; assigned to a provider, to the provider's engineers and service manager; (c) a completed ticket goes to the person who reported it (not when they completed it themselves).
+- Outbox: the same `notification_outbox` with `channel = 'whatsapp'`, `recipient` the E.164 number, `ticket_id` for ticket messages. Statuses as for email: `queued`, `sent`, `failed` (with the API's error), `not_configured`. Messages are sent shortly after they are queued, and a job every minute sends anything still queued.
+- Request: `POST https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages` with `Authorization: Bearer {WHATSAPP_TOKEN}` and a `type: "template"` message: template `WHATSAPP_TEMPLATE` in language `WHATSAPP_TEMPLATE_LANG`, with two body parameters: `{{1}}` a short heading (e.g. `Critical machine alert`, `Ticket assigned to you`), `{{2}}` the details (machine tag and model, title, severity or priority). New lines are flattened because template parameters cannot contain them.
+- The app has no public base URL setting, so messages carry no link; recipients open MouldCare as usual.
+- Settings: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE` (all three required to send), `WHATSAPP_TEMPLATE_LANG` (default `en`; must match the approved template's language, e.g. `en` or `en_US`), `WHATSAPP_API_VERSION` (default `v21.0`; check Meta's current Graph API version and set it). The token is never logged or returned by the API.
 
 **Simulator** (`backend/services/factory/simulator.js`).
 - Produces realistic 15-minute machine states and output for every in-service production machine, through the same `recordState`/`recordCount` path as real data.

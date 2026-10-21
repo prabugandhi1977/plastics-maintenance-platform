@@ -6,10 +6,11 @@ import { created } from '../../../common/http.js';
 import { bad, deny, missing, required, choice, currency, timezone, email, stringArray, phone, country, optionalDate } from '../../../common/validate.js';
 import { MACHINE_TYPES as TYPES, OPERATING_PATTERNS, FIELD_ROLES } from '../../../common/catalog.js';
 import { LOCALES, clearFailures } from './auth.js';
+import { flag, requireWhatsappPhone } from '../../../common/whatsapp.js';
 
 export const MACHINE_TYPES=TYPES;
 const ROLES=['customer_admin','plant_manager','maintenance','dispatcher','engineer','provider_admin','provider_engineer'];
-const USER_COLUMNS='id,company_id,provider_id,name,email,role,active,service_areas,skills,must_change_password,phone,job_title,vision_duties';
+const USER_COLUMNS='id,company_id,provider_id,name,email,role,active,service_areas,skills,must_change_password,phone,job_title,vision_duties,alert_emails,alert_whatsapp';
 // Vision duties (EHS officer, security & facility admin, QA lead) apply to customer staff and platform staff.
 const VISION_DUTIES=['ehs','security','qa'];
 const duties=v=>JSON.stringify([...new Set(stringArray(v,'visionDuties',VISION_DUTIES))]);
@@ -80,8 +81,11 @@ export function register(r) {
     const field=FIELD_ROLES.includes(role), contact=field?phone(body.phone):body.phone?phone(body.phone):'';
     const areas=field?await serviceAreas(body.serviceAreas,'serviceAreas'):await serviceAreas(body.serviceAreas||[],'serviceAreas'), skills=stringArray(field?body.skills:body.skills||[],'skills',MACHINE_TYPES);
     if (field&&(!areas.length||!skills.length)) bad('Field engineers need at least one service area and one machine skill');
+    // Alert emails are on by default; WhatsApp only when asked for, and only with a number WhatsApp can reach.
+    const alertEmails=body.alertEmails==null?1:flag(body.alertEmails,'alertEmails'), alertWhatsapp=body.alertWhatsapp==null?0:flag(body.alertWhatsapp,'alertWhatsapp');
+    if (alertWhatsapp) requireWhatsappPhone(contact);
     // New accounts get a temporary password and are asked to choose their own at first sign-in.
-    await run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password,phone,job_title,vision_duties) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)',key,companyId,providerId,required(body.name,'name',160),address,hashPassword(password),role,1,JSON.stringify(areas),JSON.stringify(skills),now(),contact,optionalText(body.jobTitle,80),body.visionDuties==null?'[]':duties(body.visionDuties));
+    await run('INSERT INTO users (id,company_id,provider_id,name,email,password_hash,role,active,service_areas,skills,created_at,must_change_password,phone,job_title,vision_duties,alert_emails,alert_whatsapp) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)',key,companyId,providerId,required(body.name,'name',160),address,hashPassword(password),role,1,JSON.stringify(areas),JSON.stringify(skills),now(),contact,optionalText(body.jobTitle,80),body.visionDuties==null?'[]':duties(body.visionDuties),alertEmails,alertWhatsapp);
     await audit(u,'user.create','user',key,companyId); return created({id:key,email:address,role});
   });
   r.patch('/users/:id',async ({u,body,params})=>{
@@ -92,8 +96,10 @@ export function register(r) {
     const areas=body.serviceAreas==null?target.service_areas:fieldWork?JSON.stringify(await serviceAreas(body.serviceAreas,'serviceAreas')):bad('Service areas apply to engineers only');
     const skills=body.skills==null?target.skills:fieldWork?JSON.stringify(stringArray(body.skills,'skills',MACHINE_TYPES)):bad('Skills apply to engineers only');
     const contact=body.phone==null?target.phone:FIELD_ROLES.includes(target.role)||body.phone?phone(body.phone):'';
-    await run('UPDATE users SET name=?,active=?,service_areas=?,skills=?,phone=?,job_title=?,vision_duties=? WHERE id=?',body.name==null?target.name:required(body.name,'name',160),active,areas,skills,contact,body.jobTitle==null?target.job_title:optionalText(body.jobTitle,80),body.visionDuties==null?target.vision_duties:duties(body.visionDuties),target.id);
-    await audit(u,'user.update','user',target.id,target.company_id,{active:!!active});
+    const alertEmails=body.alertEmails==null?target.alert_emails:flag(body.alertEmails,'alertEmails'), alertWhatsapp=body.alertWhatsapp==null?target.alert_whatsapp:flag(body.alertWhatsapp,'alertWhatsapp');
+    if (alertWhatsapp&&(body.alertWhatsapp===true||body.phone!=null)) requireWhatsappPhone(contact);
+    await run('UPDATE users SET name=?,active=?,service_areas=?,skills=?,phone=?,job_title=?,vision_duties=?,alert_emails=?,alert_whatsapp=? WHERE id=?',body.name==null?target.name:required(body.name,'name',160),active,areas,skills,contact,body.jobTitle==null?target.job_title:optionalText(body.jobTitle,80),body.visionDuties==null?target.vision_duties:duties(body.visionDuties),alertEmails,alertWhatsapp,target.id);
+    await audit(u,'user.update','user',target.id,target.company_id,{active:!!active,...(body.alertEmails==null?{}:{alertEmails:!!alertEmails}),...(body.alertWhatsapp==null?{}:{alertWhatsapp:!!alertWhatsapp})});
     return await one(`SELECT ${USER_COLUMNS} FROM users WHERE id=?`,target.id);
   });
   // Admin reset to a new temporary password: signs the user out everywhere, clears sign-in lockouts, and asks them to

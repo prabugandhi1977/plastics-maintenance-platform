@@ -151,6 +151,7 @@ The platform monitors production as well as maintaining machines:
 - **Safety:** events detected by cameras, wearables and sensors, and reported by people (also from the mobile app, offline). Each event is investigated and closed with a root cause and a corrective action. The page shows days without a lost-time injury and the near-miss count.
 - **Asset tracking:** moulds, tools, gauges and trolleys located by zone from BLE beacons or RFID tags. Alerts for a guarded asset in a restricted or outside zone, a tag not heard for too long, and a low tag battery. Each asset has a 48-hour location history.
 - **Shifts:** set under *Companies, plants & users → Plants → Edit shifts*.
+- **WhatsApp:** alerts and ticket updates on WhatsApp for people who opt in; see *WhatsApp notifications* below.
 
 Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
@@ -195,6 +196,21 @@ Every record has mandatory, industry-standard data (see *Mandatory master data* 
 7. **Isolation.** Sign in as Nova or EuroTech to confirm they cannot see Acme's records.
 8. **Users.** As Acme, deactivate and reactivate Lee Maintenance on the **Companies, plants & users** page. A deactivated user is signed out on their next request.
 9. **Machine data.** As admin, open **Equipment register → Coperion ZSK 58**. Its data is stale, with a critical alarm. Then open **Machine data (IoT)** for sync runs and the quarantined records.
+
+## WhatsApp notifications
+
+Technicians and plant managers can get the same alerts that are emailed, plus a message when a ticket is assigned to them and when a ticket they reported is completed. Each person opts in under **My account → Notifications** (or an admin does it when editing the user) and needs a phone number in international format, e.g. `+919876543210`. Messages are short: heading, machine tag, title, severity or priority. Every message is listed with its status under **Machine alerts → Email notifications**, next to whether email and WhatsApp are configured.
+
+Messages go through Meta's WhatsApp Business Cloud API. Messages a business starts must use a template Meta has approved. To set it up:
+
+1. **Meta Business account:** create one at business.facebook.com (or use the company's existing one) and verify the business.
+2. **WhatsApp Business app:** at developers.facebook.com create an app of type *Business* and add the *WhatsApp* product. Add the phone number messages will come from (it cannot be in use on the normal WhatsApp app) and verify it.
+3. **Phone number ID:** shown in the app under *WhatsApp → API Setup*. This is `WHATSAPP_PHONE_NUMBER_ID` (not the phone number itself).
+4. **Permanent token:** in Business settings create a *System user*, give it the app and the WhatsApp account with full control, and generate a token with the `whatsapp_business_messaging` and `whatsapp_business_management` permissions, set to never expire. This is `WHATSAPP_TOKEN`. The temporary token on the API Setup page expires after 24 hours.
+5. **Template:** in WhatsApp Manager create a message template, category *Utility*, with two body variables, for example: `MouldCare update: {{1}}. {{2}}. Open MouldCare for details.` Wait for approval. Its name is `WHATSAPP_TEMPLATE`; its language code (e.g. `en` or `en_US`) is `WHATSAPP_TEMPLATE_LANG`.
+6. **Server:** set `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE`, optionally `WHATSAPP_TEMPLATE_LANG` (default `en`) and `WHATSAPP_API_VERSION` (default `v21.0`; check the current Graph API version in Meta's documentation and set it). On Render, enter them under the web service's *Environment*.
+
+Until the three required settings are set, WhatsApp messages wait in the outbox as `not configured` and nothing is sent. Details are in `API.md` under *WhatsApp*.
 
 ## Deploy
 
@@ -277,6 +293,13 @@ Each test file uses its own temporary PostgreSQL schema (created on start, dropp
 - the machine-data intake path
 - alerts: one per fault, auto-resolve, acknowledge, raise a ticket, email outbox
 - the deterministic simulator
+
+**`whatsapp.test.js`**
+- E.164 phone validation; WhatsApp opt-in on the own account and in user admin
+- alerts queue WhatsApp only for opted-in recipients with a valid number, at the email threshold
+- ticket assignment (engineer or provider) and completion messages
+- the Cloud API request (URL, headers, template body) with a stubbed `fetch`; sent, failed, and not configured
+- channel status for admins without revealing the token
 
 **`masterdata.test.js`**
 - the catalogue and every mandatory parameter set, including machine-type parameters, value ranges and duplicate asset tags
