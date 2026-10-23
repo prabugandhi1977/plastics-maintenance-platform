@@ -10,7 +10,7 @@ let catalog = null;
 const cat = async () => catalog ??= await ctx.api('/catalog');
 const size = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} kB`;
 const num = v => v == null || v === '' ? '—' : String(v);
-const btn = (act, label, ico, { cls = 'sm', data = {} } = {}) => `<button class="btn ${cls}" type="button" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}>${icon(ico, 'bi')}<span>${label}</span></button>`;
+export const btn = (act, label, ico, { cls = 'sm', data = {} } = {}) => `<button class="btn ${cls}" type="button" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}>${icon(ico, 'bi')}<span>${label}</span></button>`;
 const TYPE_ICON = { injection: 'machine', extrusion: 'machine', blow: 'machine', chiller: 'sensor', dryer: 'sensor', compressor: 'sensor' };
 
 // ---- Pictures and downloads (the API needs the sign-in token, so files are fetched, not linked) ----
@@ -83,7 +83,7 @@ function signalTable(m) {
 }
 
 // ---- Dialogs ----
-function dialog(title, body, { submit = 'Save', onSubmit, onOpen, wide = false, dlgIcon = 'settings', submitIcon = 'check' } = {}) {
+export function dialog(title, body, { submit = 'Save', onSubmit, onOpen, wide = false, dlgIcon = 'settings', submitIcon = 'check' } = {}) {
   document.getElementById('dlg')?.remove();
   const d = document.createElement('dialog'); d.id = 'dlg'; d.className = `dlg${wide ? ' wide' : ''}`;
   d.innerHTML = `<form method="dialog" class="grid"><div class="row">${heading(dlgIcon, esc(title))}<button class="btn sm icon-only" type="button" data-close aria-label="Close">${icon('x', 'bi')}</button></div>
@@ -102,11 +102,11 @@ function dialog(title, body, { submit = 'Save', onSubmit, onOpen, wide = false, 
   });
   d.showModal(); onOpen?.(d); return d;
 }
-const field = (name, label, { value = '', type = 'text', required = false, help = '', ...rest } = {}) =>
+export const field = (name, label, { value = '', type = 'text', required = false, help = '', ...rest } = {}) =>
   `<label><span>${esc(label)}${required ? ' <span class="req">*</span>' : ''}</span><input type="${type}" name="${name}" value="${esc(value ?? '')}" ${required ? 'required' : ''} ${Object.entries(rest).map(([k, v]) => `${k}="${esc(v)}"`).join(' ')}>${help ? `<small class="muted">${esc(help)}</small>` : ''}</label>`;
-const select = (name, label, options, { value = '', required = false, blank = '—' } = {}) =>
+export const select = (name, label, options, { value = '', required = false, blank = '—' } = {}) =>
   `<label><span>${esc(label)}${required ? ' <span class="req">*</span>' : ''}</span><select name="${name}" ${required ? 'required' : ''}>${required ? '' : `<option value="">${esc(blank)}</option>`}${options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value ?? '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
-const textarea = (name, label, value = '') => `<label class="span">${esc(label)}<textarea name="${name}" rows="2" maxlength="2000">${esc(value ?? '')}</textarea></label>`;
+export const textarea = (name, label, value = '') => `<label class="span">${esc(label)}<textarea name="${name}" rows="2" maxlength="2000">${esc(value ?? '')}</textarea></label>`;
 
 function specFields(c, type, values = {}) {
   const ps = c.specs[type] || [];

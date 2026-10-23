@@ -8,6 +8,7 @@ Machine and condition monitoring for plastics plants, with machine learning that
 - **Condition monitoring per signal:** hydraulic oil, vibration, barrel and die temperatures, pressures, cooling water, motor current, chiller, dryer and compressor signals, with recommended limits per machine type (vibration per ISO 20816). Charts show the readings, the learned normal band, the limits and the projected trend.
 - **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed. Every decision is kept with the finding and in the audit log.
 - **Machine and signal set-up under Settings, for the super user only:** the super user (the administrator role) adds, edits and deletes machines and signals, with their parameters, photos and documents (details below). Everyone else sees each machine's details, photo and documents on its page and can download them.
+- **People and ticket allocation:** users and service providers with their skills, also managed by the super user under Settings. Each ticket draft gets an assignee: suggested when drafted, set automatically by the rules or by AI, or chosen while approving, and changeable afterwards (details below).
 - **AI features:** an explanation for each finding, maintenance-ticket drafts, shift and weekly health reports, and a chat about the machines (details below).
 
 ## How the machine learning works
@@ -48,7 +49,8 @@ npm start
 Open **http://localhost:3300/**. Demo accounts (password `MonitorDemo123!`):
 
 - `admin@monitor.test`: the super user. Everything, including machine and signal set-up, limits and retraining
-- `engineer@monitor.test`: acts on findings, drafts tickets, writes reports, asks the AI
+- `engineer@monitor.test`: acts on findings, drafts, assigns and approves tickets, writes reports, asks the AI. Skills: hydraulic and mechanical, injection and blow moulding
+- `tech@monitor.test`: an engineer with electrical, heating and control skills, for allocation
 - `viewer@monitor.test`: read only
 
 **What the simulator does:** it fills a week of readings for six machines on first start, then keeps them live. It plants three developing faults for the analysis to find:
@@ -61,10 +63,11 @@ The three other machines stay healthy.
 
 ## Machines and signals
 
-Set-up lives under **Settings**, which only the super user sees. The server refuses set-up changes from any other role. Settings has three tabs:
+Set-up lives under **Settings**, which only the super user sees. The server refuses set-up changes from any other role. Settings has five tabs:
 
 - **Machines:** every machine with its photo. Open one to edit it, delete it, add its photo and documents, and set up its signals.
 - **Signals:** pick a machine, then add, edit or delete its signals.
+- **Users** and **Service providers:** see *People and ticket allocation* below.
 - **Connections & models:** the AI, gateway and simulator status, and retraining the pattern models.
 
 **Add a machine** (Settings › Machines):
@@ -103,6 +106,54 @@ Set-up lives under **Settings**, which only the super user sees. The server refu
 - **A signal:** it is removed with its readings, findings and files.
 - **Audit trail:** every change is recorded.
 
+## People and ticket allocation
+
+**Users** (Settings › Users):
+
+- **Details:** name, email, role, job title, phone, the provider they work for (if any), and their skills.
+- **Skills:** disciplines (hydraulic, mechanical, electrical, heating, cooling, pneumatic, control, material) and machine types.
+- **Who is offered for tickets:** active engineers, plus anyone with skills recorded.
+- **Account actions:**
+  - *Password* sets a new password and signs the user out everywhere.
+  - *Deactivate* stops sign-in at once and removes the user from allocation; their history stays.
+  - *Delete* is only for accounts with no history; the rest are deactivated instead.
+- **Protections:** you cannot remove your own super-user access, and at least one active super user always remains.
+
+**Service providers** (Settings › Service providers):
+
+- **Details:** company, contact person, email, phone, skills, contracted response time and notes.
+- **Their technicians:** added as users and linked to the provider.
+- **Deactivate or delete:** a provider that has been given tickets is deactivated rather than deleted.
+
+**How candidates are ranked.** Every active technician and provider is scored for a ticket:
+
+| Factor | Points |
+| --- | --- |
+| Has the discipline the fault needs (the draft's failure category) | +40 |
+| Knows the machine type | +30 |
+| Each open ticket in the last 14 days | −8 |
+| No open tickets | +5 |
+| Handled findings on this machine in the last 90 days | +5 each, up to 3 |
+| An outside provider | −5 |
+| A high or critical ticket and a provider that responds within 4 hours | +10 |
+
+Each candidate's reasons are shown with its score.
+
+**When a ticket is allocated:**
+
+- **When drafted:** the mode (Settings › Users › *Ticket allocation*) decides.
+  - *Suggest only* (the default): the best candidate is shown on the draft, with its reason and a one-click **Assign**.
+  - *Assign automatically by the rules*: the best candidate is assigned at once.
+  - *Assign automatically with AI*: Claude chooses among the ranked candidates and gives its reason. Its choice must be one of them; otherwise the rules' first choice is used.
+- **During approval:** **Approve…** opens the ranked list with the current assignee or the suggestion preselected. Approving and assigning happen in one step, or the draft can be approved unassigned.
+- **After approval:** **Reassign** or unassign at any time. **Ask AI to choose** gets Claude's pick on demand.
+
+**Who can see and change it:**
+
+- **Ticket drafts filters:** *My tasks* shows what is assigned to you; *Unassigned* shows what still needs someone.
+- **Assignments:** each assignment records who made it, when, how (manual, rules or AI) and why, and is written to the audit log.
+- **Roles:** engineers and the super user assign and approve; viewers only see.
+
 ## Connect real machines
 
 Gateways (a PLC, an OPC UA or MQTT bridge, or an edge PC) post readings with the `X-Ingest-Key` header:
@@ -131,7 +182,7 @@ cd monitor
 npm test
 ```
 
-There are 25 tests in five files:
+There are 30 tests in six files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
@@ -140,6 +191,12 @@ There are 25 tests in five files:
   - the parameter and limit checks, unique tags and device IDs, and who may do what
   - photos and documents checked by their content, served safely, and the photo replaced
   - deleting a machine with everything that belongs to it
+- `people.test.js`: users and service providers managed by the super user, and ticket allocation, covering:
+  - users: password rules, deactivation and password resets signing users out, the self and last-super-user protections, and delete versus deactivate
+  - providers: adding, deactivating and deleting
+  - candidates ranked by skills
+  - automatic allocation by the rules and by AI (a stand-in client), including an AI answer outside the candidates
+  - approval with an assignee, reassignment, and *My tasks*
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 
 ## Deploy

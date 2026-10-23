@@ -22,8 +22,9 @@ export function authenticate(req) {
   try {
     const c = JSON.parse(Buffer.from(payload, 'base64url').toString());
     if (c.exp < Date.now()) return null;
-    const u = one('SELECT id,email,name,role,session_version FROM users WHERE id=?', c.sub);
-    return u && u.session_version === c.sv ? u : null;
+    const u = one('SELECT id,email,name,role,session_version,active FROM users WHERE id=?', c.sub);
+    if (!u || u.session_version !== c.sv || !u.active) return null;
+    delete u.active; return u;
   } catch { return null; }
 }
 

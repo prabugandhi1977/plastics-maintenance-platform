@@ -56,7 +56,7 @@ export function stateMinutes(machineId, from, to) {
   return out;
 }
 
-async function structured({ system, prompt, schema, effort = 'medium', maxTokens = 8000 }) {
+export async function structured({ system, prompt, schema, effort = 'medium', maxTokens = 8000 }) {
   const r = await ai().beta.messages.create({ ...FALLBACK, model: AI_MODEL, max_tokens: maxTokens, system,
     output_config: { effort, format: { type: 'json_schema', schema } }, messages: [{ role: 'user', content: prompt }] });
   if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') return null;
