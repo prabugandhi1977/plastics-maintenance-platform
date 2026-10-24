@@ -244,12 +244,17 @@ async function pageSettings(arg, sub) {
   return `${head('settings', 'Settings', 'Machines, signals, people, connections and the models.', `<span class="chip ai">${icon('shield', 'i xs')} Super user access</span>`)}
     <nav class="tabs" aria-label="Settings">${SETTINGS_TABS.map(([k, l, i]) => `<a href="#/settings/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${icon(i, 'bi')}<span>${l}</span></a>`).join('')}</nav>${body}`;
 }
+const mqttHtml = q => !q.enabled ? `${chip('', 'Off')} set MONITOR_MQTT_URL on the server` :
+  `${q.connected ? chip('good', 'Connected') : chip('watch', 'Not connected')} <code>${esc(q.url)}</code> · topic <code>${esc(q.topic)}</code>
+  <br><span class="small muted">Last message ${ago(q.lastMessageAt)} · ${q.accepted.toLocaleString()} accepted · ${q.rejected.toLocaleString()} rejected${q.reconnects ? ` · ${q.reconnects} reconnects` : ''}${q.lastError ? ` · ${esc(q.lastError)}` : ''}</span>`;
 async function connectionsTab() {
   const s = await api('/settings');
   const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
   return `<section class="card"><div class="row">${heading('plug', 'Connections')}</div><dl class="facts">${row('sparkles', 'AI assistant', s.ai ? `${chip('good', 'On')} ${esc(s.aiModel)}` : `${chip('', 'Off')} set ANTHROPIC_API_KEY on the server`)}
       ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
+      ${row('signal', 'MQTT intake', mqttHtml(s.mqtt))}
       ${row('refresh', 'Simulator', s.simulator ? `${chip('watch', 'On')} demo data` : chip('', 'Off'))}</dl>
+      ${s.mqtt.reasons.length ? `<details><summary class="small">Last rejected MQTT messages</summary><ul class="small">${s.mqtt.reasons.map(x => `<li>${ago(x.at)} · <code>${esc(x.topic)}</code> · ${esc(x.reason)}</li>`).join('')}</ul></details>` : ''}
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
       <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
   -d '{"readings":[{"device":"${esc(s.machines[0]?.deviceId || 'plc-imm-01')}","at":"2026-10-19T08:15:00Z","state":"running","values":{"hydraulic_oil_temp":47.2}}]}'</pre></details></section>

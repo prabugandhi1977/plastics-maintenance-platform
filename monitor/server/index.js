@@ -7,6 +7,7 @@ import { ROOT, one, all, run, audit } from './db.js';
 import { HttpError, createRouter, bodyOf, rawOf, json, Reply, reply, bad, deny, missing, text, choice, optNumber } from './http.js';
 import { authenticate, tokenFor, verifyPassword, checkLockout, recordFailure, clearFailures, ingestKeyOk, can } from './auth.js';
 import { ingest } from './ingest.js';
+import { mqttConfig, mqttStatus, startMqtt, stopMqtt } from './mqtt.js';
 import { MACHINE_TYPES } from './catalog.js';
 import { analysisOf, analyzeAll, analyzeMachine, forgetAnalysis } from './ml/analyze.js';
 import { median } from './ml/stats.js';
@@ -168,7 +169,7 @@ r.post('/chat', async ({ user, body }) => {
 r.delete('/chat', ({ user }) => { newConversation(user.id); return chatView(user.id); });
 
 r.post('/models/retrain', ({ user }) => { admin(user); run('DELETE FROM models'); const res = analyzeAll(); audit(user.id, 'models.retrain', 'models', null); return res.map(a => ({ machineId: a.machineId, model: a.model })); });
-r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
+r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, mqtt: mqttStatus(), ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
   machines: all('SELECT * FROM machines ORDER BY tag').map(m => ({ id: m.id, tag: m.tag, name: m.name, deviceId: m.device_id, signals: all('SELECT key,label,unit,warn_low,warn_high,crit_low,crit_high FROM signals WHERE machine_id=? ORDER BY rowid', m.id) })) }; });
 
 registerSetup(r);
@@ -225,5 +226,13 @@ if (process.argv[1]?.endsWith('index.js')) {
   setInterval(job('Analysis', analyzeAll), 5 * 60000).unref();
   const keepDays = Number(process.env.MONITOR_RETENTION_DAYS || 30);
   setInterval(job('Retention', () => run('DELETE FROM readings WHERE ts<?', Date.now() - keepDays * DAY)), 6 * HOUR).unref();
-  createServer().listen(port, () => console.log(`MouldCare Monitor listening on port ${port}`));
+  const server = createServer().listen(port, () => console.log(`MouldCare Monitor listening on port ${port}`));
+  const mqttCfg = mqttConfig();
+  if (mqttCfg) {
+    let lastError = null;
+    startMqtt(mqttCfg).on('connect', () => { lastError = null; console.log(`MQTT: subscribed to ${mqttCfg.topic} on ${mqttStatus().url}`); })
+      .on('error', e => { if (e.message !== lastError) console.error(`MQTT: ${(lastError = e.message)}`); });
+    const shutdown = async () => { server.close(); try { await stopMqtt(); } finally { process.exit(0); } };
+    process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
+  }
 }
