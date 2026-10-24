@@ -152,6 +152,12 @@ The platform monitors production as well as maintaining machines:
 - **Products:** ideal cycle times and cavities, so performance can be measured.
 - **Condition:** each machine's health from sensor readings against warning and critical limits, with trend charts and a limits editor. A critical reading raises a maintenance ticket automatically.
 - **Energy:** kWh, kWh per kg, wasted energy, CO₂ (supplier factor or national average) and cost (set the electricity price under *Organisation*).
+  - **Time-of-day tariffs** work like Indian industrial (HT) bills. Each plant can have its own tariff: peak, normal and off-peak slots with a rate each, contract demand in kVA, a demand charge per kVA per month and a power factor rule. Customer admins and plant managers set it from the Energy page (*Energy tariff*) or on the plant.
+  - With a tariff, cost is worked out slot by slot in plant time. The page shows the cost per slot, today's and this month's maximum demand against contract demand, the month's power factor against target, and the projected bill.
+  - **Maximum demand** is the plant's highest average kVA over one demand interval (15 or 30 minutes). The demand charge is billed on the higher of maximum demand and a set share of contract demand (often 75–85 %).
+  - **Power factor** of the month is kWh ÷ kVAh. Each full 0.01 below the target adds a penalty; each full 0.01 above it can earn an incentive, both as a % of energy charges.
+  - **Alerts:** a warning when the running demand reaches 90 % of contract demand, critical at 100 %, and a warning when the month's power factor is below target. They clear by themselves.
+  - A plant without a tariff keeps the flat price per kWh.
 - **Quality:** camera inspection results. Shows first-pass yield, rejects per million (PPM) and a defect Pareto by machine. A rising reject rate raises an alert.
 - **Batches & material lots:** material lots → batches → output. Each batch records its lots, machine, mould, operator and process settings. A batch's *genealogy* also shows the stops, alerts, maintenance and camera rejects on its machine while it ran. Quarantining a lot puts exactly the batches that used it on hold.
 - **Safety:** events detected by cameras, wearables and sensors, and reported by people (also from the mobile app, offline). Each event is investigated and closed with a root cause and a corrective action. The page shows days without a lost-time injury and the near-miss count.
@@ -281,6 +287,15 @@ Each test file uses its own temporary PostgreSQL schema (created on start, dropp
 - stale data, trends and tenant isolation
 - energy figures against a worked example (0.42 kWh/kg, CO₂, cost)
 - simulated signals
+
+**`energy-tariff.test.js`**
+- time-of-day slots must cover 24 hours: gaps and overlaps are refused
+- cost by slot in the plant's time zone, across midnight
+- maximum demand from interval data (kVA, kW with kvar or PF, or unity PF)
+- the projected bill: billed-demand floor, demand charge and PF penalty or incentive
+- the demand alert at 90 % (warning), 100 % (critical) and resolved; the PF alert
+- the flat price without a tariff; kVA, kvar and PF in the intake
+- access: another company is refused; only customer admins and plant managers edit
 
 **`trace-safety-assets.test.js`**
 - lots and batches limited to each tenant; a batch needs its mould (injection), released lots and every process setting

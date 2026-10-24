@@ -145,6 +145,8 @@ dialog.confirm .modal-body h2{margin:0 0 8px;font-size:18px}
 .machine-oee small{color:var(--ink-2)} .machine-oee strong{display:block;font-size:26px;font-weight:650}
 .machine-oee dl{display:grid;grid-template-columns:auto auto;gap:2px 8px;margin:0;font-size:13px} .machine-oee dt{color:var(--muted)} .machine-oee dd{margin:0;text-align:right}
 .explainer summary{cursor:pointer} .explainer ul{padding-left:20px} .explainer p,.explainer li{line-height:1.5}
+.tariff-head,.tariff-row{display:grid;grid-template-columns:130px 140px 140px 1fr;gap:8px;align-items:center;margin-bottom:8px} .tariff-head{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+@media(max-width:700px){.tariff-head{display:none}.tariff-row{grid-template-columns:1fr 1fr}.tariff-row>:first-child,.tariff-row .with-unit{grid-column:1/-1}}
 .shift-head,.shift-row{display:grid;grid-template-columns:120px 110px 110px 1fr;gap:8px;align-items:center;margin-bottom:8px} .shift-head{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .shift-row .days{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:13px} .shift-row .days label{display:flex;gap:4px;align-items:center}
 @media(max-width:700px){.shift-head{display:none}.shift-row{grid-template-columns:1fr 1fr 1fr}.shift-row .days{grid-column:1/-1}}

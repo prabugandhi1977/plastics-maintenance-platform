@@ -93,7 +93,8 @@ export async function simulateMachine(e,until=Date.now()) {
         await recordCount(e,{periodStart:at,periodMinutes:SLOT_MIN,totalQty:total,scrapQty:scrap,unit:product.unit,idealRatePerHour:product.ideal_rate_per_hour,productId:product.id},'simulator');
       }
       const kw=ratedKw(e)*(state==='planned_stop'&&reason==='break'?0.35:STATE_POWER[state])*(0.92+rand(e.id,slot,'kw')*0.16);
-      await recordEnergy(e,{periodStart:at,periodMinutes:SLOT_MIN,kwh:Math.round(kw*SLOT_MIN/60*100)/100,peakKw:Math.round(kw*(state==='running'?1.35:1.1)*10)/10},'simulator');
+      // Power factor: motors near full load run at a better PF than idling ones.
+      await recordEnergy(e,{periodStart:at,periodMinutes:SLOT_MIN,kwh:Math.round(kw*SLOT_MIN/60*100)/100,peakKw:Math.round(kw*(state==='running'?1.35:1.1)*10)/10,pf:Math.round(((state==='running'?0.92:0.78)+rand(e.id,slot,'pf')*0.05)*1000)/1000},'simulator');
       // Readings are judged against limits only for recent slots, so a first backfill does not raise old alerts.
       for (const p of params) await recordCondition(e,p.key,signal(e,p.key,t,state),at,'simulator',{evaluate:t>=recentFrom});
       // Safety camera over the machine: occasional PPE or guarding events while people work at it.
