@@ -58,6 +58,10 @@ Data scoping and auditing:
 | `PATCH` | `/devices/:id` | Activate/deactivate, set the stale threshold, or remap within the same company |
 | `GET` | `/integrations/status` | Platform admin: adapter, cursor, sync runs, quarantined records |
 | `POST` | `/integrations/sync` | Platform admin: run one pull sync now |
+| `POST` | `/integrations/tickets` | Ticket intake for trusted systems such as MouldCare Monitor (server-to-server, company `X-Integration-Key`; see *Tickets from other systems*) |
+| `GET, POST` | `/integration-keys` | Company integration keys. Platform admin: all companies (POST needs `companyId`); customer admin: their own. POST `{name}` returns the key once |
+| `PATCH` | `/integration-keys/:id` | Rename, or switch off (`active:false`) and on again |
+| `POST` | `/integration-keys/:id/key` | Replace the key (the old one stops working at once); returns the new key once |
 | `PATCH` | `/contracts/:id` | Renewal date, status (`active`, `expired` or `cancelled`), response target, commitments, exclusions |
 | `POST` | `/contracts/:id/visits` | Add a scheduled visit for a covered asset, within the contract period |
 | `PATCH` | `/visits/:id` | Update visit status or notes |
@@ -461,6 +465,44 @@ Event types: `ppe` → `ppe_violation` (`detail.missing`); `fire_smoke` → `fir
 | `GET` | `/vision/retraining` | False alarms kept for retraining, with media links (administrators) |
 
 Users carry `visionDuties` (`ehs`, `security`, `qa`), set with `POST /users` or `PATCH /users/:id`.
+
+## Tickets from other systems
+
+Trusted systems raise breakdown tickets through one intake. The first is MouldCare Monitor: when a person approves a ticket draft there, Monitor sends it here (see `monitor/README.md`). Code: `backend/services/core/routes/intake.js`.
+
+**Company integration keys.** The server-wide `MOULDCARE_INTEGRATION_KEY` reaches every company, so it cannot raise tickets. Instead each system gets a key for one company, sent the same way in `X-Integration-Key`. It reaches only that company's machines.
+- Make one with `POST /integration-keys {name}` (customer admin; the platform admin adds `companyId`), or on the server with `npm run integration:key -- "Acme Plastics" "MouldCare Monitor"`.
+- The key (`mck_…`) is shown once. Only its hash is stored; lists show a hint like `mck_AbCd…wxyz` and when it was last used.
+- Switch a key off with `PATCH /integration-keys/:id {active:false}`, or replace it with `POST /integration-keys/:id/key`.
+
+**Request.** `POST /integrations/tickets` with `X-Integration-Key: mck_…`:
+
+```json
+{ "source": "monitor", "externalId": "5f0c…(the Monitor draft id)", "assetTag": "IMM-04",
+  "title": "IMM-04: hydraulic oil temperature rising", "symptoms": "Oil temperature up 6 °C in 3 days.",
+  "failureCategory": "hydraulic", "priority": "high", "machineState": "running", "safetyIssue": false,
+  "occurredAt": "2026-10-20T06:10:00Z", "productionImpact": "Machine still running.",
+  "suggestedActions": ["Check the oil cooler"], "assigneeName": "Ravi Kumar", "errorCodes": "" }
+```
+
+| Field | Rule |
+| --- | --- |
+| `source` | `monitor` (the list of known senders). It sets how the ticket shows as raised: `raised_via = 'monitor'` |
+| `externalId` | Required, up to 120 characters. The sender's reference; with `source` it makes the request idempotent |
+| `assetTag` | Required. The machine's asset tag in the key's company (any letter case). Unknown → 404 *No machine with asset tag …* |
+| `title`, `symptoms`, `productionImpact` | As for `POST /tickets`: 1-160, 1-3,000 and 1-1,000 characters |
+| `failureCategory` | One of the failure categories in `GET /catalog` |
+| `priority` | `low`, `medium`, `high` or `critical`. With `safetyIssue: true` the ticket is always critical |
+| `machineState` | `stopped`, `reduced_output`, `quality_issue` or `running` |
+| `safetyIssue` | Required, `true` or `false` |
+| `occurredAt` | When the failure started, ISO 8601: not in the future, within the last 90 days |
+| `suggestedActions` | Optional, up to 20 texts. Added to the symptoms under *Suggested actions*, within the symptoms limit |
+| `assigneeName` | Optional. The person the sender gave it to. It is not a MouldCare user, so it is noted on the ticket for dispatch, who assigns as usual |
+| `errorCodes` | Optional, up to 500 characters |
+
+**Response.** `201` with `{created: true, ticket: {id, status, priority, title, assetTag, equipmentId, plantId, raisedVia, source, externalId, createdAt}}`. Sending the same `source` and `externalId` again returns `200` with `created: false` and the ticket already raised, even if the body changed. References are per company. Wrong or switched-off keys get `401`; invalid fields `400` with the reason.
+
+The ticket is raised by the system user (*Automatic monitoring*), with an activity entry naming the sender, its reference and the key's name. No scan is needed, as for tickets raised by condition monitoring. Each one is audited as `ticket.create_external` with the source, reference and key id.
 
 ## Offline actions
 

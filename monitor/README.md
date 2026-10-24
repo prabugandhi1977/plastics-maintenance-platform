@@ -9,6 +9,7 @@ Machine and condition monitoring for plastics plants, with machine learning that
 - **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed. Every decision is kept with the finding and in the audit log.
 - **Machine and signal set-up under Settings, for the super user only:** the super user (the administrator role) adds, edits and deletes machines and signals, with their parameters, photos and documents (details below). Everyone else sees each machine's details, photo and documents on its page and can download them.
 - **People and ticket allocation:** users and service providers with their skills, also managed by the super user under Settings. Each ticket draft gets an assignee: suggested when drafted, set automatically by the rules or by AI, or chosen while approving, and changeable afterwards (details below).
+- **Hand-off to MouldCare:** an approved draft is sent to MouldCare as a breakdown ticket, with its reference shown on the draft. If MouldCare is down, the draft says so and is sent again later (details below).
 - **AI features:** an explanation for each finding, maintenance-ticket drafts, shift and weekly health reports, and a chat about the machines (details below).
 
 ## How the machine learning works
@@ -169,6 +170,30 @@ Each candidate's reasons are shown with its score.
 - **Assignments:** each assignment records who made it, when, how (manual, rules or AI) and why, and is written to the audit log.
 - **Roles:** engineers and the super user assign and approve; viewers only see.
 
+## Hand-off to MouldCare
+
+An approved draft goes to MouldCare as a breakdown ticket, by itself.
+
+**Set it up.**
+1. In MouldCare, make a company integration key: `npm run integration:key -- "Your company" "MouldCare Monitor"` on the MouldCare server, or `POST /api/integration-keys` as the customer admin. It is shown once.
+2. Here, set `MONITOR_MOULDCARE_URL` (MouldCare's address, e.g. `https://mouldcare.example.com`) and `MONITOR_MOULDCARE_KEY` (the key). Restart.
+3. **Settings › Connections & models** shows whether it is on, how many tickets were sent, and the last error. The key is never shown, returned by the API or logged.
+
+**What is sent.** The machine tag (it must match the asset tag in MouldCare), title, symptoms, failure category, priority, machine state, suggested actions and parts to check, the assignee's name if any, when the finding started, and the draft id as the reference.
+- Failure categories keep their names, except *control*, which is *controls* in MouldCare.
+- Machine states: *running* stays *running*, *running degraded* becomes *reduced output*, *stopped* stays *stopped*.
+- Monitor does not judge safety, so `safetyIssue` is sent as `false`. Whoever handles the ticket in MouldCare can change that.
+- The assignee is a person in Monitor, not a MouldCare user. MouldCare notes the name on the ticket, and dispatch assigns it there.
+
+**When it is sent.**
+- On approval. The approval never fails because of MouldCare: the outcome is kept on the draft.
+- **Send to MouldCare** on an approved draft that has not gone yet (e.g. one approved before the connection was set up).
+- **Retry** on a draft that failed. A background job also retries failed drafts every 5 minutes, up to 10 times, and sends drafts approved while the connection was not set up.
+- Each send waits at most 10 seconds for MouldCare.
+- Sending a draft twice is safe: MouldCare finds the ticket already raised by the draft id.
+
+**On the draft card.** *In MouldCare* with the ticket reference (the first 8 characters of its id) and when it was sent; *Not sent* with MouldCare's reason and a **Retry** button; or *Not set up*.
+
 ## Connect real machines
 
 Gateways (a PLC, an OPC UA bridge, or an edge PC) post readings with the `X-Ingest-Key` header:
@@ -236,7 +261,7 @@ cd monitor
 npm test
 ```
 
-There are 41 tests in eight files:
+There are 45 tests in nine files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
@@ -251,6 +276,11 @@ There are 41 tests in eight files:
   - candidates ranked by skills
   - automatic allocation by the rules and by AI (a stand-in client), including an AI answer outside the candidates
   - approval with an assignee, reassignment, and *My tasks*
+- `mouldcare.test.js`: the hand-off to MouldCare against a stand-in MouldCare server, covering:
+  - approval posting the draft with the mapped fields and the assignee, and no second post once sent
+  - a failed send recorded with the reason while the approval stands (MouldCare down, a rejected ticket, a wrong key, no answer within the timeout), then sent by the retry job, and the automatic retry limit
+  - an unset connection recorded as `not_configured`, then sent once it is set up
+  - the key never in an API reply or the database
 - `mqtt.test.js`: a real MQTT broker inside the test. It publishes both payload formats and checks that readings and states are stored through the normal intake. It also covers rejected messages and their reasons, batching, the status in Settings without the password, and a reconnect after the broker drops the connection.
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 - `manuals.test.js`: the AI reading the documents, with a stand-in client, covering:
@@ -280,7 +310,6 @@ There are 41 tests in eight files:
 
 ## Next steps
 
-- **Ticket hand-off to MouldCare:** MouldCare's integration API takes machine data but cannot create breakdown tickets. An approved draft could be sent straight to MouldCare once it has a ticket intake endpoint for trusted systems.
 - **Protocol bridges:** an OPC UA bridge that posts to `/api/ingest`. MQTT is built in.
 - **Scale:** several plants and companies (tenancy), and PostgreSQL for more than one instance.
 - **Languages:** German and other languages for the dashboard.
