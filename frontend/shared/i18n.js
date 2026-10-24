@@ -1731,6 +1731,7 @@ const en={
   "ws.raisedAutomaticallyByConditionMonitoring":"Raised automatically by condition monitoring",
   "ws.withoutAScanDispatcherOverride":"Without a scan (dispatcher override)",
   "ws.withoutAScanScanOptional":"Without a scan (scan optional)",
+  "ws.sentByMouldcareMonitor":"Sent by MouldCare Monitor",
   "ws.unknownCodeNotTheQr":"Unknown code: not the QR label or RFID tag of a known machine",
   "ws.whatShouldIDoNext":"What should I do next?",
   "ws.mostLikelyCause":"Most likely cause?",

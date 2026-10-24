@@ -473,7 +473,7 @@ function assetDetail(){
 // ---------- Scan at the machine ----------
 // Tickets are linked to the machine by scanning its QR label or RFID tag when they are raised and closed.
 const scanPolicy=()=>state.cat?.scanPolicy||{raise:'optional',close:'required'};
-const VIA={get qr(){ return _t('ws.qrLabelScannedAtThe'); },get rfid(){ return _t('ws.rfidTagScannedAtThe'); },get alert(){ return _t('ws.fromAMachineAlert'); },get auto(){ return _t('ws.raisedAutomaticallyByConditionMonitoring'); },get override(){ return _t('ws.withoutAScanDispatcherOverride'); },get manual(){ return _t('ws.withoutAScanScanOptional'); }};
+const VIA={get qr(){ return _t('ws.qrLabelScannedAtThe'); },get rfid(){ return _t('ws.rfidTagScannedAtThe'); },get alert(){ return _t('ws.fromAMachineAlert'); },get auto(){ return _t('ws.raisedAutomaticallyByConditionMonitoring'); },get override(){ return _t('ws.withoutAScanDispatcherOverride'); },get manual(){ return _t('ws.withoutAScanScanOptional'); },get monitor(){ return _t('ws.sentByMouldcareMonitor'); }};
 const viaText=(via,at,zone)=>via?`<span class="pill ${['qr','rfid'].includes(via)?'approved':via==='override'?'warning':'pending'}">${['qr','rfid'].includes(via)?'✓ ':via==='override'?'⚠ ':''}${esc(VIA[via]||humanise(via))}</span>${at?` <span class="muted">${when(at)}</span>`:''}`:'<span class="muted">Before scan linking</span>';
 // The scan block for a raise or close form. needed: the policy requires a scan; dispatchers may instead give a reason.
 function scanBlock(text,needed,help){
