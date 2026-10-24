@@ -3,6 +3,7 @@
 import { signalChart, sparkline } from '/charts.js';
 import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 import { icon, tile, heading } from '/icons.js';
+import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = s => document.querySelector(s);
@@ -17,6 +18,7 @@ async function api(path, method = 'GET', body) {
   return data;
 }
 initSetup({ api, esc, state, render });
+initPeople({ api, esc, state, render });
 const canWrite = () => ['admin', 'engineer'].includes(state.user?.role);
 const time = t => t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const ago = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -76,7 +78,7 @@ function paint(html) {
   $('#signout')?.addEventListener('click', signOut);
   // Only the buttons: <html> carries data-theme too, and a listener on it would pile up with every repaint.
   document.querySelectorAll('button[data-theme]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
-  bindActions(); loadImages();
+  bindActions(); loadImages(); bindPeople();
 }
 
 function renderLogin(error = '') {
@@ -176,15 +178,19 @@ async function pageFindings() {
 // ---- Tickets ----
 const PRIORITY = { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' };
 async function pageTickets() {
-  const list = await api('/tickets');
-  return `${head('tickets', 'Ticket drafts', 'Drafted from findings for a planner to check. Approve a draft, then copy it into MouldCare as a breakdown ticket.')}
+  const filter = new URLSearchParams(location.hash.split('?')[1] || '').get('assigned') || 'all';
+  const list = await api(`/tickets${filter === 'all' ? '' : `?assigned=${filter}`}`);
+  const tabs = [['all', 'All'], ['me', 'My tasks'], ['none', 'Unassigned']];
+  return `${head('tickets', 'Ticket drafts', 'Drafted from findings, each with a suggested assignee. Approve a draft and hand it over in one step, then copy it into MouldCare as a breakdown ticket.',
+    `<div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="tickets-filter" data-filter="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
     ${list.length ? `<div class="grid">${list.map(t => { const d = t.draft; return `<article class="card grid">
       <div class="row">${heading('tickets', esc(d.title), 2, d.priority === 'critical' || d.priority === 'high' ? 'risk' : 'watch')}${t.source === 'ai' ? chip('ai', 'AI draft') : chip('', 'Standard draft')}${chip(t.status, t.status)}${chip(d.priority === 'critical' || d.priority === 'high' ? 'critical' : 'warning', PRIORITY[d.priority] + ' priority')}</div>
       <dl class="facts"><dt>Machine</dt><dd><a href="#/machine/${t.machineId}">${esc(d.machineTag)}</a> ${esc(d.machineName)}</dd><dt>Category</dt><dd>${esc(d.failureCategory)}</dd><dt>Machine state</dt><dd>${esc(String(d.machineState).replace('_', ' '))}</dd><dt>Symptoms</dt><dd>${esc(d.symptoms)}</dd>
       <dt>Actions</dt><dd><ol style="margin:0;padding-left:18px">${d.suggestedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></dd>${d.partsToCheck?.length ? `<dt>Parts to check</dt><dd>${d.partsToCheck.map(esc).join(', ')}</dd>` : ''}
       <dt>Drafted</dt><dd>${time(t.createdAt)} by ${esc(t.createdBy)}</dd></dl>
-      <div class="row"><button class="btn sm" data-act="copy" data-id="${t.id}" type="button">${ib('copy', 'Copy text')}</button>${canWrite() && t.status === 'draft' ? `<button class="btn sm primary" data-act="ticket-status" data-status="approved" data-id="${t.id}" type="button">${ib('check', 'Approve')}</button><button class="btn sm danger" data-act="ticket-status" data-status="discarded" data-id="${t.id}" type="button">${ib('trash', 'Discard')}</button>` : ''}</div>
-      <textarea class="sr-only" id="copy-${t.id}" readonly>${esc(ticketText(t))}</textarea></article>`; }).join('')}</div>` : '<div class="card empty">No drafts yet. Open a finding and choose “Draft ticket”.</div>'}`;
+      ${assignmentHtml(t, canWrite())}
+      <div class="row"><button class="btn sm" data-act="copy" data-id="${t.id}" type="button">${ib('copy', 'Copy text')}</button>${canWrite() && t.status === 'draft' ? `<button class="btn sm primary" data-act="approve" data-id="${t.id}" type="button">${ib('check', 'Approve…')}</button><button class="btn sm danger" data-act="ticket-status" data-status="discarded" data-id="${t.id}" type="button">${ib('trash', 'Discard')}</button>` : ''}</div>
+      <textarea class="sr-only" id="copy-${t.id}" readonly>${esc(ticketText(t))}</textarea></article>`; }).join('')}</div>` : `<div class="card empty">${filter === 'me' ? 'Nothing assigned to you.' : filter === 'none' ? 'Every ticket has an assignee.' : 'No drafts yet. Open a finding and choose “Draft ticket”.'}</div>`}`;
 }
 const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}`; };
 
@@ -230,12 +236,12 @@ async function ask(text) {
 // ---- Settings (super user only) ----
 // Tabs: Machines (#/settings/machines, one machine at #/settings/machine/<id>), Signals (#/settings/signals/<id>),
 // Connections & models (#/settings/connections).
-const SETTINGS_TABS = [['machines', 'Machines', 'machine'], ['signals', 'Signals', 'signal'], ['connections', 'Connections & models', 'plug']];
+const SETTINGS_TABS = [['machines', 'Machines', 'machine'], ['signals', 'Signals', 'signal'], ['users', 'Users', 'users'], ['providers', 'Service providers', 'provider'], ['connections', 'Connections & models', 'plug']];
 async function pageSettings(arg, sub) {
   if (state.user.role !== 'admin') return `${head('settings', 'Settings')}<div class="card empty">${icon('shield', 'i')} Settings are for the super user (administrator).</div>`;
   const tab = arg === 'machine' ? 'machines' : SETTINGS_TABS.some(([k]) => k === arg) ? arg : 'machines';
-  const body = arg === 'machine' && sub ? await machineSetup(sub) : tab === 'signals' ? await signalsTab(sub) : tab === 'connections' ? await connectionsTab() : await machinesTab();
-  return `${head('settings', 'Settings', 'Machines, signals, connections and the models.', `<span class="chip ai">${icon('shield', 'i xs')} Super user access</span>`)}
+  const body = arg === 'machine' && sub ? await machineSetup(sub) : tab === 'signals' ? await signalsTab(sub) : tab === 'users' ? await usersTab() : tab === 'providers' ? await providersTab() : tab === 'connections' ? await connectionsTab() : await machinesTab();
+  return `${head('settings', 'Settings', 'Machines, signals, people, connections and the models.', `<span class="chip ai">${icon('shield', 'i xs')} Super user access</span>`)}
     <nav class="tabs" aria-label="Settings">${SETTINGS_TABS.map(([k, l, i]) => `<a href="#/settings/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${icon(i, 'bi')}<span>${l}</span></a>`).join('')}</nav>${body}`;
 }
 async function connectionsTab() {
@@ -257,6 +263,8 @@ function bindActions() {
     const { act, id } = el.dataset;
     try {
       if (SETUP_ACTIONS.includes(act)) { e.preventDefault(); return await setupAction(act, el); }
+      if (PEOPLE_ACTIONS.includes(act)) { e.preventDefault(); return await peopleAction(act, el); }
+      if (act === 'tickets-filter') { location.hash = el.dataset.filter === 'all' ? '#/tickets' : `#/tickets?assigned=${el.dataset.filter}`; return; }
       if (act === 'hours') { state.hours[id] = Number(el.dataset.hours); return render(); }
       if (act === 'filter') { location.hash = `#/findings?status=${el.dataset.status}`; return; }
       if (act === 'explain') {

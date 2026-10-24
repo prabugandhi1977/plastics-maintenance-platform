@@ -13,6 +13,7 @@ import { median } from './ml/stats.js';
 import { simulate, simulatorEnabled, FAULTS } from './simulator.js';
 import { seedDemo, bootstrapAdmin } from './seed.js';
 import { registerSetup } from './setup.js';
+import { registerPeople, allocateOnDraft, assignmentOut, assign } from './people.js';
 import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle } from './ai/claude.js';
 
 const r = createRouter();
@@ -40,6 +41,7 @@ r.post('/auth/login', ({ body }) => {
   const email = text(body.email, 'email', 200).toLowerCase(); checkLockout(email);
   const u = one('SELECT * FROM users WHERE email=?', email);
   if (!u || typeof body.password !== 'string' || !verifyPassword(body.password, u.password_hash)) { recordFailure(email); throw new HttpError(401, 'Email or password is wrong'); }
+  if (!u.active) throw new HttpError(403, 'This account is deactivated. Ask your super user to reactivate it.');
   clearFailures(email); audit(u.id, 'auth.login', 'user', u.id);
   return { token: tokenFor(u), user: { id: u.id, email: u.email, name: u.name, role: u.role } };
 }, { public: true });
@@ -122,10 +124,19 @@ r.patch('/findings/:id', ({ user, params, body }) => {
   return findingOut(findingOr404(f.id));
 });
 r.post('/findings/:id/explain', async ({ user, params, body }) => { const f = findingOr404(params.id); if (body.refresh) write(user); return explainFinding(f, { refresh: !!body.refresh }); });
-r.post('/findings/:id/ticket', async ({ user, params }) => { write(user); const ticketId = await draftTicket(findingOr404(params.id), user); audit(user.id, 'ticket.draft', 'ticket', ticketId); return reply(201, ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', ticketId))); });
+// Drafting also ranks who could take the ticket: the best is kept as a suggestion, or assigned in an automatic mode.
+r.post('/findings/:id/ticket', async ({ user, params }) => {
+  write(user); const ticketId = await draftTicket(findingOr404(params.id), user); audit(user.id, 'ticket.draft', 'ticket', ticketId);
+  await allocateOnDraft(ticketId, user);
+  return reply(201, ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', ticketId)));
+});
 
-const ticketOut = t => ({ id: t.id, findingId: t.finding_id, machineId: t.machine_id, source: t.source, draft: JSON.parse(t.draft_json), status: t.status, createdAt: t.created_at, createdBy: one('SELECT name FROM users WHERE id=?', t.created_by)?.name, decidedAt: t.decided_at });
-r.get('/tickets', () => all('SELECT * FROM ticket_drafts ORDER BY CASE status WHEN \'draft\' THEN 0 ELSE 1 END, created_at DESC LIMIT 100').map(ticketOut));
+const ticketOut = t => ({ id: t.id, findingId: t.finding_id, machineId: t.machine_id, source: t.source, draft: JSON.parse(t.draft_json), status: t.status, createdAt: t.created_at, createdBy: one('SELECT name FROM users WHERE id=?', t.created_by)?.name, decidedAt: t.decided_at, ...assignmentOut(t) });
+// ?assigned=me (my tasks) or none (still to allocate).
+r.get('/tickets', ({ user, query }) => {
+  const f = query.get('assigned'), where = f === 'me' ? 'assigned_user_id=?' : f === 'none' ? "assigned_user_id IS NULL AND assigned_provider_id IS NULL AND status<>'discarded'" : '1';
+  return all(`SELECT * FROM ticket_drafts WHERE ${where} ORDER BY CASE status WHEN 'draft' THEN 0 ELSE 1 END, created_at DESC LIMIT 100`, ...(f === 'me' ? [user.id] : [])).map(ticketOut);
+});
 r.patch('/tickets/:id', ({ user, params, body }) => {
   write(user); const t = one('SELECT * FROM ticket_drafts WHERE id=?', params.id) ?? missing('Ticket draft not found');
   if (t.status !== 'draft') bad('Only a draft can be changed');
@@ -134,6 +145,8 @@ r.patch('/tickets/:id', ({ user, params, body }) => {
   if (body.draft?.priority != null) draft.priority = choice(body.draft.priority, 'priority', ['low', 'medium', 'high', 'critical']);
   const status = body.status == null ? 'draft' : choice(body.status, 'status', ['approved', 'discarded']);
   run('UPDATE ticket_drafts SET draft_json=?,status=?,decided_by=?,decided_at=? WHERE id=?', JSON.stringify(draft), status, status === 'draft' ? null : user.id, status === 'draft' ? null : Date.now(), t.id);
+  // Approval can set the assignee in the same step (body.assignee: { kind, id }, or null to approve unassigned).
+  if (status === 'approved' && body.assignee !== undefined) assign(one('SELECT * FROM ticket_drafts WHERE id=?', t.id), body.assignee, { source: choice(body.assignSource ?? 'manual', 'assignSource', ['manual', 'rules', 'ai']), reason: String(body.assignReason ?? '').slice(0, 500), by: user.id });
   audit(user.id, `ticket.${status}`, 'ticket', t.id);
   return ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', t.id));
 });
@@ -155,6 +168,7 @@ r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process
   machines: all('SELECT * FROM machines ORDER BY tag').map(m => ({ id: m.id, tag: m.tag, name: m.name, deviceId: m.device_id, signals: all('SELECT key,label,unit,warn_low,warn_high,crit_low,crit_high FROM signals WHERE machine_id=? ORDER BY rowid', m.id) })) }; });
 
 registerSetup(r);
+registerPeople(r);
 
 // ---- HTTP plumbing ----
 const STATIC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
