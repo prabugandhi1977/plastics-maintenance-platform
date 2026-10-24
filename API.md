@@ -310,7 +310,9 @@ Counts are idempotent per machine and period start. Without `partNumber`, the pr
 | `GET` | `/factory/condition?plantId=` | Each machine's health (`ok`, `warning`, `critical` or `unknown`), and every monitored parameter's latest value, limits and status |
 | `GET` | `/factory/condition/:id/trend?parameter&hours=24\|168` | Readings for a chart: raw for 24 h, hourly averages for 7 days, with the limits |
 | `GET, PATCH` | `/equipment/:id/limits` | Limits per parameter: `{limits:[{parameter,warnLow,warnHigh,critLow,critHigh,autoTicket}]}`. This replaces all limits; a parameter left without any bound is not monitored. Customer admins, plant managers, platform admins and dispatchers can change them |
-| `GET` | `/factory/energy?from&to&plantId&equipmentId` | kWh, kWh per kg, wasted energy, peak power, CO₂ and cost: totals, a row per machine, and kWh per day |
+| `GET` | `/factory/energy?from&to&plantId&equipmentId` | kWh, kWh per kg, wasted energy, peak power, CO₂ and cost: totals, a row per machine, and kWh per day. `pricing` is `tod` or `flat`; `slots` gives kWh and cost per time-of-day slot when all machines shown are in one plant with a tariff |
+| `GET, PUT, DELETE` | `/plants/:id/energy-tariff` | The plant's time-of-day tariff (`null` when it has none). `PUT` replaces it; `DELETE` returns the plant to the flat price. Customer admins, plant managers and platform admins can change it; the company's own staff and the platform team can read it |
+| `GET` | `/plants/:id/energy-bill?at=` | Maximum demand today and this month, the month's power factor, cost per slot and the projected bill. `at` (optional, ISO timestamp) is the moment to work it out for; default now |
 
 **Parameters and recommended limits** (`GET /catalog` → `conditionParameters`):
 
@@ -340,12 +342,38 @@ A machine's health is its worst parameter. A parameter with no reading in the la
 - **Cost** = kWh × `energyPricePerKwh`, shown when all selected machines share one currency.
 - Both energy settings are edited with `PATCH /companies/:id`.
 
+**Time-of-day tariffs** (`backend/services/factory/tariff.js`, table `energy_tariffs`). One per plant, in the company's currency:
+
+```json
+{ "slots": [
+    { "band": "off_peak", "start": "22:00", "end": "06:00", "rate": 6.2 },
+    { "band": "normal",   "start": "06:00", "end": "18:00", "rate": 7.5 },
+    { "band": "peak",     "start": "18:00", "end": "22:00", "rate": 9.1 } ],
+  "contractDemandKva": 500, "demandChargePerKva": 450, "billingDemandPct": 75,
+  "demandIntervalMinutes": 15, "pfTarget": 0.95, "pfPenaltyPct": 1, "pfIncentivePct": 0.5 }
+```
+
+- **Slots:** `band` is `peak`, `normal` or `off_peak`; times are the plant's local time. An end at or before the start runs past midnight. The slots must cover all 24 hours with no gap and no overlap (at most 12).
+- **Defaults:** `billingDemandPct` 75, `demandIntervalMinutes` 15 (or 30), `pfTarget` 0.95, `pfPenaltyPct` 1, `pfIncentivePct` 0.
+- **Cost** = kWh in each slot × its rate. A reading across a slot boundary is shared by time.
+- **Maximum demand** = the highest average kVA over one demand interval, for all metered machines of the plant together. Intervals start on the clock (e.g. :00, :15). Each reading's kVAh is `kva` × hours if given, else √(kWh² + (`kvar` × hours)²), else kWh ÷ `pf`, else kWh (power factor 1).
+- **Billed demand** = the higher of the month's maximum demand and `billingDemandPct` % of contract demand. Demand charge = billed demand × `demandChargePerKva`.
+- **Power factor** of the month = kWh ÷ kVAh, over readings with `kva`, `kvar` or `pf`. Each full 0.01 below `pfTarget` adds `pfPenaltyPct` % of the energy charges; each full 0.01 above takes off `pfIncentivePct` %.
+- **Projected bill:** energy charges so far, scaled to the whole month at the rate since the month's first reading, plus the demand charge, plus the PF adjustment. Months are calendar months in plant time.
+- **Alerts** (module `energy`), checked every minute:
+  - `energy-demand:<plantId>`: the running demand of the latest interval (projected from its average so far) is at 90 % of contract demand (warning) or 100 % (critical, escalated from the warning). Resolves below 90 %.
+  - `energy-pf:<plantId>`: the month's power factor is below target. Resolves when it is back at or above target.
+- A plant without a tariff uses `energyPricePerKwh`, as before.
+
 **Intake event types**, added to `state` and `count`:
 
 ```json
 { "type": "condition", "deviceId": "plc-imm-04", "at": "2026-10-02T08:15:00Z", "parameter": "hydraulic_oil_temp", "value": 58.4 }
 { "type": "energy", "deviceId": "meter-imm-04", "periodStart": "2026-10-02T08:00:00Z", "periodMinutes": 15, "kwh": 11.2, "peakKw": 52 }
+{ "type": "energy", "deviceId": "meter-imm-04", "periodStart": "2026-10-02T08:15:00Z", "periodMinutes": 15, "kwh": 11.0, "kva": 47.3, "kvar": 15.1, "pf": 0.93 }
 ```
+
+Energy readings can also carry optional averages over the period, used for maximum demand and power factor: `kva` (apparent power, ≥ 0), `kvar` (reactive power) and `pf` (power factor, above 0 and at most 1). Send whichever the meter has; `kva` is used first.
 
 Readings and energy intervals are idempotent per machine and timestamp.
 

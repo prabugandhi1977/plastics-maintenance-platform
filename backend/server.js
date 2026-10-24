@@ -15,7 +15,7 @@ import { iot, runSync, createAdapter } from './services/iot/index.js';
 import { scanPredictive } from './services/ml/insights.js';
 import { scanQuality } from './services/ml/quality.js';
 import { reviewPending } from './services/vision/review.js';
-import { factory, factoryOps, simulateAll, simulatorEnabled, checkMissing } from './services/factory/index.js';
+import { factory, factoryOps, simulateAll, simulatorEnabled, checkMissing, checkEnergyAlerts } from './services/factory/index.js';
 import { traceability } from './services/traceability/index.js';
 import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
@@ -88,6 +88,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   createServer().listen(port,()=>console.log(`MouldCare listening on port ${port}`));
   // Asset tags that stop reporting are flagged as missing whether the data is real or simulated.
   setInterval(async ()=>{ try { await transaction(async ()=>await checkMissing()); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
+  // Energy: running demand near or over contract demand, and the month's power factor below target (plants with a tariff).
+  setInterval(async ()=>{ try { await transaction(async ()=>await checkEnergyAlerts()); } catch(e) { console.error('Energy demand check failed:',e.message); } },60000).unref();
   // Preventive maintenance: plans that fall due open a job; plans 10 % past their interval raise an alert.
   setInterval(async ()=>{ try { await transaction(async ()=>await syncPm()); } catch(e) { console.error('Preventive maintenance check failed:',e.message); } },15*60000).unref();
   // Machine learning: predictive alerts from learned baselines (degrading or unusual signals).

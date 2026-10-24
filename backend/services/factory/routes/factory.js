@@ -13,6 +13,7 @@ import { scoreMachine, mlConfigured } from '../../ml/remote.js';
 import { assessScrap, explainScrap } from '../../ml/quality.js';
 import { explainMachine, aiHttpError } from '../../ml/explain.js';
 import { recordEnergy, energyReport } from '../energy.js';
+import { tariffBody, saveTariff, tariffOf, energyBill } from '../tariff.js';
 import { recordState, recordCount, machineOee, combine, dailyOee, lossList, currentProduct, plantOf, stateAlerts } from '../production.js';
 import { currentShift, shiftsFor } from '../time.js';
 import { simulateAll, simulatorEnabled } from '../simulator.js';
@@ -113,6 +114,14 @@ export function register(r) {
 
   // Energy: kWh, kWh per kg, wasted energy, peak power, CO2 and cost for a period.
   r.get('/factory/energy',async ({u,query})=>{ const {from,to}=range(query); return {from:new Date(from).toISOString(),to:new Date(to).toISOString(),...await energyReport(await machinesFor(u,{plantId:query.get('plantId')||null,equipmentId:query.get('equipmentId')||null}),from,to)}; });
+  // Time-of-day tariff per plant (tariff.js): customer admins and plant managers set it; without one the flat price applies.
+  const plantFor=async (u,key,manage)=>{ const p=await byId('plants',key); if (!p) missing(); if (!canView(u)||!(isDispatch(u)||u.company_id===p.company_id)) deny(); if (manage&&!canManage(u,p.company_id)) deny(); return p; };
+  r.get('/plants/:id/energy-tariff',async ({u,params})=>await tariffOf((await plantFor(u,params.id)).id));
+  r.put('/plants/:id/energy-tariff',async ({u,body,params})=>{ const p=await plantFor(u,params.id,true), t=tariffBody(body); const saved=await saveTariff(p,t,u);
+    await audit(u,'plant.energy_tariff','plant',p.id,p.company_id,{slots:t.slots.length,contractDemandKva:t.contractDemandKva}); return saved; });
+  r.delete('/plants/:id/energy-tariff',async ({u,params})=>{ const p=await plantFor(u,params.id,true); await run('DELETE FROM energy_tariffs WHERE plant_id=?',p.id); await audit(u,'plant.energy_tariff_remove','plant',p.id,p.company_id); return {plantId:p.id,tariff:null}; });
+  // Maximum demand today and this month, the month's power factor and the projected bill.
+  r.get('/plants/:id/energy-bill',async ({u,params,query})=>{ const p=await plantFor(u,params.id); return await energyBill(p,query.get('at')?Date.parse(instant(query.get('at'),'at')):Date.now()); });
 
   r.get('/plants/:id/shifts',async ({u,params})=>{ const p=await byId('plants',params.id); if (!p) missing(); if (!(isDispatch(u)||u.company_id===p.company_id)) deny(); return await shiftsFor(p); });
   // Replace a plant's shifts. An empty list returns the plant to the defaults of its operating pattern.
@@ -182,7 +191,9 @@ export function register(r) {
         return {index,status:await recordCount(e,{periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,totalQty:total,scrapQty:scrap,unit:product.unit,idealRatePerHour:product.ideal_rate_per_hour,productId:product.id},'device')}; }
       if (ev.type==='condition') { const parameter=choice(ev.parameter,'parameter',Object.keys(CONDITION_PARAMETERS)); if (!Number.isFinite(ev.value)) bad('value must be a number'); return {index,status:await recordCondition(e,parameter,ev.value,instant(ev.at,'at'),'device')}; }
       if (ev.type==='energy') { const kwh=ev.kwh, minutes=ev.periodMinutes; if (!Number.isFinite(kwh)||kwh<0) bad('kwh must be a non-negative number'); if (!Number.isFinite(minutes)||minutes<=0||minutes>1440) bad('periodMinutes must be 1-1440'); if (ev.peakKw!=null&&(!Number.isFinite(ev.peakKw)||ev.peakKw<0)) bad('peakKw must be a non-negative number');
-        return {index,status:await recordEnergy(e,{periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,kwh,peakKw:ev.peakKw??null},'device')}; }
+        // Optional averages over the period, used for maximum demand (kVA) and power factor.
+        if (ev.kva!=null&&(!Number.isFinite(ev.kva)||ev.kva<0)) bad('kva must be a non-negative number'); if (ev.kvar!=null&&!Number.isFinite(ev.kvar)) bad('kvar must be a number'); if (ev.pf!=null&&(!Number.isFinite(ev.pf)||ev.pf<=0||ev.pf>1)) bad('pf must be above 0 and at most 1');
+        return {index,status:await recordEnergy(e,{periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,kwh,peakKw:ev.peakKw??null,kva:ev.kva??null,kvar:ev.kvar??null,pf:ev.pf??null},'device')}; }
       if (ev.type==='vision') { const n=(v,k)=>{ if (!Number.isInteger(v)||v<0) bad(`${k} must be a non-negative integer`); return v; }; const inspected=n(ev.inspected,'inspected'), rejected=n(ev.rejected,'rejected'); if (rejected>inspected) bad('rejected cannot exceed inspected'); const minutes=ev.periodMinutes; if (!Number.isFinite(minutes)||minutes<=0||minutes>1440) bad('periodMinutes must be 1-1440');
         const defects=ev.defects??{}; if (typeof defects!=='object'||Array.isArray(defects)) bad('defects must be an object of defect → count'); const allowed=DEFECT_TYPES[e.machine_type]||[]; for (const [k,v] of Object.entries(defects)) { if (!allowed.includes(k)) bad(`defect must be one of: ${allowed.join(', ')}`); n(v,`defects.${k}`); }
         return {index,status:await recordVision(e,{station:required(ev.station??'Camera 1','station',60),periodStart:instant(ev.periodStart,'periodStart'),periodMinutes:minutes,inspected,rejected,defects},'device')}; }

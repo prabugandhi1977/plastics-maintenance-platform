@@ -123,9 +123,11 @@ export const HELP={
       ['Find an asset',['Search the list; <b>Location history</b> shows where it has been.']]]},
 
   // ---------- Energy, safety ----------
-  energy:{what:'Electricity use, energy per kg, wasted energy, peaks, CO₂ and cost.',who:'Customer roles, dispatchers and platform admins.',
-    tasks:[['Analyse energy',['Choose plant, machine and period at the top.','Compare machines in <b>By machine</b>: kWh per kg shows efficiency; wasted is energy used while not producing.']]],
-    tips:['Electricity price and grid emission factor are set per company under <b>Companies, plants & users › Edit</b>.']},
+  energy:{what:'Electricity use, energy per kg, wasted energy, peaks, CO₂ and cost. With a time-of-day tariff also maximum demand, power factor and the projected bill.',who:'Customer roles, dispatchers and platform admins. Customer admins and plant managers set the tariff.',
+    tasks:[['Analyse energy',['Choose plant, machine and period at the top.','Compare machines in <b>By machine</b>: kWh per kg shows efficiency; wasted is energy used while not producing.']],
+      ['Set a time-of-day tariff',['Choose the plant, then click <b>Energy tariff</b> (also on each plant under <b>Companies, plants & users</b>).','Enter the slots from your electricity bill: peak, normal and off-peak, with start, end and rate per kWh. Times are plant time; together the slots cover all 24 hours.','Enter contract demand (kVA), the demand charge per kVA per month, the minimum billed share of contract demand, the demand interval and the power factor rule.']],
+      ['Watch demand and power factor',['The tiles show today\'s and this month\'s maximum demand against contract demand, and the month\'s power factor against target.','<b>Projected bill</b> adds energy by slot, the demand charge and the power factor penalty or incentive.']]],
+    tips:['Electricity price and grid emission factor are set per company under <b>Companies, plants & users › Edit</b>. A plant without a tariff uses that flat price.','An alert warns when the running demand reaches 90 % of contract demand and turns critical at 100 %. It clears by itself when demand drops.','Maximum demand needs kVA, kvar or power factor from the meters. Without them the platform assumes a power factor of 1.']},
   safety:{what:'Detected and reported safety events, their investigation, and leading indicators.',who:'Customer roles, dispatchers and platform admins.',
     tasks:[['Report an event',['Click <b>Report safety event</b>: plant, what happened, area, machine, when and a description.']],
       ['Investigate and close',['<b>Start investigation</b> on an open event.','<b>Close event</b> with the root cause and corrective action.']]]},
