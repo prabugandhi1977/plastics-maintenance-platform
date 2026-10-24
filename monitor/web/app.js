@@ -254,6 +254,9 @@ async function pageSettings(arg, sub) {
   return `${head('settings', 'Settings', 'Machines, signals, people, connections and the models.', `<span class="chip ai">${icon('shield', 'i xs')} Super user access</span>`)}
     <nav class="tabs" aria-label="Settings">${SETTINGS_TABS.map(([k, l, i]) => `<a href="#/settings/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${icon(i, 'bi')}<span>${l}</span></a>`).join('')}</nav>${body}`;
 }
+const mqttHtml = q => !q.enabled ? `${chip('', 'Off')} set MONITOR_MQTT_URL on the server` :
+  `${q.connected ? chip('good', 'Connected') : chip('watch', 'Not connected')} <code>${esc(q.url)}</code> · topic <code>${esc(q.topic)}</code>
+  <br><span class="small muted">Last message ${ago(q.lastMessageAt)} · ${q.accepted.toLocaleString()} accepted · ${q.rejected.toLocaleString()} rejected${q.reconnects ? ` · ${q.reconnects} reconnects` : ''}${q.lastError ? ` · ${esc(q.lastError)}` : ''}</span>`;
 async function connectionsTab() {
   const s = await api('/settings'), mc = s.mouldcare;
   const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
@@ -261,7 +264,9 @@ async function connectionsTab() {
       ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
       ${row('send', 'MouldCare', mc.configured ? `${chip('good', 'On')} <code>${esc(mc.url)}</code> · ${mc.sent} sent${mc.failed ? ` · ${chip('critical', `${mc.failed} not sent`)}` : ''}${mc.lastSentAt ? ` · last ${ago(mc.lastSentAt)}` : ''}${mc.lastError ? `<div class="small muted">Last error: ${esc(mc.lastError)}</div>` : ''}`
         : `${chip('', 'Off')} ${esc(mc.problem)}. Set MONITOR_MOULDCARE_URL and MONITOR_MOULDCARE_KEY on the server.`)}
+      ${row('signal', 'MQTT intake', mqttHtml(s.mqtt))}
       ${row('refresh', 'Simulator', s.simulator ? `${chip('watch', 'On')} demo data` : chip('', 'Off'))}</dl>
+      ${s.mqtt.reasons.length ? `<details><summary class="small">Last rejected MQTT messages</summary><ul class="small">${s.mqtt.reasons.map(x => `<li>${ago(x.at)} · <code>${esc(x.topic)}</code> · ${esc(x.reason)}</li>`).join('')}</ul></details>` : ''}
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
       <p class="small muted">Approved ticket drafts are sent to MouldCare as breakdown tickets, matched to the machine by its tag (the asset tag in MouldCare). The key is a company integration key made in MouldCare; it stays on this server.</p>
       <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\

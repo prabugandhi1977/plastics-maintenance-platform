@@ -69,7 +69,7 @@ Set-up lives under **Settings**, which only the super user sees. The server refu
 - **Machines:** every machine with its photo. Open one to edit it, delete it, add its photo and documents, and set up its signals.
 - **Signals:** pick a machine, then add, edit or delete its signals.
 - **Users** and **Service providers:** see *People and ticket allocation* below.
-- **Connections & models:** the AI, gateway and simulator status, and retraining the pattern models.
+- **Connections & models:** the AI, gateway, MQTT and simulator status, and retraining the pattern models.
 
 **Add a machine** (Settings › Machines):
 
@@ -181,7 +181,7 @@ An approved draft goes to MouldCare as a breakdown ticket, by itself.
 
 ## Connect real machines
 
-Gateways (a PLC, an OPC UA or MQTT bridge, or an edge PC) post readings with the `X-Ingest-Key` header:
+Gateways (a PLC, an OPC UA bridge, or an edge PC) post readings with the `X-Ingest-Key` header:
 
 ```http
 POST /api/ingest
@@ -200,6 +200,45 @@ How the intake handles a request:
 
 Machines, their device IDs and signal limits are set up under **Settings** by the super user.
 
+## Connect over MQTT
+
+Many plants and low-cost IIoT gateways publish to an MQTT broker. Monitor can subscribe to it. The readings go through the same checks as `POST /api/ingest`.
+
+Set these on the server:
+
+- `MONITOR_MQTT_URL`: the broker, as `mqtt://`, `mqtts://`, `ws://` or `wss://`. MQTT stays off while this is empty.
+- `MONITOR_MQTT_USERNAME` and `MONITOR_MQTT_PASSWORD`: if the broker needs them. The password is never logged or shown.
+- `MONITOR_MQTT_TOPIC`: the topic filter. The default is `mouldcare/#`.
+- `MONITOR_MQTT_CLIENT_ID`: optional. With a fixed client ID the broker keeps the session, and holds QoS 1 messages while Monitor restarts.
+
+Monitor understands two payload formats.
+
+**1. JSON on any topic.** One reading, in the same shape as the HTTP intake, or several in `readings`. Without `at`, the time of receipt is used.
+
+```text
+topic:   mouldcare/hall-a/gateway-1
+payload: { "device": "plc-imm-02", "at": "2026-10-19T08:15:00Z", "state": "running",
+           "values": { "hydraulic_oil_temp": 47.2, "pump_vibration": 2.3 } }
+
+payload: { "readings": [ { "device": "plc-imm-01", "values": { "hydraulic_oil_temp": 45.0 } },
+                         { "device": "plc-ch-01", "values": { "supply_temp": 12.4 } } ] }
+```
+
+**2. One value per topic.** The last two topic levels are the device ID and the signal key. The payload is a plain number. A topic ending in `state` takes `running`, `idle`, `down` or `off`. The time of receipt is used.
+
+```text
+mouldcare/plc-imm-02/hydraulic_oil_temp   47.2
+mouldcare/plc-imm-02/pump_vibration       2.3
+mouldcare/plc-imm-02/state                running
+```
+
+How the MQTT intake works:
+
+- **Batches:** messages are collected and stored every second, or as soon as 500 are waiting.
+- **Rejections:** unknown devices, values that are not numbers, and broken JSON are rejected and counted, as on the HTTP intake.
+- **Reconnects:** if the broker goes away, Monitor reconnects on its own. It waits a little longer after each failed try, up to a minute.
+- **Status:** **Settings › Connections & models** shows whether Monitor is connected, the last message, how many readings were accepted and rejected, and the reasons for the last rejections.
+
 ## Tests
 
 ```powershell
@@ -207,7 +246,7 @@ cd monitor
 npm test
 ```
 
-There are 34 tests in seven files:
+There are 38 tests in eight files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
@@ -227,6 +266,7 @@ There are 34 tests in seven files:
   - a failed send recorded with the reason while the approval stands (MouldCare down, a rejected ticket, a wrong key, no answer within the timeout), then sent by the retry job, and the automatic retry limit
   - an unset connection recorded as `not_configured`, then sent once it is set up
   - the key never in an API reply or the database
+- `mqtt.test.js`: a real MQTT broker inside the test. It publishes both payload formats and checks that readings and states are stored through the normal intake. It also covers rejected messages and their reasons, batching, the status in Settings without the password, and a reconnect after the broker drops the connection.
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 
 ## Deploy
@@ -248,6 +288,6 @@ There are 34 tests in seven files:
 
 ## Next steps
 
-- **Protocol bridges:** OPC UA and MQTT bridges that post to `/api/ingest`.
+- **Protocol bridges:** an OPC UA bridge that posts to `/api/ingest`. MQTT is built in.
 - **Scale:** several plants and companies (tenancy), and PostgreSQL for more than one instance.
 - **Languages:** German and other languages for the dashboard.

@@ -102,6 +102,17 @@ services:
         sync: false
       - key: MONITOR_MOULDCARE_KEY
         sync: false
+      # MQTT intake. Leave MONITOR_MQTT_URL empty to keep it off. The topic defaults to mouldcare/#.
+      - key: MONITOR_MQTT_URL
+        sync: false
+      - key: MONITOR_MQTT_USERNAME
+        sync: false
+      - key: MONITOR_MQTT_PASSWORD
+        sync: false
+      - key: MONITOR_MQTT_TOPIC
+        sync: false
+      - key: MONITOR_MQTT_CLIENT_ID
+        sync: false
 
 databases:
   - name: platform-db
