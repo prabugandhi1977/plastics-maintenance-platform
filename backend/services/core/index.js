@@ -10,3 +10,4 @@ export * as settings from './routes/settings.js';
 export * as bulk from './routes/bulk.js';
 export * as pm from './routes/pm.js';
 export * as evidence from './routes/evidence.js';
+export * as intake from './routes/intake.js';

@@ -24,6 +24,12 @@ Security notes for the clients:
 
 A separate application for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in, and its own Render service (`mouldcare-monitor` in `render.yaml`). See [monitor/README.md](monitor/README.md).
 
+**Tickets from Monitor.** When someone approves a ticket draft in Monitor, it is sent here as a breakdown ticket. It shows as *Sent by MouldCare Monitor*, on the machine with the same asset tag.
+- Make a company integration key in MouldCare: `npm run integration:key -- "Acme Plastics" "MouldCare Monitor"`, or `POST /api/integration-keys`. The key is shown once and reaches only that company's machines.
+- In Monitor, set `MONITOR_MOULDCARE_URL` (this server's address) and `MONITOR_MOULDCARE_KEY` (the key).
+- Sending the same draft again finds the ticket already raised. If MouldCare is down, Monitor keeps the approval, shows the error on the draft and tries again every 5 minutes.
+- Details: *Tickets from other systems* in [API.md](API.md).
+
 ## Run the local demo
 
 You need PostgreSQL 14+ running locally (or start one with `docker compose up -d db`). From this directory in PowerShell:
@@ -316,6 +322,13 @@ Each test file uses its own temporary PostgreSQL schema (created on start, dropp
 - the Cloud API request (URL, headers, template body) with a stubbed `fetch`; sent, failed, and not configured
 - channel status for admins without revealing the token
 
+**`external-tickets.test.js`**
+- company integration keys: shown once, stored as a hash, and managed only by that company's admins or the platform admin
+- missing, wrong, switched-off and replaced keys refused; the server-wide machine-data key cannot raise tickets
+- a ticket raised from a Monitor draft (`raised_via = monitor`, suggested actions, the Monitor assignee noted, audited), and a resend returning the same ticket
+- an unknown asset tag, and another company's machines out of reach
+- every field validated like a ticket raised in the app; safety issues forced to critical; decommissioned machines refused
+
 **`masterdata.test.js`**
 - the catalogue and every mandatory parameter set, including machine-type parameters, value ranges and duplicate asset tags
 - ISO 14224 breakdown reporting and close-out; safety issues forced to critical; automatic downtime
@@ -359,14 +372,14 @@ backend/common/                 Shared by every service:
   validate.js, files.js           input validation, time zones; private file storage with file-type checks
   catalog.js, scan.js             master-data catalogue (ISO 14224 code lists); QR/scan verification
 backend/services/               One folder per feature area; each index.js exports its route modules
-  core/                           auth, org, equipment, contracts, tickets, parts, dashboard, settings
+  core/                           auth, org, equipment, contracts, tickets, parts, dashboard, settings, ticket intake for other systems
   iot/                            standard record format, ingest/freshness, sync runner, adapters (mock)
   factory/                        shifts, OEE, alerts and email, condition, energy, quality, safety, asset tracking, simulator
   traceability/                   lots, batches, genealogy, FIFO, release blockers, deviations
   vision/                         edge nodes, cameras, detections, inspection media
   assistant/                      AI breakdown assistant and equipment guides
 backend/migrations/             Versioned SQL migrations, one numbered series for all services
-backend/scripts/                seed, demo data, first-admin bootstrap, IoT sync
+backend/scripts/                seed, demo data, first-admin bootstrap, IoT sync, company integration keys
 backend/tests/                  API workflow, IoT and platform tests
 frontend/                       Desktop web workspace (served as the site root)
 frontend/mobile/                Installable field app with offline queue and signature capture

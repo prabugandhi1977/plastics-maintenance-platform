@@ -7,6 +7,7 @@ import { ROOT, one, all, run, audit } from './db.js';
 import { HttpError, createRouter, bodyOf, rawOf, json, Reply, reply, bad, deny, missing, text, choice, optNumber } from './http.js';
 import { authenticate, tokenFor, verifyPassword, checkLockout, recordFailure, clearFailures, ingestKeyOk, can } from './auth.js';
 import { ingest } from './ingest.js';
+import { mqttConfig, mqttStatus, startMqtt, stopMqtt } from './mqtt.js';
 import { MACHINE_TYPES } from './catalog.js';
 import { analysisOf, analyzeAll, analyzeMachine, forgetAnalysis } from './ml/analyze.js';
 import { median } from './ml/stats.js';
@@ -14,6 +15,7 @@ import { simulate, simulatorEnabled, FAULTS } from './simulator.js';
 import { seedDemo, bootstrapAdmin } from './seed.js';
 import { registerSetup } from './setup.js';
 import { registerPeople, allocateOnDraft, assignmentOut, assign } from './people.js';
+import { sendDraft, retryPending, mouldcareOut, mouldcareStatus } from './mouldcare.js';
 import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle } from './ai/claude.js';
 
 const r = createRouter();
@@ -131,13 +133,13 @@ r.post('/findings/:id/ticket', async ({ user, params }) => {
   return reply(201, ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', ticketId)));
 });
 
-const ticketOut = t => ({ id: t.id, findingId: t.finding_id, machineId: t.machine_id, source: t.source, draft: JSON.parse(t.draft_json), status: t.status, createdAt: t.created_at, createdBy: one('SELECT name FROM users WHERE id=?', t.created_by)?.name, decidedAt: t.decided_at, ...assignmentOut(t) });
+const ticketOut = t => ({ id: t.id, findingId: t.finding_id, machineId: t.machine_id, source: t.source, draft: JSON.parse(t.draft_json), status: t.status, createdAt: t.created_at, createdBy: one('SELECT name FROM users WHERE id=?', t.created_by)?.name, decidedAt: t.decided_at, ...assignmentOut(t), ...mouldcareOut(t) });
 // ?assigned=me (my tasks) or none (still to allocate).
 r.get('/tickets', ({ user, query }) => {
   const f = query.get('assigned'), where = f === 'me' ? 'assigned_user_id=?' : f === 'none' ? "assigned_user_id IS NULL AND assigned_provider_id IS NULL AND status<>'discarded'" : '1';
   return all(`SELECT * FROM ticket_drafts WHERE ${where} ORDER BY CASE status WHEN 'draft' THEN 0 ELSE 1 END, created_at DESC LIMIT 100`, ...(f === 'me' ? [user.id] : [])).map(ticketOut);
 });
-r.patch('/tickets/:id', ({ user, params, body }) => {
+r.patch('/tickets/:id', async ({ user, params, body }) => {
   write(user); const t = one('SELECT * FROM ticket_drafts WHERE id=?', params.id) ?? missing('Ticket draft not found');
   if (t.status !== 'draft') bad('Only a draft can be changed');
   const draft = JSON.parse(t.draft_json);
@@ -148,6 +150,15 @@ r.patch('/tickets/:id', ({ user, params, body }) => {
   // Approval can set the assignee in the same step (body.assignee: { kind, id }, or null to approve unassigned).
   if (status === 'approved' && body.assignee !== undefined) assign(one('SELECT * FROM ticket_drafts WHERE id=?', t.id), body.assignee, { source: choice(body.assignSource ?? 'manual', 'assignSource', ['manual', 'rules', 'ai']), reason: String(body.assignReason ?? '').slice(0, 500), by: user.id });
   audit(user.id, `ticket.${status}`, 'ticket', t.id);
+  // An approved draft goes to MouldCare at once. The approval stands whatever happens there; the outcome is on the draft.
+  if (status === 'approved') await sendDraft(t.id, { by: user.id });
+  return ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', t.id));
+});
+// Send to MouldCare, or Retry after a failed send. Sending again is safe: MouldCare finds the ticket by the draft id.
+r.post('/tickets/:id/mouldcare', async ({ user, params }) => {
+  write(user); const t = one('SELECT * FROM ticket_drafts WHERE id=?', params.id) ?? missing('Ticket draft not found');
+  if (t.status !== 'approved') bad('Only an approved ticket can be sent to MouldCare');
+  await sendDraft(t.id, { by: user.id });
   return ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', t.id));
 });
 
@@ -164,7 +175,7 @@ r.post('/chat', async ({ user, body }) => {
 r.delete('/chat', ({ user }) => { newConversation(user.id); return chatView(user.id); });
 
 r.post('/models/retrain', ({ user }) => { admin(user); run('DELETE FROM models'); const res = analyzeAll(); audit(user.id, 'models.retrain', 'models', null); return res.map(a => ({ machineId: a.machineId, model: a.model })); });
-r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
+r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, mouldcare: mouldcareStatus(), mqtt: mqttStatus(), ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
   machines: all('SELECT * FROM machines ORDER BY tag').map(m => ({ id: m.id, tag: m.tag, name: m.name, deviceId: m.device_id, signals: all('SELECT key,label,unit,warn_low,warn_high,crit_low,crit_high FROM signals WHERE machine_id=? ORDER BY rowid', m.id) })) }; });
 
 registerSetup(r);
@@ -220,5 +231,15 @@ if (process.argv[1]?.endsWith('index.js')) {
   setInterval(job('Analysis', analyzeAll), 5 * 60000).unref();
   const keepDays = Number(process.env.MONITOR_RETENTION_DAYS || 30);
   setInterval(job('Retention', () => run('DELETE FROM readings WHERE ts<?', Date.now() - keepDays * DAY)), 6 * HOUR).unref();
-  createServer().listen(port, () => console.log(`MouldCare Monitor listening on port ${port}`));
+  // Failed hand-offs to MouldCare (and drafts approved before it was set up) are sent again every 5 minutes.
+  setInterval(() => retryPending().then(x => { if (x.tried) console.log(`MouldCare hand-off: ${x.sent} of ${x.tried} sent`); }).catch(e => console.error('MouldCare hand-off failed:', e.message)), 5 * 60000).unref();
+  const server = createServer().listen(port, () => console.log(`MouldCare Monitor listening on port ${port}`));
+  const mqttCfg = mqttConfig();
+  if (mqttCfg) {
+    let lastError = null;
+    startMqtt(mqttCfg).on('connect', () => { lastError = null; console.log(`MQTT: subscribed to ${mqttCfg.topic} on ${mqttStatus().url}`); })
+      .on('error', e => { if (e.message !== lastError) console.error(`MQTT: ${(lastError = e.message)}`); });
+    const shutdown = async () => { server.close(); try { await stopMqtt(); } finally { process.exit(0); } };
+    process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
+  }
 }
