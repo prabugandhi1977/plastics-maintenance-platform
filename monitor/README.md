@@ -32,7 +32,22 @@ With `ANTHROPIC_API_KEY` set, the app uses Claude (`claude-opus-5-5` by default)
 - **Explain:** likely causes ranked by evidence, what to check first, safety notes and how urgent it is. The answer is a structured JSON response grounded in the machine's data and the plant's knowledge base (`server/catalog.js`).
 - **Draft ticket:** a maintenance ticket draft with title, symptoms, failure category, priority, actions and parts. A person approves or discards it, then copies it into MouldCare.
 - **Reports:** a shift report (last 8 hours) or a weekly report, in Markdown.
-- **Ask AI:** a chat that looks data up with tools (`list_machines`, `machine_status`, `signal_history`, `list_findings`) before answering, and shows what it looked at.
+- **Ask AI:** a chat that looks data up with tools (`list_machines`, `machine_status`, `signal_history`, `list_findings`, `search_manuals`) before answering, and shows what it looked at.
+
+### AI that reads your manuals
+
+The AI reads the documents the super user uploads for each machine and signal: manuals, data sheets and calibration certificates.
+
+- **Reading the text:** after each upload, the server reads the text in the background (`server/manuals.js`). PDFs are read page by page with `unpdf`. Word (.docx) and Excel (.xlsx) files are unzipped with `fflate` and their XML read. Text and CSV files are read as they are. The upload never waits for this and never fails because of it.
+- **State beside each document:** *Text read* (with the number of passages), *Reading text…*, *No text to read*, or *Text not read* with the reason.
+- **No OCR:** images and scanned PDFs without a text layer have no text to read. They show *No text to read* and say why.
+- **The index:** the text is split into passages of about 200 to 300 words, each with its page, and kept in a SQLite FTS5 table (migration `005_document_index.sql`). Deleting a file, its signal or its machine removes its passages too. Documents uploaded before this feature are read once at start-up.
+- **Finding the right passages:** a search for one machine ranks passages by BM25. For a finding, the query is built from the signal's name, which way it moved, the kind of finding and the machine type. The machine's own documents and its signals' documents come first, with the finding's own signal counted a little higher. Documents of other machines of the same type fill any places left, marked with their tag.
+- **Explain and Draft ticket:** the top passages go into the prompt. The answer lists the passages it used, and the app shows them as sources (document and page) under the explanation and on the ticket draft. Each source downloads the document.
+- **Chat:** the tool `search_manuals(machine_tag, query)` returns passages with their document and page.
+- **Ask the manuals:** each machine's page has a small box that answers a question from that machine's documents only, with the pages it used. Everyone signed in can use it. Without an API key it shows the matching passages instead.
+- **Manual text is data:** passages are quoted as reference data, never as instructions. The system prompt says so, and a passage cannot close its own quote. The answer cites passages by number, so it can only cite passages it was given.
+- **Without a key:** the standard explanation stays as it was, with no sources.
 
 Requests use the API's server-side fallback (`fallbacks: "default"`). If a safety classifier declines a request, the API re-runs it on its recommended fallback model.
 
@@ -97,7 +112,7 @@ Set-up lives under **Settings**, which only the super user sees. The server refu
 
 - **What can be attached:** one photo and any number of documents, for each machine and for each signal (sensor data sheets, calibration certificates).
 - **Photos:** JPEG, PNG or WebP, up to 5 MB. A new photo replaces the old one.
-- **Documents:** PDF, Word (.docx), Excel (.xlsx), text, CSV or images, up to 15 MB.
+- **Documents:** PDF, Word (.docx), Excel (.xlsx), text, CSV or images, up to 15 MB. The AI reads their text (see *AI that reads your manuals*).
 - **Checks:** the file type is read from the file's content, not its name. Files are served so they can never run script in the browser.
 - **Storage:** files are kept in the database, so a backup of `monitor.sqlite` holds them too.
 
@@ -246,7 +261,7 @@ cd monitor
 npm test
 ```
 
-There are 38 tests in eight files:
+There are 45 tests in nine files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
@@ -268,6 +283,13 @@ There are 38 tests in eight files:
   - the key never in an API reply or the database
 - `mqtt.test.js`: a real MQTT broker inside the test. It publishes both payload formats and checks that readings and states are stored through the normal intake. It also covers rejected messages and their reasons, batching, the status in Settings without the password, and a reconnect after the broker drops the connection.
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
+- `manuals.test.js`: the AI reading the documents, with a stand-in client, covering:
+  - text from a PDF made in the test (page by page), Word, Excel, text and CSV, and passages of a few hundred words
+  - indexing after the upload, and removal with the file, its signal or its machine
+  - *No text to read* for an image and a scanned PDF, a damaged PDF failing with a reason, and start-up indexing
+  - BM25 ranking for a finding
+  - passages quoted as data in the explanation and ticket prompts, and the cited sources in the output
+  - the chat's `search_manuals` tool, and *Ask the manuals* with and without the AI
 
 ## Deploy
 

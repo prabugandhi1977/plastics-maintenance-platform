@@ -27,8 +27,13 @@ async function download(id, name) {
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 const photo = (id, alt, cls = 'photo') => id ? `<img class="${cls}" data-file="${esc(id)}" alt="${esc(alt)}">` : `<div class="${cls} photo-none" aria-hidden="true">${icon('image')}<span>No photo</span></div>`;
-const docList = (docs, empty = 'No documents yet.') => docs.length ? `<ul class="docs">${docs.map(d => `<li>${icon('file', 'i doc-i')}<a href="#" data-act="file-get" data-id="${esc(d.id)}" data-name="${esc(d.filename)}">${esc(d.title || d.filename)}</a> <span class="small muted">${esc(d.title ? d.filename + ' · ' : '')}${size(d.size)} · ${new Date(d.uploadedAt).toLocaleDateString()}${d.uploadedBy ? ' · ' + esc(d.uploadedBy) : ''}</span>
+// Whether the AI can read a document: its text was read, it has none (an image or a scan), or reading failed.
+const TEXT_STATE = { indexed: ['good', t => `Text read · ${t.passages} passage${t.passages === 1 ? '' : 's'}`], pending: ['', () => 'Reading text…'], no_text: ['watch', () => 'No text to read'], failed: ['critical', () => 'Text not read'] };
+const textState = t => { if (!t) return ''; const [cls, label] = TEXT_STATE[t.status] ?? TEXT_STATE.pending; return `<span class="chip ${cls}" title="${esc(t.reason)}">${esc(label(t))}</span>${t.reason ? `<span class="small muted reason">${esc(t.reason)}</span>` : ''}`; };
+const docList = (docs, empty = 'No documents yet.') => docs.length ? `<ul class="docs">${docs.map(d => `<li>${icon('file', 'i doc-i')}<a href="#" data-act="file-get" data-id="${esc(d.id)}" data-name="${esc(d.filename)}">${esc(d.title || d.filename)}</a> <span class="small muted">${esc(d.title ? d.filename + ' · ' : '')}${size(d.size)} · ${new Date(d.uploadedAt).toLocaleDateString()}${d.uploadedBy ? ' · ' + esc(d.uploadedBy) : ''}</span>${textState(d.text)}
   <span class="row">${btn('file-get', 'Download', 'download', { data: { id: d.id, name: d.filename } })}${isAdmin() ? btn('file-del', 'Remove', 'trash', { cls: 'sm danger', data: { id: d.id, name: d.filename } }) : ''}</span></li>`).join('')}</ul>` : `<p class="small muted">${empty}</p>`;
+// Cited documents with their page, each a link that downloads the file. Used under explanations, ticket drafts and answers.
+export const sourcesHtml = (list, label = 'Sources') => list?.length ? `<div class="sources small">${label ? `<b>${esc(label)}</b>` : ''}<ul>${list.map(s => `<li>${icon('file', 'i xs')} <a href="#" data-act="file-get" data-id="${esc(s.fileId)}" data-name="${esc(s.filename)}">${esc(s.document)}</a>${s.page ? `, page ${s.page}` : ''}${s.machineTag ? ` <span class="muted">(from ${esc(s.machineTag)})</span>` : ''}</li>`).join('')}</ul></div>` : '';
 const factsOf = m => [['Type', m.typeLabel], ['Make / model', `${m.make} ${m.model}`.trim() || '—'], ['Serial number', m.serialNumber || '—'], ['Year built', num(m.yearBuilt)], ['Line / location', m.line || '—'],
   ['Device ID', `<code>${esc(m.deviceId)}</code>`, true], ...m.specList.map(p => [p.label, `${typeof p.value === 'number' ? p.value.toLocaleString() : p.value}${p.unit ? ' ' + p.unit : ''}`])];
 const detailsBody = (m, edit) => `<div class="details"><figure>${photo(m.photoId, `${m.tag} ${m.name}`)}${edit ? btn('upload', m.photoId ? 'Replace photo' : 'Add photo', 'image', { data: { kind: 'photo', id: m.id } }) : ''}</figure>
@@ -38,7 +43,33 @@ const detailsBody = (m, edit) => `<div class="details"><figure>${photo(m.photoId
 // ---- Machine page: read-only details for everyone ----
 export async function machineInfo(mid) {
   const m = await ctx.api(`/machines/${mid}/setup`);
-  return `<section class="card"><div class="row">${heading('machine', 'Machine details')}${isAdmin() ? `<a class="btn sm" href="#/settings/machine/${esc(m.id)}">${icon('settings', 'bi')}<span>Set up</span></a>` : ''}</div>${detailsBody(m, false)}</section>`;
+  return `<section class="card"><div class="row">${heading('machine', 'Machine details')}${isAdmin() ? `<a class="btn sm" href="#/settings/machine/${esc(m.id)}">${icon('settings', 'bi')}<span>Set up</span></a>` : ''}</div>${detailsBody(m, false)}</section>${askBox(m)}`;
+}
+
+// ---- Ask the manuals: answers from this machine's documents (and its signals'), with the pages they came from ----
+const asked = new Map(); // machine id → { question, busy, result, error }, kept across the page's refreshes
+const marked = s => esc(s).replace(/\u0002/g, '<mark>').replace(/\u0003/g, '</mark>');
+function askBox(m) {
+  const docs = [...m.documents, ...m.signals.flatMap(s => s.documents)], ready = docs.filter(d => d.text?.status === 'indexed').length, a = asked.get(m.id) ?? {}, ai = ctx.state.config?.ai;
+  const form = `<form class="ask" data-ask="${esc(m.id)}"><label class="sr-only" for="ask-${esc(m.id)}">Question</label><input type="text" id="ask-${esc(m.id)}" name="q" maxlength="500" required placeholder="e.g. How often is the hydraulic oil filter changed?" value="${esc(a.question ?? '')}" ${a.busy ? 'disabled' : ''}>
+    <button class="btn primary" ${a.busy ? 'disabled' : ''}>${icon(ai ? 'sparkles' : 'search', 'bi')}<span>${ai ? 'Ask' : 'Search'}</span></button></form>`;
+  const r = a.result, out = a.busy ? `<p class="small muted">${ai ? 'Reading the manuals…' : 'Searching…'}</p>` : a.error ? `<div class="error">${esc(a.error)}</div>` : !r ? ''
+    : r.source === 'ai' ? `<div class="explain"><div class="row"><b class="grow small">Answer</b><span class="chip ai">AI</span></div><p style="margin:0">${esc(r.answer)}</p>${sourcesHtml(r.sources)}</div>`
+    : !r.passages.length ? '<p class="small muted">No passage matches. Try other words.</p>'
+    : `<div class="explain">${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}<b class="small">Matching passages</b><ul class="passages">${r.passages.map(p => `<li><div class="small">${icon('file', 'i xs')} <a href="#" data-act="file-get" data-id="${esc(p.fileId)}" data-name="${esc(p.filename)}">${esc(p.document)}</a>${p.page ? `, page ${p.page}` : ''}</div><div class="small">${marked(p.snippet)}</div></li>`).join('')}</ul></div>`;
+  return `<section class="card"><div class="row">${heading('book', 'Ask the manuals', 2, 'ai')}<span class="small muted">${ready} of ${docs.length} document${docs.length === 1 ? '' : 's'} readable</span></div>
+    ${ready ? `<p class="small muted">${ai ? 'Answers come only from the documents uploaded for this machine and its signals, with the page they came from.' : 'The AI is off, so you see the matching passages instead of an answer.'}</p>${form}${out}`
+      : `<p class="small muted">${docs.length ? 'None of its documents has text that can be read.' : 'No manuals or data sheets yet.'} ${isAdmin() ? 'Add them under Set up.' : 'The super user adds them.'}</p>`}</section>`;
+}
+export function bindSetup() {
+  document.querySelectorAll('form[data-ask]').forEach(f => f.addEventListener('submit', async e => {
+    e.preventDefault(); const mid = f.dataset.ask, question = f.q.value.trim(); if (!question) return;
+    asked.set(mid, { question, busy: true }); ctx.state.busy.add('ask'); await ctx.render();
+    try { asked.set(mid, { question, result: await ctx.api(`/machines/${mid}/ask`, 'POST', { question }) }); }
+    catch (x) { asked.set(mid, { question, error: x.message }); }
+    finally { ctx.state.busy.delete('ask'); }
+    ctx.render();
+  }));
 }
 
 // ---- Settings › Machines ----

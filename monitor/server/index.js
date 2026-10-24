@@ -16,7 +16,8 @@ import { seedDemo, bootstrapAdmin } from './seed.js';
 import { registerSetup } from './setup.js';
 import { registerPeople, allocateOnDraft, assignmentOut, assign } from './people.js';
 import { sendDraft, retryPending, mouldcareOut, mouldcareStatus } from './mouldcare.js';
-import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle } from './ai/claude.js';
+import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle, askManuals } from './ai/claude.js';
+import { indexPending } from './manuals.js';
 
 const r = createRouter();
 // Demo accounts come with demo data unless MONITOR_DEMO_ACCOUNTS=false (a public site with simulated machines).
@@ -83,6 +84,9 @@ r.get('/machines/:id', ({ params }) => {
   const findings = all(`SELECT * FROM findings WHERE machine_id=? AND (${ACTIVE} OR last_seen>?) ORDER BY CASE WHEN ${ACTIVE} THEN 0 ELSE 1 END, last_seen DESC LIMIT 30`, m.id, now - 14 * DAY).map(f => findingOut(f, a.signals));
   return { machine: { ...m, typeLabel: MACHINE_TYPES[m.type] }, analysis: a, findings };
 });
+
+// Ask the manuals: an answer from this machine's documents with the passages it used, for everyone signed in.
+r.post('/machines/:id/ask', async ({ params, body }) => askManuals(machineOr404(params.id), text(body.question, 'question', 500)));
 
 r.get('/machines/:id/series', ({ params, query }) => {
   const m = machineOr404(params.id), sig = one('SELECT * FROM signals WHERE machine_id=? AND key=?', m.id, query.get('signal') ?? '') ?? missing('Signal not found');
@@ -228,6 +232,7 @@ if (process.argv[1]?.endsWith('index.js')) {
   const job = (name, fn) => () => { try { fn(); } catch (e) { console.error(`${name} failed:`, e.message); } };
   if (simulatorEnabled()) { job('Simulator', () => console.log(`Simulator: ${simulate()} readings`))(); setInterval(job('Simulator', simulate), 60000).unref(); }
   job('Analysis', analyzeAll)();
+  job('Document text', () => { const n = indexPending(); if (n) console.log(`Reading the text of ${n} document${n === 1 ? '' : 's'}`); })();
   setInterval(job('Analysis', analyzeAll), 5 * 60000).unref();
   const keepDays = Number(process.env.MONITOR_RETENTION_DAYS || 30);
   setInterval(job('Retention', () => run('DELETE FROM readings WHERE ts<?', Date.now() - keepDays * DAY)), 6 * HOUR).unref();

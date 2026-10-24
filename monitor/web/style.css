@@ -207,3 +207,8 @@ td code { white-space: nowrap; }
 .assign-l { min-width: 82px; } .assign-row { flex: 1; min-width: 200px; } .assign-row.suggest { color: var(--ink); }
 tr.inactive td { opacity: .6; }
 .acts { gap: 6px; } td .acts { min-width: 280px; }
+/* documents the AI can read, cited sources and Ask the manuals */
+.docs .reason { flex-basis: 100%; padding-left: 26px; }
+.sources ul, .passages { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.passages li { display: grid; gap: 2px; } mark { background: var(--watch-wash); color: inherit; border-radius: 3px; padding: 0 2px; }
+.ask { display: flex; gap: 8px; margin: 8px 0; } .ask input { flex: 1; min-width: 0; }
