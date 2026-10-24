@@ -97,6 +97,11 @@ services:
       # AI explanations, ticket drafts, reports and chat. Leave empty to use the built-in explanations only.
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Hand-off to MouldCare: its address and a company integration key made there (npm run integration:key).
+      - key: MONITOR_MOULDCARE_URL
+        sync: false
+      - key: MONITOR_MOULDCARE_KEY
+        sync: false
 
 databases:
   - name: platform-db

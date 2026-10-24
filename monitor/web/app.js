@@ -1,7 +1,7 @@
 // MouldCare Monitor dashboard: plain modules, no build step. Routes live in the URL hash (#/machine/<id>), the
 // sign-in token in session storage, and every page refreshes itself every 30 seconds while open.
 import { signalChart, sparkline } from '/charts.js';
-import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
+import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, btn, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 import { icon, tile, heading } from '/icons.js';
 import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
@@ -181,16 +181,26 @@ async function pageTickets() {
   const filter = new URLSearchParams(location.hash.split('?')[1] || '').get('assigned') || 'all';
   const list = await api(`/tickets${filter === 'all' ? '' : `?assigned=${filter}`}`);
   const tabs = [['all', 'All'], ['me', 'My tasks'], ['none', 'Unassigned']];
-  return `${head('tickets', 'Ticket drafts', 'Drafted from findings, each with a suggested assignee. Approve a draft and hand it over in one step, then copy it into MouldCare as a breakdown ticket.',
+  return `${head('tickets', 'Ticket drafts', 'Drafted from findings, each with a suggested assignee. Approve a draft and hand it over in one step. Approved tickets go to MouldCare as breakdown tickets.',
     `<div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="tickets-filter" data-filter="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
     ${list.length ? `<div class="grid">${list.map(t => { const d = t.draft; return `<article class="card grid">
       <div class="row">${heading('tickets', esc(d.title), 2, d.priority === 'critical' || d.priority === 'high' ? 'risk' : 'watch')}${t.source === 'ai' ? chip('ai', 'AI draft') : chip('', 'Standard draft')}${chip(t.status, t.status)}${chip(d.priority === 'critical' || d.priority === 'high' ? 'critical' : 'warning', PRIORITY[d.priority] + ' priority')}</div>
       <dl class="facts"><dt>Machine</dt><dd><a href="#/machine/${t.machineId}">${esc(d.machineTag)}</a> ${esc(d.machineName)}</dd><dt>Category</dt><dd>${esc(d.failureCategory)}</dd><dt>Machine state</dt><dd>${esc(String(d.machineState).replace('_', ' '))}</dd><dt>Symptoms</dt><dd>${esc(d.symptoms)}</dd>
       <dt>Actions</dt><dd><ol style="margin:0;padding-left:18px">${d.suggestedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></dd>${d.partsToCheck?.length ? `<dt>Parts to check</dt><dd>${d.partsToCheck.map(esc).join(', ')}</dd>` : ''}
       <dt>Drafted</dt><dd>${time(t.createdAt)} by ${esc(t.createdBy)}</dd></dl>
-      ${assignmentHtml(t, canWrite())}
+      ${assignmentHtml(t, canWrite())}${mouldcareHtml(t)}
       <div class="row"><button class="btn sm" data-act="copy" data-id="${t.id}" type="button">${ib('copy', 'Copy text')}</button>${canWrite() && t.status === 'draft' ? `<button class="btn sm primary" data-act="approve" data-id="${t.id}" type="button">${ib('check', 'Approve…')}</button><button class="btn sm danger" data-act="ticket-status" data-status="discarded" data-id="${t.id}" type="button">${ib('trash', 'Discard')}</button>` : ''}</div>
       <textarea class="sr-only" id="copy-${t.id}" readonly>${esc(ticketText(t))}</textarea></article>`; }).join('')}</div>` : `<div class="card empty">${filter === 'me' ? 'Nothing assigned to you.' : filter === 'none' ? 'Every ticket has an assignee.' : 'No drafts yet. Open a finding and choose “Draft ticket”.'}</div>`}`;
+}
+// Where the approved ticket stands in MouldCare: its reference once sent; the reason and a Retry button if not.
+function mouldcareHtml(t) {
+  if (t.status !== 'approved') return '';
+  const m = t.mouldcare, send = label => canWrite() ? btn('mouldcare-send', label, label === 'Retry' ? 'refresh' : 'send', { data: { id: t.id } }) : '';
+  const line = m?.status === 'sent' ? `${chip('good', 'In MouldCare')} Ticket <code title="${esc(m.ticketId)}">${esc(String(m.ticketId).slice(0, 8).toUpperCase())}</code> <span class="small muted">sent ${time(m.sentAt)}</span>`
+    : m?.status === 'failed' ? `${chip('critical', 'Not sent')} <span class="small">${esc(m.error)}</span><div class="small muted">Tried ${m.attempts} time${m.attempts === 1 ? '' : 's'}, last ${ago(m.attemptedAt)}. ${m.autoRetry ? 'It is tried again every few minutes.' : 'Automatic retries have stopped; use Retry.'}</div>`
+    : m?.status === 'not_configured' ? `${chip('', 'Not set up')} <span class="small muted">The MouldCare connection is not set up on this server.</span>`
+    : '<span class="small muted">Not sent yet.</span>';
+  return `<div class="assign"><span class="small muted assign-l">MouldCare</span><div class="assign-row">${line}</div>${m?.status === 'sent' ? '' : send(m?.status === 'failed' ? 'Retry' : 'Send to MouldCare')}</div>`;
 }
 const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}`; };
 
@@ -245,12 +255,15 @@ async function pageSettings(arg, sub) {
     <nav class="tabs" aria-label="Settings">${SETTINGS_TABS.map(([k, l, i]) => `<a href="#/settings/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${icon(i, 'bi')}<span>${l}</span></a>`).join('')}</nav>${body}`;
 }
 async function connectionsTab() {
-  const s = await api('/settings');
+  const s = await api('/settings'), mc = s.mouldcare;
   const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
   return `<section class="card"><div class="row">${heading('plug', 'Connections')}</div><dl class="facts">${row('sparkles', 'AI assistant', s.ai ? `${chip('good', 'On')} ${esc(s.aiModel)}` : `${chip('', 'Off')} set ANTHROPIC_API_KEY on the server`)}
       ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
+      ${row('send', 'MouldCare', mc.configured ? `${chip('good', 'On')} <code>${esc(mc.url)}</code> · ${mc.sent} sent${mc.failed ? ` · ${chip('critical', `${mc.failed} not sent`)}` : ''}${mc.lastSentAt ? ` · last ${ago(mc.lastSentAt)}` : ''}${mc.lastError ? `<div class="small muted">Last error: ${esc(mc.lastError)}</div>` : ''}`
+        : `${chip('', 'Off')} ${esc(mc.problem)}. Set MONITOR_MOULDCARE_URL and MONITOR_MOULDCARE_KEY on the server.`)}
       ${row('refresh', 'Simulator', s.simulator ? `${chip('watch', 'On')} demo data` : chip('', 'Off'))}</dl>
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
+      <p class="small muted">Approved ticket drafts are sent to MouldCare as breakdown tickets, matched to the machine by its tag (the asset tag in MouldCare). The key is a company integration key made in MouldCare; it stays on this server.</p>
       <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
   -d '{"readings":[{"device":"${esc(s.machines[0]?.deviceId || 'plc-imm-01')}","at":"2026-10-19T08:15:00Z","state":"running","values":{"hydraulic_oil_temp":47.2}}]}'</pre></details></section>
     <section class="card"><div class="row">${heading('model', 'Pattern models', 2, 'ai')}<button class="btn sm" data-act="retrain" type="button">${ib('refresh', 'Retrain models now')}</button></div>
@@ -278,6 +291,7 @@ function bindActions() {
         await api(`/findings/${id}`, 'PATCH', { status, ...(note ? { note } : {}) }); return render();
       }
       if (act === 'ticket') { el.disabled = true; el.textContent = 'Drafting…'; await api(`/findings/${id}/ticket`, 'POST', {}); location.hash = '#/tickets'; return; }
+      if (act === 'mouldcare-send') { el.disabled = true; el.querySelector('span').textContent = 'Sending…'; await api(`/tickets/${id}/mouldcare`, 'POST', {}); return render(); }
       if (act === 'ticket-status') { await api(`/tickets/${id}`, 'PATCH', { status: el.dataset.status }); return render(); }
       if (act === 'copy') { const t = $(`#copy-${id}`).value; try { await navigator.clipboard.writeText(t); el.textContent = 'Copied'; } catch { const ta = $(`#copy-${id}`); ta.classList.remove('sr-only'); ta.select(); } return; }
       if (act === 'report') { state.busy.add('report'); await render(); try { await api('/reports', 'POST', { period: el.dataset.period }); } finally { state.busy.delete('report'); } return render(); }
