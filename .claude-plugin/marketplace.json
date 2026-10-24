@@ -1,0 +1,5 @@
+{
+  "name": "mouldcare",
+  "owner": { "name": "MouldCare" },
+  "plugins": [{ "name": "mouldcare-panel", "source": "./claude-mods/mouldcare-panel" }]
+}
