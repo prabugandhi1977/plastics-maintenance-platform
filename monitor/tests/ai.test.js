@@ -68,7 +68,7 @@ test('chat: looks data up with tools, sends results back, stores the conversatio
   const out = await ai.chat(user, 'Why is IMM-02 getting hot?');
   assert.equal(out.notice, null);
   const req = requests.at(-2);
-  assert.deepEqual(req.tools.map(t => t.name), ['list_machines', 'machine_status', 'signal_history', 'list_findings']);
+  assert.deepEqual(req.tools.map(t => t.name), ['list_machines', 'machine_status', 'signal_history', 'list_findings', 'search_manuals']);
   assert.deepEqual(req.cache_control, { type: 'ephemeral' });
   const view = ai.chatView(user.id);
   assert.equal(view.messages.length, 2); assert.equal(view.messages[1].text, 'IMM-02 oil is rising 2.6 °C/day; check the cooler.');

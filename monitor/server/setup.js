@@ -6,6 +6,7 @@ import { HttpError, bad, deny, missing, text, choice, optNumber, reply } from '.
 import { can } from './auth.js';
 import { MACHINE_TYPES, signalsFor, specsFor, MACHINE_SPECS, SENSOR_TYPES, sensorFor } from './catalog.js';
 import { forgetAnalysis } from './ml/analyze.js';
+import { queueIndex, textStatus } from './manuals.js';
 
 const admin = u => { if (!can(u, 'admin')) deny('Only a super user (administrator) can change machine and signal set-up'); };
 const machineOr404 = mid => one('SELECT * FROM machines WHERE id=?', mid) ?? missing('Machine not found');
@@ -56,7 +57,8 @@ function sensorOf(b, current = {}) {
 }
 
 // ---- Output ----
-const fileOut = f => ({ id: f.id, kind: f.kind, signalKey: f.signal_key, filename: f.filename, title: f.title, mime: f.mime, size: f.size, uploadedAt: f.uploaded_at, uploadedBy: f.uploaded_by ? one('SELECT name FROM users WHERE id=?', f.uploaded_by)?.name ?? null : null });
+const fileOut = f => ({ id: f.id, kind: f.kind, signalKey: f.signal_key, filename: f.filename, title: f.title, mime: f.mime, size: f.size, uploadedAt: f.uploaded_at, uploadedBy: f.uploaded_by ? one('SELECT name FROM users WHERE id=?', f.uploaded_by)?.name ?? null : null,
+  ...(f.kind === 'document' ? { text: textStatus(f.id) } : {}) });
 const filesOf = (mid, key) => all(`SELECT id,kind,signal_key,filename,title,mime,size,uploaded_at,uploaded_by FROM files WHERE machine_id=? AND ${key === undefined ? '1' : key === null ? 'signal_key IS NULL' : 'signal_key=?'} ORDER BY kind DESC,uploaded_at DESC`, mid, ...(key ? [key] : [])).map(fileOut);
 export const signalOut = (s, files = filesOf(s.machine_id, s.key)) => ({ key: s.key, label: s.label, unit: s.unit, warn_low: s.warn_low, warn_high: s.warn_high, crit_low: s.crit_low, crit_high: s.crit_high,
   sensorType: s.sensor_type, sensorTypeLabel: SENSOR_TYPES[s.sensor_type] ?? '', sensorMake: s.sensor_make, rangeMin: s.range_min, rangeMax: s.range_max, sourceAddress: s.source_address, notes: s.notes,
@@ -192,6 +194,8 @@ export function registerSetup(r) {
       run('INSERT INTO files (id,machine_id,signal_key,kind,filename,mime,size,data,title,uploaded_by,uploaded_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', fid, m.id, key, kind, filename, mime, body.length, body, opt(query.get('title') ?? '', 'title', 200), user.id, Date.now());
     });
     audit(user.id, `file.${kind}`, 'machine', m.id, { file: fid, signal: key, filename, size: body.length });
+    // The text is read afterwards, so a slow or unreadable document never holds up or fails the upload.
+    if (kind === 'document') queueIndex(fid);
     return reply(201, fileOut(one('SELECT * FROM files WHERE id=?', fid)));
   }, { raw: LIMITS.document });
   // Photos are shown inline, documents downloaded; either is served under a sandbox so a file can never run script.

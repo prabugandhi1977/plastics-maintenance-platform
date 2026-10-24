@@ -12,6 +12,8 @@
     "node": ">=22.13"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.131.0"
+    "@anthropic-ai/sdk": "0.131.0",
+    "fflate": "0.8.3",
+    "unpdf": "1.8.1"
   }
 }

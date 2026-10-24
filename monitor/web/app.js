@@ -1,7 +1,7 @@
 // MouldCare Monitor dashboard: plain modules, no build step. Routes live in the URL hash (#/machine/<id>), the
 // sign-in token in session storage, and every page refreshes itself every 30 seconds while open.
 import { signalChart, sparkline } from '/charts.js';
-import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
+import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 import { icon, tile, heading } from '/icons.js';
 import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
@@ -78,7 +78,7 @@ function paint(html) {
   $('#signout')?.addEventListener('click', signOut);
   // Only the buttons: <html> carries data-theme too, and a listener on it would pile up with every repaint.
   document.querySelectorAll('button[data-theme]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
-  bindActions(); loadImages(); bindPeople();
+  bindActions(); loadImages(); bindPeople(); bindSetup();
 }
 
 function renderLogin(error = '') {
@@ -162,7 +162,7 @@ function explanationView(e) {
     <div><b class="small">Likely causes</b><ul>${e.likelyCauses.map(c => `<li><b>${esc(c.cause)}</b> <span class="chip">${esc(c.likelihood)}</span><br><span class="small muted">${esc(c.evidence)}</span></li>`).join('')}</ul></div>
     <div><b class="small">Check first</b><ol>${e.checkFirst.map(c => `<li>${esc(c)}</li>`).join('')}</ol></div>
     ${e.safety?.length ? `<div><b class="small">Safety</b><ul>${e.safety.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
-    ${e.note ? `<div class="small muted">${esc(e.note)}</div>` : ''}</div>`;
+    ${sourcesHtml(e.sources, 'From the documents')}${e.note ? `<div class="small muted">${esc(e.note)}</div>` : ''}</div>`;
 }
 
 // ---- Findings ----
@@ -187,12 +187,12 @@ async function pageTickets() {
       <div class="row">${heading('tickets', esc(d.title), 2, d.priority === 'critical' || d.priority === 'high' ? 'risk' : 'watch')}${t.source === 'ai' ? chip('ai', 'AI draft') : chip('', 'Standard draft')}${chip(t.status, t.status)}${chip(d.priority === 'critical' || d.priority === 'high' ? 'critical' : 'warning', PRIORITY[d.priority] + ' priority')}</div>
       <dl class="facts"><dt>Machine</dt><dd><a href="#/machine/${t.machineId}">${esc(d.machineTag)}</a> ${esc(d.machineName)}</dd><dt>Category</dt><dd>${esc(d.failureCategory)}</dd><dt>Machine state</dt><dd>${esc(String(d.machineState).replace('_', ' '))}</dd><dt>Symptoms</dt><dd>${esc(d.symptoms)}</dd>
       <dt>Actions</dt><dd><ol style="margin:0;padding-left:18px">${d.suggestedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></dd>${d.partsToCheck?.length ? `<dt>Parts to check</dt><dd>${d.partsToCheck.map(esc).join(', ')}</dd>` : ''}
-      <dt>Drafted</dt><dd>${time(t.createdAt)} by ${esc(t.createdBy)}</dd></dl>
+      ${d.sources?.length ? `<dt>Sources</dt><dd>${sourcesHtml(d.sources, '')}</dd>` : ''}<dt>Drafted</dt><dd>${time(t.createdAt)} by ${esc(t.createdBy)}</dd></dl>
       ${assignmentHtml(t, canWrite())}
       <div class="row"><button class="btn sm" data-act="copy" data-id="${t.id}" type="button">${ib('copy', 'Copy text')}</button>${canWrite() && t.status === 'draft' ? `<button class="btn sm primary" data-act="approve" data-id="${t.id}" type="button">${ib('check', 'Approve…')}</button><button class="btn sm danger" data-act="ticket-status" data-status="discarded" data-id="${t.id}" type="button">${ib('trash', 'Discard')}</button>` : ''}</div>
       <textarea class="sr-only" id="copy-${t.id}" readonly>${esc(ticketText(t))}</textarea></article>`; }).join('')}</div>` : `<div class="card empty">${filter === 'me' ? 'Nothing assigned to you.' : filter === 'none' ? 'Every ticket has an assignee.' : 'No drafts yet. Open a finding and choose “Draft ticket”.'}</div>`}`;
 }
-const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}`; };
+const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}${d.sources?.length ? `\n\nSources:\n${d.sources.map(s => `- ${s.document}${s.page ? `, page ${s.page}` : ''}`).join('\n')}` : ''}`; };
 
 // ---- Reports ----
 function markdown(src) {
