@@ -12,6 +12,10 @@
     "node": ">=22.13"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.131.0"
+    "@anthropic-ai/sdk": "0.131.0",
+    "mqtt": "5.16.0"
+  },
+  "devDependencies": {
+    "aedes": "1.2.0"
   }
 }
