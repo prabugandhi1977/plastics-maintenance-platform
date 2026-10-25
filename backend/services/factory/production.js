@@ -38,8 +38,11 @@ export async function recordCount(e,{periodStart,periodMinutes,totalQty,scrapQty
   return r.changes?'accepted':'duplicate';
 }
 
-// What a machine is making: the product assigned to it, else a rate from its own data sheet.
+// What a machine is making: the job an operator started on it, else the product assigned to it, else a rate from its
+// own data sheet.
 export async function currentProduct(e) {
+  const job=await one("SELECT p.* FROM operator_jobs j JOIN products p ON p.id=j.product_id WHERE j.equipment_id=? AND j.kind='job' AND j.ended_at IS NULL",e.id);
+  if (job) return job;
   const p=await one('SELECT * FROM products WHERE default_machine_id=? AND active=1 ORDER BY created_at LIMIT 1',e.id);
   if (p) return p;
   const specs=JSON.parse(e.specs||'{}');

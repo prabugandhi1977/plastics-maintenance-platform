@@ -22,6 +22,7 @@ import { recordSafety } from '../safety.js';
 import { recordSighting } from '../assets.js';
 import { emailConfigured, emailThreshold } from '../alerts.js';
 import { whatsappStatus } from '../../../common/whatsapp.js';
+import { alertChanged } from '../andon.js';
 
 const DAY=86400000;
 async function safetyEvent(ev,where,index) {
@@ -165,8 +166,8 @@ export function register(r) {
     return await all(`SELECT a.*,e.asset_tag,e.make,e.model FROM alerts a LEFT JOIN equipment e ON e.id=a.equipment_id WHERE ${where} ${status==='active'?"AND a.status<>'resolved'":''} ORDER BY a.created_at DESC LIMIT 300`,...args); });
   r.get('/alerts/summary',async ({u})=>{ const [where,args]=alertScope(u); return Object.fromEntries((await mapSeq(['critical','warning','info'], async s=>[s,(await one(`SELECT count(*) n FROM alerts WHERE ${where} AND status='open' AND severity=?`,...args,s)).n]))); });
   const alertFor=async (u,key)=>{ const a=await byId('alerts',key); if (!a) missing(); if (!(isDispatch(u)||(isCustomer(u)&&u.company_id===a.company_id))) deny(); return a; };
-  r.post('/alerts/:id/acknowledge',async ({u,params})=>{ const a=await alertFor(u,params.id); if (a.status!=='open') bad(`This alert is already ${a.status}`); await run("UPDATE alerts SET status='acknowledged',acknowledged_by=?,acknowledged_at=? WHERE id=?",u.id,now(),a.id); await audit(u,'alert.acknowledge','alert',a.id,a.company_id); return await byId('alerts',a.id); });
-  r.post('/alerts/:id/resolve',async ({u,params})=>{ const a=await alertFor(u,params.id); if (a.status==='resolved') bad('This alert is already resolved'); await run("UPDATE alerts SET status='resolved',resolved_at=? WHERE id=?",now(),a.id); await audit(u,'alert.resolve','alert',a.id,a.company_id); return await byId('alerts',a.id); });
+  r.post('/alerts/:id/acknowledge',async ({u,params})=>{ const a=await alertFor(u,params.id); if (a.status!=='open') bad(`This alert is already ${a.status}`); await run("UPDATE alerts SET status='acknowledged',acknowledged_by=?,acknowledged_at=? WHERE id=?",u.id,now(),a.id); await alertChanged(a,'acknowledged',u); await audit(u,'alert.acknowledge','alert',a.id,a.company_id); return await byId('alerts',a.id); });
+  r.post('/alerts/:id/resolve',async ({u,params})=>{ const a=await alertFor(u,params.id); if (a.status==='resolved') bad('This alert is already resolved'); await run("UPDATE alerts SET status='resolved',resolved_at=? WHERE id=?",now(),a.id); await alertChanged(a,'resolved',u); await audit(u,'alert.resolve','alert',a.id,a.company_id); return await byId('alerts',a.id); });
   // Notification outbox (email and WhatsApp) and whether each channel is set up on the server (never the keys).
   r.get('/alerts/emails',async ({u})=>{ if (!isPlatform(u)) deny(); return await all('SELECT id,alert_id,ticket_id,channel,recipient,subject,status,error,created_at,sent_at FROM notification_outbox ORDER BY created_at DESC LIMIT 100'); });
   r.get('/alerts/channels',async ({u})=>{ if (!isPlatform(u)) deny(); return {email:{configured:emailConfigured(),provider:emailConfigured()?process.env.EMAIL_PROVIDER:null},whatsapp:whatsappStatus(),minSeverity:await emailThreshold()}; });

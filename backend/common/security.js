@@ -7,6 +7,10 @@ const secret = configuredSecret || 'local-demo-secret-change-before-deployment';
 export function hashPassword(password, salt=randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password,salt,64).toString('hex')}`; }
 export function verifyPassword(password, hash) { const [salt, hex]=hash.split(':'); return timingSafeEqual(Buffer.from(hex,'hex'),scryptSync(password,salt,64)); }
 const sign = data => createHmac('sha256',secret).update(data).digest('base64url');
+// Signatures for other token kinds (e.g. operator stations) carry their own scope, so no kind of token can ever be
+// accepted as another; verifyScoped compares in constant time.
+export const signScoped = (scope,data) => sign(`${scope}:${data}`);
+export function verifyScoped(scope,data,signature) { const expected=Buffer.from(signScoped(scope,data)), received=Buffer.from(String(signature)); return expected.length===received.length && timingSafeEqual(expected,received); }
 // Tokens carry the user's session version; changing or resetting a password bumps it, which signs out every
 // existing session for that user even though tokens are otherwise stateless.
 export function tokenFor(user) { const payload=Buffer.from(JSON.stringify({sub:user.id,sv:user.session_version??0,exp:Date.now()+8*60*60*1000})).toString('base64url'); return `${payload}.${sign(payload)}`; }
