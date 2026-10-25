@@ -374,6 +374,18 @@ Settings for Euromap 63:
 - **Shutdown:** on `SIGTERM`, every connector disconnects and the readings still queued are stored.
 - **Turning it off:** set `MONITOR_CONNECTORS=off` for a server that cannot reach the plant network.
 
+## Dashboards
+
+**Dashboards** in the sidebar lists your dashboards, the ones shared with you and three templates (Plant overview, Machine deep-dive, Maintenance desk). Anyone can build personal dashboards; **Edit** opens edit mode.
+
+- **Widgets:** signal chart (24 h / 7 d, with limits), sparkline tiles, machine health, active findings, tickets (open, drafts, approved, by assignee), KPI tile (open findings, machines in watch or at risk, tickets awaiting approval, tickets sent to MouldCare), text note and machine status grid. Each has a title, a size of 1-4 columns by 1-3 rows, and settings that the server checks against the machines, signals and people that exist. At most 24 widgets and 50 dashboards per person.
+- **Editing:** add and configure widgets in a dialog, resize with the size selectors, reorder by dragging the handle or with the up and down buttons (keyboard friendly), remove, undo, then Save. Nothing changes until you save. The grid is 4 columns on desktop, 2 on tablets and 1 on phones.
+- **Sharing:** private by default. The owner shares with all users or with the Viewer or Engineer role. Only the owner and the super user change or delete a dashboard; anyone who can see one can **Duplicate** it into a private copy. The super user sees every shared dashboard, not other people's private ones.
+- **Landing page:** each person can make a dashboard their landing page (or choose the Overview); the super user can set one for everybody (it is then shared with all users). Without either, the built-in Overview is the first page, unchanged. The Overview link is always in the sidebar.
+- **TV mode:** `/?tv=1#/dashboards/<id>` (the **TV mode** button, or **Copy TV link**) is a full-screen, dark, read-only view with larger type, no navigation and a refresh every 30 seconds. The screen must be signed in; the link does not sign anyone in and there is no public access.
+- **When a machine, signal or person is deleted:** widgets that used it are kept and shown as "Not available". The owner reconfigures or removes them; saving a widget list that still holds one is refused with the widget named. Nothing is deleted silently.
+- **Data:** widgets read the app's own endpoints (`/overview`, `/findings`, `/tickets`, the series) plus `/dashboards/kpis`, so they show nothing a signed-in user could not already open. The API is `/api/dashboards` (list, create, read, `PUT` save, delete, `/:id/duplicate`, `/default`, `/catalog`, `/kpis`).
+
 ## Tests
 
 ```powershell
@@ -381,8 +393,9 @@ cd monitor
 npm test
 ```
 
-There are 63 tests in eleven files:
+There are 72 tests in twelve files:
 
+- `dashboards.test.js`: custom dashboards: create, update and delete; widget validation against real machines, signals, people and size limits; sharing by audience and role (viewers read shared dashboards but cannot change them; private ones are invisible to others); the landing dashboard (own, then for everyone, then Overview); duplicates; the three templates; widgets flagged after a machine, signal or person is deleted; and the widget data endpoints behind the same sign-in and roles.
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
 - `learning.test.js`: learning from decisions on the demo plant, covering:
