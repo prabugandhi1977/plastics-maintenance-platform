@@ -1,0 +1,35 @@
+/* Andon board: dark, readable from across a hall. Type scales with the screen; colours carry meaning (state of the
+   machine as the tile colour, the open call as a band). A waiting call pulses unless reduced motion is requested. */
+:root{
+  --bg:#0b1418; --panel:#14232a; --ink:#f2f7f8; --muted:#9db2b8; --line:#26404a;
+  --run:#138a2c; --down:#c62f2f; --wait:#b98000; --plan:#3e5e74; --off:#3b4a50;
+  --a-maint:#ff4d4d; --a-quality:#ffbf1f; --a-material:#4aa3ff; --a-super:#b48cff; --a-safety:#f5c400;
+  font-family:system-ui,-apple-system,"Segoe UI",Inter,Arial,sans-serif; color:var(--ink); background:var(--bg); color-scheme:dark;
+}
+*{box-sizing:border-box} html,body{margin:0;background:var(--bg);color:var(--ink)} body{min-height:100vh;overflow-x:hidden}
+button,input,select{font:inherit} :focus-visible{outline:4px solid #4aa3ff;outline-offset:2px}
+button{cursor:pointer;border:0;border-radius:10px;padding:10px 16px;min-height:48px;background:#1f6f78;color:#fff;font-weight:700}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar h1{margin:0;font-size:clamp(22px,2.4vw,40px)} .bar span{color:var(--muted);font-size:clamp(14px,1.2vw,20px)}
+.counts{display:flex;gap:12px;flex-wrap:wrap} .c{font-size:clamp(22px,2.2vw,38px);font-weight:800;padding:4px 14px;border-radius:10px;background:#0f1c21;font-variant-numeric:tabular-nums} .c small{font-size:.45em;color:var(--muted);font-weight:600}
+.c.run{color:#5fd27a} .c.down{color:#ff7a7a} .c.wait{color:#ffcf5a} .c.call{color:#fff}
+.right{display:flex;gap:12px;align-items:center} .clock{font-size:clamp(22px,2.4vw,40px);font-weight:800;font-variant-numeric:tabular-nums}
+select{min-height:48px;border-radius:10px;background:#0f1c21;color:var(--ink);border:1px solid var(--line);padding:6px 10px;max-width:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:14px;padding:16px 18px 24px}
+@media (min-width:1600px){ .grid{grid-template-columns:repeat(auto-fill,minmax(360px,1fr))} }
+.tile{border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;background:var(--off);border:4px solid transparent;min-width:0}
+.tile header{display:flex;justify-content:space-between;align-items:baseline;gap:10px} .tile header b{font-size:clamp(26px,2.6vw,44px);letter-spacing:-.5px;overflow-wrap:anywhere}
+.oee{font-size:clamp(16px,1.4vw,24px);font-weight:700;opacity:.92;white-space:nowrap}
+.st{display:flex;justify-content:space-between;align-items:baseline;gap:10px} .st strong{font-size:clamp(22px,2.2vw,36px);text-transform:uppercase} .st time{font-size:clamp(22px,2.2vw,36px);font-weight:800;font-variant-numeric:tabular-nums}
+.sub{font-size:clamp(15px,1.3vw,22px);opacity:.9;min-height:1.2em;overflow-wrap:anywhere}
+.s-running{background:var(--run)} .s-down{background:var(--down)} .s-idle,.s-setup{background:var(--wait)} .s-planned_stop{background:var(--plan)} .s-offline{background:var(--off)}
+.tile.has-call{border-color:#fff} .tile.c-safety{border-color:var(--a-safety)}
+.callband{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;background:#0b1418e6;border-radius:10px;padding:8px 12px;border-left:10px solid var(--a-maint)}
+.callband span{font-size:clamp(18px,1.6vw,28px);font-weight:800} .callband em{font-style:normal;color:#ff9a9a} .callband time{font-size:clamp(20px,1.8vw,32px);font-weight:800;font-variant-numeric:tabular-nums}
+.callband small{grid-column:1/-1;color:var(--muted);font-size:clamp(13px,1vw,18px)}
+.callband.quality{border-color:var(--a-quality)} .callband.material{border-color:var(--a-material)} .callband.supervisor{border-color:var(--a-super)} .callband.safety{border-color:var(--a-safety)}
+.callband.open time{color:#ff8a8a}
+@media (prefers-reduced-motion:no-preference){ .tile.waiting{animation:pulse 1.4s ease-in-out infinite} .blink{animation:pulse 1.4s ease-in-out infinite} @keyframes pulse{50%{box-shadow:0 0 0 6px #ffffff55}} }
+.err{margin:12px 18px;padding:10px 14px;border-radius:10px;background:#5a1f1f;color:#fff} .empty{color:var(--muted);font-size:22px}
+.login{max-width:420px;margin:0 auto;padding:40px 16px;display:flex;flex-direction:column;gap:10px} .login form{display:flex;flex-direction:column;gap:10px}
+.login input{min-height:52px;border-radius:10px;border:1px solid var(--line);background:#0f1c21;color:var(--ink);padding:10px 12px;font-size:20px;width:100%} .hint{color:var(--muted)}

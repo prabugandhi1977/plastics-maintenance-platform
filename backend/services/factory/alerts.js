@@ -9,11 +9,12 @@ const setting=async (key,fallback)=>{ try { return JSON.parse((await one('SELECT
 // Lowest severity that is emailed and sent on WhatsApp (in-app alerts are always shown). Default: only critical alerts.
 export const emailThreshold=async ()=>await setting('alert_email_min_severity','critical');
 
-export async function raiseAlert({companyId,plantId=null,module,severity,equipmentId=null,title,detail='',dedupeKey,at=now()}) {
+// notify:false leaves the notifications to the caller (andon calls notify the roles their settings name).
+export async function raiseAlert({companyId,plantId=null,module,severity,equipmentId=null,title,detail='',dedupeKey,at=now(),notify:send=true}) {
   if (await one("SELECT 1 FROM alerts WHERE dedupe_key=? AND status<>'resolved'",dedupeKey)) return null;
   const key=id();
   await run('INSERT INTO alerts (id,company_id,plant_id,module,severity,equipment_id,title,detail,status,dedupe_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',key,companyId,plantId,module,severity,equipmentId,title.slice(0,200),detail.slice(0,2000),'open',dedupeKey,at);
-  if (RANK[severity]>=RANK[await emailThreshold()]) await notify(await one('SELECT * FROM alerts WHERE id=?',key));
+  if (send&&RANK[severity]>=RANK[await emailThreshold()]) await notify(await one('SELECT * FROM alerts WHERE id=?',key));
   return key;
 }
 // Raises an open alert's severity (e.g. warning → critical); emails and WhatsApp messages go out if it now meets the threshold.
@@ -31,6 +32,17 @@ async function audience(alert) {
   const customer=await all("SELECT email,phone,active,alert_emails,alert_whatsapp FROM users WHERE company_id=? AND active=1 AND role IN ('customer_admin','plant_manager','maintenance')",alert.company_id);
   const dispatch=alert.severity==='critical'?await all("SELECT email,phone,active,alert_emails,alert_whatsapp FROM users WHERE active=1 AND role='dispatcher'"):[];
   return [...customer,...dispatch];
+}
+// Targeted notification for an alert: active users of the alert's company with one of the given roles, and the
+// platform's dispatchers when 'dispatcher' is listed. Same channels and opt-ins as notify(); returns the recipients.
+export async function notifyRoles(alert,roles) {
+  const own=roles.filter(r=>['customer_admin','plant_manager','maintenance'].includes(r));
+  const customer=own.length?await all(`SELECT email,phone,active,alert_emails,alert_whatsapp FROM users WHERE company_id=? AND active=1 AND role IN (${own.map(()=>'?').join(',')})`,alert.company_id,...own):[];
+  const dispatch=roles.includes('dispatcher')?await all("SELECT email,phone,active,alert_emails,alert_whatsapp FROM users WHERE active=1 AND role='dispatcher'"):[];
+  const users=[...customer,...dispatch], emails=[...new Set(users.filter(u=>u.alert_emails===1).map(u=>u.email))];
+  await queueEmails(alert,emails);
+  const whatsapp=await queueAlertWhatsapp(alert,users);
+  return {emails:emails.length,whatsapp};
 }
 async function notify(alert) {
   const users=await audience(alert);

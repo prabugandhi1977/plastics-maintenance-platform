@@ -37,6 +37,11 @@ export const TOPICS_DE={
     'Ein kritischer Alarm wie Feuer oder ein PSA-Verstoß lässt das Telefon vibrieren und einen Ton abspielen.',
     '<b>View</b> zeigt Foto und Details, <b>Acknowledge</b> zeigt den Kollegen, dass er bearbeitet wird.'],
     tips:['Ihre Zuständigkeiten legt ein Administrator im Büro-Arbeitsbereich unter Firmen, Werke & Benutzer › Users › Vision duties fest.']},
+  andon:{title:'Andon-Rufe',steps:[
+    'Ruft ein Bediener an einer Maschine um Hilfe, erscheint der Ruf oben in der Auftragsliste unter <b>Andon-Rufe</b>, mit der Zeit, seit er offen ist.',
+    '<b>Bin unterwegs</b> übernimmt ihn: die Eskalation stoppt und Ihre Reaktionszeit wird erfasst.',
+    '<b>Erledigt</b> schließt ihn; eine kurze Notiz, was getan wurde, hinzufügen.',
+    'Bei einem Instandhaltungsruf erstellt <b>Störmeldung</b> eine Störmeldung mit Maschine, Zustand und Zeitpunkt des Rufs und öffnet sie.']},
   install:{title:'Die App auf dem Telefon installieren',steps:[
     'Diese Seite im Browser des Telefons öffnen und anmelden.',
     'Android (Chrome): Menü ⋮ › <b>App installieren</b> oder <b>Zum Startbildschirm hinzufügen</b>.',

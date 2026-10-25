@@ -494,6 +494,31 @@ Event types: `ppe` → `ppe_violation` (`detail.missing`); `fire_smoke` → `fir
 
 Users carry `visionDuties` (`ehs`, `security`, `qa`), set with `POST /users` or `PATCH /users/:id`.
 
+## Operator tablet and andon
+
+Stations are tablets or boards bound to machines of one plant. `POST /operator/login` returns a station token (`st1.…`); send it as `Authorization: Bearer`. Routes marked **S** also accept a station token (the station reaches only its own machines; a board is read-only); all others need a person's token. A person acts within their company (dispatchers and platform admins in any); service providers have no access. Code: `backend/services/factory/andon.js`, `routes/operator.js`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/operator/login` | Public. `{code, pin}` → `{token, station}`. 401 with `attemptsLeft` on a wrong PIN; the 5th wrong PIN returns 429 and locks the station 15 minutes (also 429 while locked, or after too many failed sign-ins from one address) |
+| `GET` | `/operator/me` **S** | The station (or user) and the machines it may work on, `locale` |
+| `GET` | `/operator/machines/:id` **S** | Machine view: state, reason, since, product, job, mould change, cycle (ideal and actual), today's good and scrap, shift OEE, stops of the last 12 hours, open calls, reason lists |
+| `POST` | `/operator/machines/:id/downtime` **S** | `{state, reason, stateId?, note?, operator?}` classifies the current (or given) stop; on a machine without machine data it stops the machine. `state` and `reason` come from the downtime codes. 409 if machine data says the machine is running |
+| `POST` | `/operator/machines/:id/resume` **S** | Machine running again (machines without machine data only) |
+| `POST` | `/operator/machines/:id/scrap` **S** | `{reason, quantity, note?}`; whole parts for parts; at most today's good output |
+| `POST` | `/operator/machines/:id/job` **S** | `{action:'start'\|'finish', kind:'job'\|'mould_change', productId?}` |
+| `POST` | `/operator/machines/:id/andon` **S** | `{type, note?, operator?}` → 201 `{created:true, call}`; 200 `{created:false}` when a call of that type is already open |
+| `GET` | `/andon/calls?status=active\|all&plantId&from&to` **S** | Calls with `responseMinutes`, `resolveMinutes`, `openMinutes`, `level`, `ticketId` |
+| `POST` | `/andon/calls/:id/acknowledge` **S** | Records the response. Also done by acknowledging the call's alert on `/alerts/:id/acknowledge` |
+| `POST` | `/andon/calls/:id/resolve` **S** | `{resolution?}` |
+| `POST` | `/andon/calls/:id/ticket` **S** | Maintenance calls only. Raises a breakdown ticket (`raised_via` `andon`) pre-filled with machine, state and call time; optional `title`, `symptoms`, `priority`, `failureCategory`, `machineState`. 201, or 200 with the existing `ticketId`. Acknowledges the call |
+| `GET` | `/andon/board?plantId=` **S** | Tiles for a plant: state, reason, since, OEE, open calls. A station sees its own plant |
+| `GET` / `PUT` | `/andon/settings?companyId=` | Per type: `severity`, `notify` roles, `escalation:[{afterMinutes, roles}]` (up to 3 levels, increasing). Roles: `maintenance`, `plant_manager`, `customer_admin`, `dispatcher`. PUT is for customer admins, plant managers and platform admins; safety stays critical |
+| `GET` | `/andon/report?plantId&from&to` | Counts and mean response and resolution minutes `byType`, `byMachine`, `byShift`; `downtime` (Pareto of operator reasons, with `cumulativePct`) and `scrap` by reason |
+| `GET` `POST` `PATCH` | `/operator/stations`, `/operator/stations/:id` | Stations. POST `{plantId, name, kind:'tablet'\|'board', equipmentIds, pin}`; PATCH any of `name`, `equipmentIds`, `pin`, `active`, `unlock`, `signOut`. A new PIN, `signOut` or deactivating ends all sessions. PINs are never returned or logged |
+
+Escalation runs every minute on the server (`checkAndonEscalations`). Audit actions: `station.create`, `station.update`, `station.login`, `station.login_failed`, `station.locked`, `operator.downtime`, `operator.scrap`, `operator.job_start` / `job_finish` / `mould_change_start` / `mould_change_finish`, `operator.resume`, `andon.raise`, `andon.escalate`, `andon.acknowledge`, `andon.resolve`, `andon.settings`.
+
 ## Tickets from other systems
 
 Trusted systems raise breakdown tickets through one intake. The first is MouldCare Monitor: when a person approves a ticket draft there, Monitor sends it here (see `monitor/README.md`). Code: `backend/services/core/routes/intake.js`.
