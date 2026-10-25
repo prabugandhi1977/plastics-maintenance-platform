@@ -77,7 +77,7 @@ The menu follows the plant's functions:
 | **Production (IMM)** | Live shop floor, OEE performance, Products & cycle times, Machine alerts |
 | **Vision inspection & quality** | Vision overview, Inspection results (FPY, PPM), Vision incidents, Cameras & AI modules, Edge nodes & licences |
 | **Traceability** | Trace search & genealogy, Batches & material lots, Process control (SPC), Dispatch & shipments, Field returns & warranty |
-| **Maintenance** | Maintenance overview, Breakdown tickets, Preventive maintenance, Equipment register, Condition monitoring, Service contracts, Spare parts requests, Asset tracking |
+| **Maintenance** | Maintenance overview, Breakdown tickets, Preventive maintenance, Equipment register, Condition monitoring, Service contracts, Spare parts requests, Spare parts stock, Asset tracking |
 | **Energy (EMS)** | Energy & CO₂ |
 | **Safety** | Safety events (camera PPE, fire and intrusion alarms come from Vision AI) |
 | **Administration** | Companies, plants & users, Service providers, Settings, Machine data (IoT), Audit trail |
@@ -141,6 +141,30 @@ What it contains:
 - **10.2 Breakdown records:** failure category and mode, root cause, action, downtime and sign-off.
 
 Each pack carries a SHA-256 fingerprint of its data, and every download is written to the audit trail. Customers get their own company's pack; dispatchers and platform admins choose the company.
+
+## Spare parts stock
+
+**Maintenance → Spare parts stock** is the store behind the spare parts requests:
+
+- **Catalogue.** Part number (unique per company), name, maker, unit (pcs, set, m, kg, l), category, the machine types and machines it fits, unit cost in the company currency, reorder point (minimum stock), reorder quantity, lead time, preferred supplier, optional barcode, and a printable QR label (`SP:<id>`). Bulk import from CSV (template included; optional opening stock per plant and bin; all or nothing).
+- **Stock per plant and bin**, and an append-only **ledger** of movements: receive, issue (to a ticket or a preventive maintenance job, linked to its machine), return, adjust (always with a reason) and transfer between plants or bins. Movements are immutable in the database (a trigger refuses updates and deletes) and each one is audited. The quantity on hand is kept in step with the ledger in the same transaction, and `GET /api/spare-parts/reconcile` compares the two.
+- **No negative stock.** Issues, transfers and adjustments that would go below zero are refused with the quantity available. Only a customer admin or platform admin can adjust below zero, with a reason (for example to book a loss found later).
+- **Tickets.** A parts request whose part number is in the catalogue shows the stock at the ticket's plant; **Issue from stock** issues it, links the movement to the ticket and machine, and closes the request as fulfilled. The ticket shows the parts taken from stock and their cost (at the cost when issued, net of returns). Service providers see this on tickets assigned to them, but never the store itself.
+- **Preventive maintenance.** A plan lists the parts it needs; plans and the **Upcoming maintenance** tab show whether the plan's plant has them (urgent plans draw on stock first), and **Issue parts** takes the whole list to the open job.
+- **Reorder.** Low stock means on hand plus open purchase orders is below the reorder point. The **Reorder** tab groups the suggested order by supplier with cost, **Record as ordered** books purchase orders (stock on order) and **Purchase list (CSV)** exports the list. When a part first drops below its reorder point a `stock` alert is raised through the existing alert mechanism (see below); it clears when stock or orders bring the part back up or the part is made inactive.
+- **Field app.** On a ticket, in-house engineers (and plant staff) choose **Use part from stock**, scan the part's QR label or barcode with the camera (the same scanner as machine labels) or search, see the stock at the ticket's plant, and issue. The issue is queued offline like other field actions.
+- **IATF evidence pack.** Section 8.5.1.5 adds parts used from stock per machine in the period with cost, the spares held for criticality A machines, and a finding for those below their reorder point.
+
+| Role | Can |
+| --- | --- |
+| Maintenance | View, issue to tickets and jobs, return |
+| Plant manager, customer admin (own company) | Also receive, adjust, transfer, order, edit the catalogue and PM parts lists; the customer admin may adjust below zero |
+| Dispatcher | View all companies, issue |
+| Platform admin | Everything |
+| Assigned in-house engineer | Look up parts and issue to their own ticket (field app) |
+| Service provider | Parts used and cost on tickets assigned to them only |
+
+Every query is limited to the caller's company. The low-stock alert uses `raiseAlert` (`backend/services/factory/alerts.js`) because it already gives one open alert per dedupe key, shows in **Alerts**, and sends email and WhatsApp to the company's customer admins, plant managers and maintenance staff when its severity meets the configured threshold. Stock alerts are warnings, so they are in-app by default and are emailed only if the threshold is lowered to warning.
 
 ## Smart factory
 

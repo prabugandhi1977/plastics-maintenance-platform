@@ -18,6 +18,7 @@ export const TOPICS_DE={
     '<b>Ausgeführte Arbeit erfassen</b>: was Sie getan haben, Minuten und verbaute Teile.',
     '<b>Prüfpunkt hinzufügen</b> für jeden Prüfpunkt; einen Punkt antippen, um ihn abzuhaken.',
     '<b>Ersatzteil anfordern</b>: Teilenummer, Beschreibung, Menge, Einheit und Dringlichkeit. Angebote und Freigabe erledigt das Büro.',
+    '<b>Teil aus Lager entnehmen</b> (eigene Techniker und Werkspersonal): das Etikett am Lagerplatz mit der Kamera scannen oder suchen; passende Teile erscheinen zuerst mit dem Bestand in diesem Werk. Die entnommene Menge eingeben. Sie wird auf diese Störmeldung und ihre Maschine gebucht und erscheint unter <b>Teile aus dem Lager</b>. Offline aus der zuletzt angezeigten Liste wählen; die Buchung wird bei Verbindung gesendet.',
     '<b>Add photo</b> hängt einen Nachweis aus der Kamera an.',
     '<b>⚠ Report safety concern</b> für eine Gefahr, einen Beinaheunfall oder eine Verletzung. Die Meldung geht in das Sicherheitsprotokoll des Werks.',
     'Nach dem Abschluss das Telefon dem Kunden für die <b>Kundenabnahme</b> geben: Name und Unterschrift.'],

@@ -10,6 +10,7 @@ import { HttpError, bad, choice, date, deny, integer, missing, required } from '
 import { MACHINE_STATES, codes } from '../../../common/catalog.js';
 import { resolveScan, scanFor, scanPolicy } from '../../../common/scan.js';
 import { notifyTicketAssigned, notifyTicketCompleted } from '../../../common/whatsapp.js';
+import { ticketStock } from '../stock.js';
 
 const TRANSITIONS={assigned:['accepted','declined','escalated'],accepted:['in_progress','escalated'],in_progress:['escalated','completed'],escalated:['in_progress','completed']};
 const note=(body,max=2000)=>typeof body.note==='string'?body.note.trim().slice(0,max):'';
@@ -36,6 +37,8 @@ export async function ticketDetail(u,key) {
     checklist:await all('SELECT * FROM checklist_entries WHERE ticket_id=? ORDER BY seq',key),
     workLogs:await all('SELECT w.*,u.name user_name FROM work_logs w JOIN users u ON u.id=w.user_id WHERE w.ticket_id=? ORDER BY w.created_at',key),
     parts:await all('SELECT * FROM parts_requests WHERE ticket_id=?',key),
+    // Parts taken from stock for this job (issues less returns) and their cost; seen by everyone who can see the ticket.
+    stockUsed:await ticketStock(key),
     signoff:await one('SELECT * FROM signoffs WHERE ticket_id=?',key)||null,
     attachments:await all("SELECT id,entity_type,entity_id,kind,filename,mime,size_bytes,created_at FROM attachments WHERE company_id=? AND ((entity_type='ticket' AND entity_id=?) OR (entity_type='work_log' AND entity_id IN (SELECT id FROM work_logs WHERE ticket_id=?)))",t.company_id,key,key)};
 }

@@ -1,10 +1,11 @@
 // Spare parts: request → quotation → customer approval → ordered → shipped → fulfilled.
 import { id, now, one, all, run, transaction, mapSeq, flatMapSeq } from '../../../common/db.js';
-import { isCustomer, isInternal } from '../../../common/security.js';
+import { canCompany, isCustomer, isInternal } from '../../../common/security.js';
 import { audit, byId, canService, getTicket, visibleTickets } from '../../../common/access.js';
 import { created } from '../../../common/http.js';
 import { bad, choice, currency, date, deny, integer, missing, required } from '../../../common/validate.js';
 import { PART_UNITS, PART_URGENCY } from '../../../common/catalog.js';
+import { stockMatch } from '../stock.js';
 
 const FULFILMENT={approved:['ordered','shipped','fulfilled'],ordered:['shipped','fulfilled'],shipped:['fulfilled']};
 const latestQuote=async requestId=>await one('SELECT id,amount_minor,currency,lead_days,status,valid_until FROM quotations WHERE request_id=? ORDER BY created_at DESC LIMIT 1',requestId)||null;
@@ -19,7 +20,10 @@ async function advance(u,p,status,reference) {
 }
 
 export function register(r) {
-  r.get('/parts',async ({u})=>(await flatMapSeq((await visibleTickets(u)), async t=>(await mapSeq((await all('SELECT * FROM parts_requests WHERE ticket_id=? ORDER BY created_at DESC',t.id)), async p=>({...p,ticketTitle:t.title,quote:await latestQuote(p.id)}))))));
+  // Open requests also show the matching catalogue part and its stock at the ticket's plant, for those who may see stock
+  // (customers and dispatch; not service providers).
+  r.get('/parts',async ({u})=>(await flatMapSeq((await visibleTickets(u)), async t=>(await mapSeq((await all('SELECT * FROM parts_requests WHERE ticket_id=? ORDER BY created_at DESC',t.id)), async p=>({...p,ticketTitle:t.title,quote:await latestQuote(p.id),
+    stock:canCompany(u,t.company_id)&&!['fulfilled','rejected'].includes(p.status)?await stockMatch(p,t.plant_id):null}))))));
   r.post('/tickets/:id/parts',async ({u,body,params})=>{
     const t=await getTicket(u,params.id); if (!canService(u,t)&&!isCustomer(u)) deny();
     const key=id(); await run('INSERT INTO parts_requests (id,company_id,ticket_id,item,quantity,status,created_at,updated_at,part_number,unit,urgency,manufacturer) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',key,t.company_id,t.id,required(body.item,'item',300),integer(typeof body.quantity==='string'?Number(body.quantity):body.quantity,'quantity',1,100000),'requested',now(),now(),required(body.partNumber,'partNumber',80),choice(body.unit,'unit',PART_UNITS),choice(body.urgency,'urgency',PART_URGENCY),String(body.manufacturer??'').trim().slice(0,80));

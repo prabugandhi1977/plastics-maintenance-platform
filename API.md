@@ -65,7 +65,8 @@ Data scoping and auditing:
 | `PATCH` | `/contracts/:id` | Renewal date, status (`active`, `expired` or `cancelled`), response target, commitments, exclusions |
 | `POST` | `/contracts/:id/visits` | Add a scheduled visit for a covered asset, within the contract period |
 | `PATCH` | `/visits/:id` | Update visit status or notes |
-| `GET` | `/tickets/:id` | Ticket with contract coverage, response target, events, checklist, work, parts, sign-off and evidence |
+| `GET` | `/tickets/:id` | Ticket with contract coverage, response target, events, checklist, work, parts, `stockUsed` (parts taken from stock with cost), sign-off and evidence |
+| `POST` | `/import/spare-parts` | Bulk CSV import of the catalogue (template at `GET /import/spare-parts/template`), with optional opening stock; all or nothing |
 | `GET` | `/tickets/:id/candidates` | Dispatcher/admin: every engineer and provider, with eligibility reasons and open workload |
 | `POST` | `/tickets/:id/assign` | Assign an eligible engineer or approved provider |
 | `POST` | `/tickets` | Raise a breakdown; needs a scan of the machine (see *Scan at the machine*). Works offline |
@@ -83,13 +84,30 @@ Data scoping and auditing:
 | `POST` | `/quotes/:id/decision` | Customer admin or plant manager approves or rejects a quote |
 | `POST` | `/parts/:id/fulfilment` | `{status: ordered\|shipped\|fulfilled, reference}`; the reference is a PO, tracking number or delivery note |
 | `POST` | `/parts/:id/fulfil` | Shortcut: mark fulfilled |
-| `GET` | `/pm/plans` | Visible preventive maintenance plans with `usage`, `progress`, `status` (`ok`, `due_soon`, `due`, `overdue`, `inactive`), `remaining`, `unit` and `openJobId` |
+| `GET` | `/pm/plans` | Visible preventive maintenance plans with `parts` and `stockSufficient`, `usage`, `progress`, `status` (`ok`, `due_soon`, `due`, `overdue`, `inactive`), `remaining`, `unit` and `openJobId` |
 | `GET` | `/pm/plans/:id` | One plan with its jobs |
-| `POST` | `/pm/plans` | `{equipmentId, trigger, intervalValue, title?, checklist?, lastDoneAt?, startUsage?}`. `trigger` is `runtime` or `calendar` for machines, `shots` or `calendar` for moulds. Customer admins, plant managers, dispatchers and platform admins |
-| `PATCH` | `/pm/plans/:id` | `{title?, intervalValue?, checklist?, active?}`; pausing withdraws the open job and clears the overdue alert |
+| `POST` | `/pm/plans` | `{equipmentId, trigger, intervalValue, title?, checklist?, lastDoneAt?, startUsage?, parts?:[{partId, quantity}]}`. `trigger` is `runtime` or `calendar` for machines, `shots` or `calendar` for moulds. Customer admins, plant managers, dispatchers and platform admins |
+| `PATCH` | `/pm/plans/:id` | `{title?, intervalValue?, checklist?, active?, parts?:[{partId, quantity}]}`; pausing withdraws the open job and clears the overdue alert |
 | `GET` | `/pm/jobs?status=open\|completed` | Jobs of the visible companies |
 | `POST` | `/pm/jobs/:id/complete` | `{results:[{done, note?}], notes?}`, one result per checklist item; an item not done needs a note. Returns `onTime` |
 | `GET` | `/pm/compliance?days=90` | `{due, onTime, late, openOverdue, compliancePct}`: jobs done within 110 % of their interval, out of all that came due |
+| `GET` | `/spare-parts?plantId&category&low=1&q` | Catalogue of the visible companies with `onHand`, `onOrder`, `available`, `stock` (per plant and bin), `byPlant`, `low`, `suggestedQty`, `valueMinor` |
+| `POST` | `/spare-parts` | `{partNumber, name, unit?, maker?, category?, fitsTypes?, fitsEquipmentIds?, unitCostMinor?, reorderPoint?, reorderQty?, leadTimeDays?, supplier?, barcode?, qrCode?, notes?, initialStock?:{plantId, bin?, quantity}, companyId?}`. Customer admin, plant manager, platform admin |
+| `GET` | `/spare-parts/:id` | Part with `movements` (newest first), `whereUsed` (machines, PM plans, tickets) and `orders` |
+| `PATCH` | `/spare-parts/:id` | Any catalogue field, `active`, `fitsEquipmentIds`; the unit is fixed once stock has moved |
+| `POST` | `/spare-parts/:id/receive` | `{plantId, bin?, quantity, orderId?, reference?, unitCostMinor?}` (managers) |
+| `POST` | `/spare-parts/:id/issue` | `{ticketId \| pmJobId, quantity, bin?, plantId?, note?, partsRequestId?}`; refuses more than the plant holds. Maintenance, managers, dispatch and the assigned engineer. Works offline |
+| `POST` | `/spare-parts/:id/return` | `{ticketId \| pmJobId, quantity, bin?, reason?}`; at most what is still issued to that ticket or job. Works offline |
+| `POST` | `/spare-parts/:id/adjust` | `{plantId, bin?, countedQuantity \| delta, reason}`; reason required. Below zero only for customer admin and platform admin (managers) |
+| `POST` | `/spare-parts/:id/transfer` | `{fromPlantId, fromBin?, toPlantId, toBin?, quantity, reference?}`; two linked movements (managers) |
+| `POST` | `/spare-parts/:id/orders` | `{plantId, quantity, supplier?, reference?, expectedAt?}`: stock on order (managers) |
+| `GET` | `/spare-orders?status=open\|received\|cancelled\|all` | Purchase orders; `POST /spare-orders/:id/cancel` cancels an open one |
+| `GET` | `/spare-parts/reorder?companyId` | Low-stock lines with suggested quantity and cost, and the same grouped by supplier; `/spare-parts/reorder/csv` downloads it |
+| `GET` | `/spare-parts/pm-demand` | Upcoming PM plans with parts, and whether their plant's stock is sufficient |
+| `GET` | `/spare-parts/reconcile` | Compares the ledger with the stored balances; `mismatches` should be empty |
+| `GET` | `/tickets/:id/spare-parts?code&q` | Field lookup: parts by scanned label, barcode, part number or search, otherwise those that fit the ticket's machine, with stock at the ticket's plant |
+| `POST` | `/parts/:id/issue-from-stock` | `{sparePartId?, plantId?, bin?}`: issues a parts request's quantity from stock to its ticket and closes it as fulfilled. Works offline |
+| `POST` | `/pm/jobs/:id/issue-parts` | Issues all the parts on the plan's list to the open job, all or nothing |
 | `GET` | `/reports/iatf?companyId&from&to` | IATF 16949 maintenance evidence for one company: PM plans, jobs and compliance; KPIs and OEE per machine; moulds; breakdown records; replacement parts; `gaps`; and a SHA-256 `fingerprint`. Default period: the last 90 days, at most one year. Customers get their own company |
 | `GET` | `/reports/iatf/download?companyId&from&to&format=html\|json` | The same pack as a download: a printable HTML report or JSON. Each download is audited (`report.iatf`) |
 | `POST` | `/attachments` | Upload a PDF or image as base64, max 5 MB (works offline) |

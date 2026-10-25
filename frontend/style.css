@@ -325,3 +325,8 @@ html.dark .chip.mod-quality,html.dark .module-card.mod-quality{background:#16352
 .pm-bar span{display:block;height:100%;background:var(--good)} .pm-bar .pm-due_soon{background:var(--brand)} .pm-bar .pm-due{background:var(--warn)} .pm-bar .pm-overdue{background:var(--bad)} .pm-bar .pm-inactive{background:#9aa9ad}
 .pm-item{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center}
 @media (max-width:640px){.pm-item{grid-template-columns:1fr}}
+/* Spare parts stock */
+.stock-scan{margin:0 0 12px;max-width:640px} .stock-scan label{display:block;font-weight:600;font-size:13.5px;margin-bottom:4px}
+.qr-panel .qr-box{display:inline-block;background:#fff;padding:8px;border-radius:8px;border:1px solid var(--line)} .qr-panel code{word-break:break-all}
+.sp-pick{width:100%;align-items:flex-start;flex-wrap:wrap;margin:0 0 6px} .sp-pick input{margin-top:3px}
+#sp-results{max-height:280px;overflow-y:auto}

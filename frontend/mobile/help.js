@@ -21,6 +21,7 @@ const TOPICS=[
     '<b>Log work done</b>: what you did, minutes spent and parts used.',
     '<b>Add checklist item</b> for each inspection point; tap an item to tick it off.',
     '<b>Request spare part</b>: part number, description, quantity, unit and urgency. The office handles quotes and approval.',
+    '<b>Use part from stock</b> (in-house engineers and plant staff): scan the label on the bin with the camera, or search; the parts that fit the machine are listed first with the stock at this plant. Enter the quantity you took. It is booked to this ticket and its machine, and shows under <b>Parts from stock</b>. Offline, pick from the last list shown and it is sent when you reconnect.',
     '<b>Add photo</b> to attach evidence from the camera.',
     '<b>⚠ Report safety concern</b> for a hazard, near miss or injury. It goes to the plant\'s safety log.',
     'After completion, hand the phone to the customer for <b>Customer sign-off</b>: their name and signature.'],
