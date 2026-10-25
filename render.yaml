@@ -113,6 +113,12 @@ services:
         sync: false
       - key: MONITOR_MQTT_CLIENT_ID
         sync: false
+      # Machine connectors (Settings › Connections & models) poll machines directly. A cloud service usually cannot
+      # reach the plant network: set off there. Euromap 63 folders must be inside MONITOR_EUROMAP63_ROOT.
+      - key: MONITOR_CONNECTORS
+        sync: false
+      - key: MONITOR_EUROMAP63_ROOT
+        sync: false
 
 databases:
   - name: platform-db

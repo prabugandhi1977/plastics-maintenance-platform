@@ -3,6 +3,7 @@
 import { signalChart, sparkline } from '/charts.js';
 import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, btn, dialog, select, textarea, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 import { icon, tile, heading } from '/icons.js';
+import { initConnectors, connectorsSection, ACTIONS as CONNECTOR_ACTIONS, action as connectorAction } from '/connectors.js';
 import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,6 +20,7 @@ async function api(path, method = 'GET', body) {
 }
 initSetup({ api, esc, state, render });
 initPeople({ api, esc, state, render });
+initConnectors({ api, esc, state, render });
 const canWrite = () => ['admin', 'engineer'].includes(state.user?.role);
 const time = t => t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const ago = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -285,7 +287,7 @@ const mqttHtml = q => !q.enabled ? `${chip('', 'Off')} set MONITOR_MQTT_URL on t
   `${q.connected ? chip('good', 'Connected') : chip('watch', 'Not connected')} <code>${esc(q.url)}</code> · topic <code>${esc(q.topic)}</code>
   <br><span class="small muted">Last message ${ago(q.lastMessageAt)} · ${q.accepted.toLocaleString()} accepted · ${q.rejected.toLocaleString()} rejected${q.reconnects ? ` · ${q.reconnects} reconnects` : ''}${q.lastError ? ` · ${esc(q.lastError)}` : ''}</span>`;
 async function connectionsTab() {
-  const s = await api('/settings'), mc = s.mouldcare;
+  const [s, connectors] = await Promise.all([api('/settings'), connectorsSection()]), mc = s.mouldcare;
   const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
   return `<section class="card"><div class="row">${heading('plug', 'Connections')}</div><dl class="facts">${row('sparkles', 'AI assistant', s.ai ? `${chip('good', 'On')} ${esc(s.aiModel)}` : `${chip('', 'Off')} set ANTHROPIC_API_KEY on the server`)}
       ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
@@ -299,6 +301,7 @@ async function connectionsTab() {
       <p class="small muted">Approved ticket drafts are sent to MouldCare as breakdown tickets, matched to the machine by its tag (the asset tag in MouldCare). The key is a company integration key made in MouldCare; it stays on this server.</p>
       <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
   -d '{"readings":[{"device":"${esc(s.machines[0]?.deviceId || 'plc-imm-01')}","at":"2026-10-19T08:15:00Z","state":"running","values":{"hydraulic_oil_temp":47.2}}]}'</pre></details></section>
+    ${connectors}
     <section class="card"><div class="row">${heading('model', 'Pattern models', 2, 'ai')}<button class="btn sm" data-act="retrain" type="button">${ib('refresh', 'Retrain models now')}</button></div>
       <p class="small muted">Each machine's pattern models retrain every 6 hours on its own history, and again after its signals change. Retrain now after a repair or a change in how a machine runs.</p></section>`;
 }
@@ -324,6 +327,7 @@ function bindActions() {
     try {
       if (SETUP_ACTIONS.includes(act)) { e.preventDefault(); return await setupAction(act, el); }
       if (PEOPLE_ACTIONS.includes(act)) { e.preventDefault(); return await peopleAction(act, el); }
+      if (CONNECTOR_ACTIONS.includes(act)) { e.preventDefault(); return await connectorAction(act, el); }
       if (act === 'tickets-filter') { location.hash = el.dataset.filter === 'all' ? '#/tickets' : `#/tickets?assigned=${el.dataset.filter}`; return; }
       if (act === 'hours') { state.hours[id] = Number(el.dataset.hours); return render(); }
       if (act === 'filter') { location.hash = `#/findings?status=${el.dataset.status}`; return; }
