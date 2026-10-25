@@ -7,6 +7,7 @@ import { audit, byId, getEquipment, isDispatch } from '../../../common/access.js
 import { created } from '../../../common/http.js';
 import { bad, choice, date, deny, integer, missing, required } from '../../../common/validate.js';
 import { raiseAlert, resolveAlertKey } from '../../factory/alerts.js';
+import { planParts, setPlanParts } from '../stock.js';
 
 export const TRIGGERS={calendar:{unit:'days',min:1,max:3650},runtime:{unit:'hours',min:1,max:100000},shots:{unit:'shots',min:100,max:100000000}};
 // Moulds count shots (or calendar time); machines count running hours (or calendar time).
@@ -61,7 +62,9 @@ async function getPlan(u,key) { const p=await byId('pm_plans',key); if (!p) miss
 async function present(plan,at) {
   const s=plan.active?await syncPlan(plan,at):await planState(plan,at);
   const job=await one("SELECT id FROM pm_jobs WHERE plan_id=? AND status='open'",plan.id);
-  return {...plan,checklist:JSON.parse(plan.checklist),...s,status:plan.active?s.status:'inactive',openJobId:job?.id??null};
+  // Spare parts the service needs, and whether the plan's plant has them in stock (null when no parts are listed).
+  const parts=await planParts(plan);
+  return {...plan,checklist:JSON.parse(plan.checklist),...s,status:plan.active?s.status:'inactive',openJobId:job?.id??null,parts,stockSufficient:parts.length?parts.every(p=>p.sufficient):null};
 }
 const checklistOf=v=>{ if (!Array.isArray(v)||v.length>50||v.some(x=>typeof x!=='string'||!x.trim()||x.length>200)) bad('checklist must be up to 50 items of 1-200 characters'); return v.map(x=>x.trim()); };
 const numberOf=(v,name,max)=>{ const n=typeof v==='string'&&v.trim()?Number(v):v; if (typeof n!=='number'||!Number.isFinite(n)||n<0||n>max) bad(`${name} must be a number from 0 to ${max}`); return n; };
@@ -95,6 +98,7 @@ export function register(r) {
     const key=id(), title=body.title?required(body.title,'title',200):`Every ${interval} ${TRIGGERS[trigger].unit}`;
     await run('INSERT INTO pm_plans (id,company_id,plant_id,equipment_id,title,trigger,interval_value,checklist,start_usage,last_done_at,active,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?)',
       key,e.company_id,e.plant_id,e.id,title,trigger,interval,JSON.stringify(checklist),startUsage,lastDone,u.id,now(),now());
+    if (body.parts!=null) await setPlanParts(await byId('pm_plans',key),body.parts);
     await audit(u,'pm.plan.create','pm_plan',key,e.company_id,{trigger,interval});
     return created(await present(await byId('pm_plans',key),now()));
   });
@@ -103,9 +107,10 @@ export function register(r) {
     const next={title:body.title!=null?required(body.title,'title',200):p.title,interval:body.intervalValue!=null?intervalOf(body.intervalValue,p.trigger):p.interval_value,
       checklist:body.checklist!=null?JSON.stringify(checklistOf(body.checklist)):p.checklist,active:body.active!=null?(body.active?1:0):p.active};
     await run('UPDATE pm_plans SET title=?,interval_value=?,checklist=?,active=?,updated_at=? WHERE id=?',next.title,next.interval,next.checklist,next.active,now(),p.id);
+    if (body.parts!=null) await setPlanParts(p,body.parts);
     // A paused plan has nothing due: its open job is withdrawn and its overdue alert cleared.
     if (!next.active) { await run("DELETE FROM pm_jobs WHERE plan_id=? AND status='open'",p.id); await resolveAlertKey(`pm-overdue:${p.id}`); }
-    await audit(u,'pm.plan.update','pm_plan',p.id,p.company_id,{interval:next.interval,active:next.active});
+    await audit(u,'pm.plan.update','pm_plan',p.id,p.company_id,{interval:next.interval,active:next.active,...(body.parts!=null?{parts:body.parts.length}:{})});
     return await present(await byId('pm_plans',p.id),now());
   });
   r.get('/pm/jobs',async ({u,query})=>{

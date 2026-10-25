@@ -9,6 +9,7 @@ import { audit, byId, isDispatch } from '../../../common/access.js';
 import { bad, choice, date, deny, missing } from '../../../common/validate.js';
 import { machineOee } from '../../factory/production.js';
 import { planState, compliance } from './pm.js';
+import { partViews } from '../stock.js';
 
 const DAY=86400000, HOUR=3600000;
 const round=(n,d=1)=>n==null||!Number.isFinite(n)?null:Math.round(n*10**d)/10**d;
@@ -76,6 +77,17 @@ export async function buildPack(company,{fromMs,toMs,from,to},u) {
     failureCategory:t.failure_category,failureMode:t.failure_mode,rootCause:t.root_cause,actionTaken:t.action_taken,downtimeMinutes:t.downtime_minutes,status:t.status,completedAt:t.completed_at,signedOffBy:t.signer_name||null}));
   const parts=await all('SELECT p.item,p.part_number,p.quantity,p.unit,p.urgency,p.status,p.created_at,p.updated_at,t.equipment_id FROM parts_requests p JOIN tickets t ON t.id=p.ticket_id WHERE p.company_id=? AND p.created_at>=? AND p.created_at<? ORDER BY p.created_at',company.id,from,to);
 
+  // 8.5.1.5 replacement parts from stock: what was taken per machine in the period (issues less returns, at the cost
+  // when issued), and the spares held for criticality A machines with their reorder state when the pack is generated.
+  const issued=(await all(`SELECT m.equipment_id,p.part_number,p.name,p.unit,SUM(-m.quantity) qty,SUM(-m.quantity*m.unit_cost_minor) cost,COUNT(DISTINCT m.ticket_id) tickets,COUNT(DISTINCT m.pm_job_id) jobs
+    FROM spare_movements m JOIN spare_parts p ON p.id=m.part_id WHERE m.company_id=? AND m.type IN ('issue','return') AND m.created_at>=? AND m.created_at<?
+    GROUP BY m.equipment_id,p.part_number,p.name,p.unit HAVING SUM(-m.quantity)<>0 ORDER BY p.part_number`,company.id,from,to))
+    .map(x=>({machine:label(byMachine(x.equipment_id)),partNumber:x.part_number,name:x.name,unit:x.unit,quantity:round(x.qty,3),costMinor:Math.round(x.cost),tickets:x.tickets,pmJobs:x.jobs}));
+  const keyMachines=equipment.filter(e=>e.criticality==='A');
+  const keySpares=(await partViews([company.id])).filter(p=>p.active&&keyMachines.some(e=>p.fitsEquipmentIds.includes(e.id)||p.fitsTypes.includes(e.machine_type)))
+    .map(p=>({partNumber:p.part_number,name:p.name,unit:p.unit,machines:keyMachines.filter(e=>p.fitsEquipmentIds.includes(e.id)||p.fitsTypes.includes(e.machine_type)).map(label),onHand:p.onHand,onOrder:p.onOrder,reorderPoint:p.reorder_point,low:p.low}));
+  const spareStock={currency:company.currency,stockAt:new Date().toISOString(),issued,issuedCostMinor:issued.reduce((n,x)=>n+x.costMinor,0),keySpares};
+
   // What an auditor would raise, each with the records behind it.
   const gaps=[];
   const gap=(clause,finding,items)=>{ if (items.length) gaps.push({clause,finding,count:items.length,items:items.slice(0,50)}); };
@@ -84,13 +96,14 @@ export async function buildPack(company,{fromMs,toMs,from,to},u) {
   gap('8.5.1.5','Preventive maintenance overdue at the end of the period',planRows.filter(p=>p.status==='overdue').map(p=>`${p.machine}: ${p.title} (${p.progressPct} %)`));
   gap('8.5.1.5','Preventive maintenance jobs completed late',jobRows.filter(j=>j.onTime===false).map(j=>`${j.machine}: ${j.plan} (${j.progressPct} %)`));
   gap('8.5.1.5','Checklist items not done on completed jobs',jobRows.flatMap(j=>j.itemsSkipped.map(s=>`${j.machine}: ${s}`)));
+  gap('8.5.1.5','Spare parts for criticality A machines below their reorder point',keySpares.filter(p=>p.low).map(p=>`${p.partNumber} ${p.name}: ${p.onHand} ${p.unit} on hand, ${p.onOrder} on order, reorder point ${p.reorderPoint}`));
   gap('10.2','Completed breakdowns without a recorded root cause or action',breakdowns.filter(b=>b.status==='completed'&&(!b.rootCause||!b.actionTaken)).map(b=>`${b.machine}: ${b.title}`));
   gap('10.2','Completed breakdowns without customer sign-off',breakdowns.filter(b=>b.status==='completed'&&!b.signedOffBy).map(b=>`${b.machine}: ${b.title}`));
 
   const pack={standard:'IATF 16949:2016',company:{id:company.id,name:company.name,country:company.country},period:{from,to,days:round((toMs-fromMs)/DAY)},
     plants:plants.map(p=>p.name),generatedAt:new Date().toISOString(),generatedBy:u.name,
     pm:{compliance:await compliance([company.id],(toMs-fromMs)/DAY,to),plans:planRows,jobs:jobRows},
-    kpis:{totals,machines},tooling,breakdowns,spareParts:parts.map(p=>({...p,machine:label(byMachine(p.equipment_id))})),gaps};
+    kpis:{totals,machines},tooling,breakdowns,spareParts:parts.map(p=>({...p,machine:label(byMachine(p.equipment_id))})),spareStock,gaps};
   return {...pack,fingerprint:createHash('sha256').update(JSON.stringify(pack)).digest('hex')};
 }
 
@@ -98,6 +111,7 @@ const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>'
 const day=iso=>iso?String(iso).slice(0,10):'—';
 const pct=v=>v==null?'—':`${v} %`;
 const num=v=>v==null?'—':Number(v).toLocaleString('en');
+const money=(minor,code)=>{ try { const d=new Intl.NumberFormat('en',{style:'currency',currency:code}).resolvedOptions().maximumFractionDigits; return esc(new Intl.NumberFormat('en',{style:'currency',currency:code}).format(minor/10**d)); } catch { return esc(minor); } };
 const words=v=>esc(v==null?v:String(v).replaceAll('_',' '));
 const table=(head,rows,empty='None in this period.')=>rows.length?`<table><thead><tr>${head.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`:`<p class="muted">${esc(empty)}</p>`;
 // A self-contained, printable document (print to PDF from the browser). Every value is escaped.
@@ -119,6 +133,8 @@ export function packHtml(p) {
 <h2>8.5.1.6 Tooling management: moulds</h2>${table(['Mould','Number','Cavities','Recorded shots','PM interval','Plan','Since last service','Status','PM jobs done','Breakdowns'],p.tooling.map(m=>[esc(m.mould),esc(m.mouldNumber),esc(m.cavities),m.recordedShots==null?'—':Number(m.recordedShots).toLocaleString('en'),m.pmIntervalShots==null?'—':Number(m.pmIntervalShots).toLocaleString('en')+' shots',esc(m.plan?.title),m.plan?`${Number(m.plan.usage).toLocaleString('en')} / ${Number(m.plan.interval).toLocaleString('en')} ${esc(m.plan.unit)}`:'—',words(m.plan?.status||'no plan'),m.pmJobsDone,m.breakdowns]),'No moulds registered.')}
 <h2>10.2 Breakdown records</h2>${table(['Occurred','Machine','Fault','Priority','Category · mode','Root cause','Action','Downtime','Status','Signed off'],p.breakdowns.map(b=>[day(b.occurredAt),esc(b.machine),`${esc(b.title)}${b.safetyIssue?' <b>(safety)</b>':''}`,esc(b.priority),`${words(b.failureCategory)} · ${words(b.failureMode)}`,words(b.rootCause),words(b.actionTaken),`${num(b.downtimeMinutes)} min`,words(b.status),esc(b.signedOffBy)]))}
 <h2>8.5.1.5 Replacement parts</h2>${table(['Requested','Machine','Part','Quantity','Urgency','Status','Updated'],p.spareParts.map(x=>[day(x.created_at),esc(x.machine),`${esc(x.item)}<br><span class="muted">${esc(x.part_number)}</span>`,`${x.quantity} ${esc(x.unit)}`,words(x.urgency),words(x.status),day(x.updated_at)]))}
+<h2>8.5.1.5 Replacement parts used from stock</h2>${table(['Machine','Part','Quantity','Tickets','PM jobs','Cost'],p.spareStock.issued.map(x=>[esc(x.machine),`${esc(x.name)}<br><span class="muted">${esc(x.partNumber)}</span>`,`${num(x.quantity)} ${esc(x.unit)}`,x.tickets,x.pmJobs,money(x.costMinor,p.spareStock.currency)]))}
+<h2>8.5.1.5 Spare parts held for criticality A machines</h2><p class="muted">Stock when this pack was generated (${esc(p.spareStock.stockAt.slice(0,16).replace('T',' '))} UTC).</p>${table(['Part','For','On hand','On order','Reorder point','Status'],p.spareStock.keySpares.map(x=>[`${esc(x.name)}<br><span class="muted">${esc(x.partNumber)}</span>`,x.machines.map(esc).join('<br>'),`${num(x.onHand)} ${esc(x.unit)}`,num(x.onOrder),num(x.reorderPoint),x.low?'<b>Below reorder point</b>':'OK']),'No spare parts in the stock catalogue fit a criticality A machine.')}
 <footer>Built from the records in MouldCare at the time shown. SHA-256 fingerprint of the data: ${esc(p.fingerprint)}</footer></body></html>`;
 }
 

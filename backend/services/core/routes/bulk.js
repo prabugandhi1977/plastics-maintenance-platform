@@ -1,9 +1,9 @@
 // Bulk import of master data from CSV: a downloadable template per list, and an all-or-nothing upload.
 // Every row goes through the same create handler as the single-record form, so the rules (and permissions) are identical.
-import { all, one, now } from '../../../common/db.js';
+import { all, one, now, mapSeq } from '../../../common/db.js';
 import { isDispatch } from '../../../common/access.js';
 import { bad, deny, missing, HttpError } from '../../../common/validate.js';
-import { MACHINE_TYPES, CRITICALITY, EQUIPMENT_STATUS, SPEC_FIELDS, OPERATING_PATTERNS, PRODUCT_UNITS } from '../../../common/catalog.js';
+import { MACHINE_TYPES, CRITICALITY, EQUIPMENT_STATUS, SPEC_FIELDS, OPERATING_PATTERNS, PRODUCT_UNITS, PART_UNITS } from '../../../common/catalog.js';
 
 const MAX_ROWS=1000;
 const cell=v=>{ const s=String(v??''); return /[",\r\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s; };
@@ -88,6 +88,35 @@ const ENTITIES={
       for (const k of ['partWeightG','idealCycleS','cavities','idealRatePerHour']) if (!blank(row[k])) body[k]=Number(text(row[k]));
       if (!blank(row.mould)) body.mouldId=await assetByTag(company.id,row.mould);
       if (!blank(row.defaultMachine)) body.defaultMachineId=await assetByTag(company.id,row.defaultMachine);
+      return body;
+    },
+    summary:b=>b.partNumber
+  },
+  // Spare parts catalogue, optionally with the quantity on hand today (booked as an opening-balance receipt).
+  'spare-parts':{
+    file:'spare-parts', post:'/spare-parts', title:'spare parts',
+    columns:()=>[
+      {key:'company',required:false,help:'only needed when you manage several companies',example:'Acme Plastics'},
+      {key:'partNumber',required:true,example:'ARB-SEAL-50'},{key:'name',required:true,example:'Screw seal kit 50 mm'},{key:'maker',required:false,example:'Arburg'},
+      {key:'unit',required:false,allowed:PART_UNITS,help:'blank means pcs',example:'pcs'},{key:'category',required:false,example:'Seals'},
+      {key:'fitsTypes',required:false,help:`machine types it fits, separated by |: ${MACHINE_TYPES.join(' | ')}`,example:'injection'},
+      {key:'fitsMachines',required:false,help:'asset tags of the machines it fits, separated by |',example:''},
+      {key:'unitCost',required:false,help:'price per unit in the company currency, e.g. 125.50',example:'125.50'},
+      {key:'reorderPoint',required:false,help:'minimum stock: reorder when on hand + on order falls below it',example:'2'},
+      {key:'reorderQty',required:false,help:'usual order quantity',example:'4'},{key:'leadTimeDays',required:false,help:'0 to 365',example:'10'},
+      {key:'supplier',required:false,example:'Arburg spare parts'},{key:'barcode',required:false,help:'barcode on the packaging, if any',example:''},
+      {key:'plant',required:false,help:'plant holding the opening stock',example:'Pune'},{key:'bin',required:false,help:'shelf or bin',example:'A-01'},
+      {key:'openingQty',required:false,help:'quantity on hand today',example:'3'}],
+    async toBody(u,row) {
+      const company=await companyFrom(u,row.company), body={companyId:company.id};
+      for (const k of ['partNumber','name','maker','category','supplier','barcode','reorderPoint','reorderQty']) if (!blank(row[k])) body[k]=text(row[k]);
+      if (!blank(row.unit)) body.unit=text(row.unit).toLowerCase();
+      if (!blank(row.leadTimeDays)) body.leadTimeDays=Number(text(row.leadTimeDays));
+      if (!blank(row.fitsTypes)) body.fitsTypes=text(row.fitsTypes).split('|').map(x=>x.trim().toLowerCase()).filter(Boolean);
+      if (!blank(row.fitsMachines)) body.fitsEquipmentIds=await mapSeq(text(row.fitsMachines).split('|').map(x=>x.trim()).filter(Boolean),tag=>assetByTag(company.id,tag));
+      if (!blank(row.unitCost)) { const n=Number(text(row.unitCost).replace(',','.')), code=(await one('SELECT currency FROM companies WHERE id=?',company.id)).currency, d=new Intl.NumberFormat('en',{style:'currency',currency:code}).resolvedOptions().maximumFractionDigits;
+        if (!Number.isFinite(n)||n<0) bad('unitCost must be a price, e.g. 125.50'); body.unitCostMinor=Math.round(n*10**d); }
+      if (!blank(row.openingQty)) { const plant=await plantFrom(u,row.plant); body.initialStock={plantId:plant.id,bin:text(row.bin),quantity:text(row.openingQty),reference:'Opening balance (import)'}; }
       return body;
     },
     summary:b=>b.partNumber
