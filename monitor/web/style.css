@@ -156,6 +156,8 @@ label.check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 input[type=file] { font-size: 13px; }
 .req { color: var(--risk); }
 code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+[data-for][hidden] { display: none; }
 input:disabled { opacity: .7; }
 
 /* icons */

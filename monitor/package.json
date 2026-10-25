@@ -15,9 +15,12 @@
     "@anthropic-ai/sdk": "0.131.0",
     "fflate": "0.8.3",
     "mqtt": "5.16.0",
+    "node-opcua-certificate-manager": "2.187.0",
+    "node-opcua-client": "2.187.3",
     "unpdf": "1.8.1"
   },
   "devDependencies": {
-    "aedes": "1.2.0"
+    "aedes": "1.2.0",
+    "node-opcua-server": "2.187.3"
   }
 }

@@ -213,7 +213,7 @@ How the intake handles a request:
 - **Machine state:** `state` is `running`, `idle`, `down` or `off`. Only running time counts towards a machine's normal.
 - **Errors:** each reading comes back accepted or rejected with a reason: an unknown device, a time in the future or more than 30 days old, or a value that is not a number. Unknown signal names are skipped and listed.
 
-Machines, their device IDs and signal limits are set up under **Settings** by the super user.
+Machines, their device IDs and signal limits are set up under **Settings** by the super user. To read machines without a gateway, see [Connect machines directly](#connect-machines-directly).
 
 ## Connect over MQTT
 
@@ -254,6 +254,92 @@ How the MQTT intake works:
 - **Reconnects:** if the broker goes away, Monitor reconnects on its own. It waits a little longer after each failed try, up to a minute.
 - **Status:** **Settings › Connections & models** shows whether Monitor is connected, the last message, how many readings were accepted and rejected, and the reasons for the last rejections.
 
+## Connect machines directly
+
+Monitor can also poll machines itself, with no gateway in between. The super user sets up **connectors** under **Settings › Connections & models**. Each connector belongs to one machine and reads its signals every poll interval (1 s to 1 hour). The readings go through the same checks as `POST /api/ingest`, in batches, so unknown devices, unknown signals and values that are not numbers are handled the same way.
+
+| Connector | For | Address of a signal |
+| --- | --- | --- |
+| **OPC UA / Euromap 77** | Newer injection moulding machines (Euromap 77 / OPC 40077), Siemens S7-1200/1500, and any PLC or gateway with an OPC UA server | A node ID, such as `ns=2;s=Machine.OilTemp` |
+| **Euromap 63** | Older injection moulding machines that exchange files in a shared folder | A parameter name, such as `@ActCycTim` |
+| **Modbus TCP** | Most PLCs (Allen-Bradley, Mitsubishi, Omron, Delta, Schneider) and energy meters | A register: address, function, type, word order |
+
+Each signal can have a `scale` and an `offset`: the stored value is the raw value × scale + offset. The machine state can come from a node, parameter or register too, with a map from its values to `running`, `idle`, `down` or `off`.
+
+**Signal mapping.** The mapping is JSON: each key is a signal key of the machine, and each value says where to read it.
+
+```json
+{ "hydraulic_oil_temp": { "node": "ns=2;s=Machine.OilTemp" },
+  "injection_pressure": { "node": "ns=2;s=Machine.InjPressure", "scale": 0.1 } }
+```
+
+**OPC UA / Euromap 77.**
+
+- **Endpoint:** `opc.tcp://host:4840`. A user name or password inside the URL is refused.
+- **Security:** mode `None`, `Sign` or `SignAndEncrypt`, and a policy (default `Basic256Sha256` when signing). Use `SignAndEncrypt` with a user name and password.
+- **Certificate:** Monitor's own client certificate is made once and kept in `/data/opcua-pki`, so a server that trusts it keeps trusting it. If the server must trust Monitor, add that certificate to the server's trust list. By default Monitor accepts the server's certificate. Switch this off per connector to accept only servers whose certificate is in `/data/opcua-pki/trusted/certs`. A refused certificate lands in `/data/opcua-pki/rejected`; move it to `trusted/certs` to accept it.
+- **Read mode:** *Subscription* (the default) lets the server push changes. If the server refuses a subscription, the connector polls instead and says so in its status. *Polling* reads every node on every poll.
+- **Machine state:** a state node with no map uses the Euromap 77 machine modes:
+
+  | Mode | State |
+  | --- | --- |
+  | 1 Automatic, 2 Semi-automatic | running |
+  | 0 Other, 3 Manual, 4 Setup | idle |
+  | 5 Sleep | off |
+
+  Names (`AUTOMATIC`, `MANUAL`, `SLEEP`) work too. Give your own map for anything else, for example an alarm flag mapped to `down`.
+
+**Euromap 63.** Each poll is one session in the machine's session folder:
+
+1. Monitor writes the job `SESSnnnn.JOB`, which holds a `REPORT` command with the parameters (`DATE, TIME, @ActCycTim, ...`).
+2. Monitor writes the request `SESSnnnn.REQ`: `00000001 EXECUTE "SESSnnnn.JOB";`.
+3. The machine writes its report `SESSnnnn.DAT` (a header line and a line of values) and its response `SESSnnnn.RSP`.
+4. Monitor reads the values and removes the session's files.
+
+Settings for Euromap 63:
+
+- **Session folder:** it must be inside `MONITOR_EUROMAP63_ROOT` (default `/data/euromap63`). Mount the machines' shared folders there, one folder per machine.
+- **Folder as the machine sees it:** a prefix (such as `C:\EM63\`) for machines that need full paths in the job.
+- **Timeout:** if the machine does not answer within the timeout (default 10 s), the session fails and its request is withdrawn.
+- **Stale files:** session files (`SESS*.REQ/RSP/JOB/DAT/LOG`) left from earlier sessions are removed once they are older than three timeouts, and at least a minute. Other files in the folder are not touched. The folder is meant for Monitor alone, as Euromap 63 expects one host per session folder.
+
+**Modbus TCP.** The endpoint is `host:port` (port 502 by default), with a unit ID (default 1). Each signal is a register:
+
+```json
+{ "hydraulic_oil_temp": { "address": 100, "function": "holding", "type": "float32", "wordOrder": "big" },
+  "motor_current":      { "address": 10,  "function": "input",   "type": "int16",   "scale": 0.1 } }
+```
+
+- **`address`:** the 0-based protocol address. Register 40001 is address 0 with `holding`, and 30001 is address 0 with `input`.
+- **`function`:** `holding` (3), `input` (4), `coil` (1) or `discrete` (2).
+- **`type`:** `int16`, `uint16`, `int32`, `uint32` or `float32`.
+- **`wordOrder`:** `big` puts the high word first, `little` puts the low word first (for 32-bit types).
+- Neighbouring registers are read in one request. The client is built into Monitor over `node:net`, with no dependency.
+
+**Siemens S7.** No native S7 (ISO-on-TCP) driver: the pure-JavaScript libraries for it are small and not well maintained. Read an S7-1200/1500 through its built-in OPC UA server, or any S7 through Modbus TCP (`MB_SERVER`) or an OPC UA gateway.
+
+**Passwords.** OPC UA passwords never appear in an API reply, the audit log or a log line, and are scrubbed from error messages. There are two ways to give one:
+
+- **Typed in Settings:** stored encrypted (AES-256-GCM, with a key derived from `MONITOR_SECRET`), so a copy of the database alone does not reveal it. If `MONITOR_SECRET` changes, type the password again.
+- **From an environment variable:** give the name of one that starts with `MONITOR_CONNECTOR_`, such as `MONITOR_CONNECTOR_IMM07_PASSWORD`. The prefix stops a connector from sending another secret on the server (such as `ANTHROPIC_API_KEY`) to a machine.
+
+**Status and Test connection.** The list shows for each connector:
+
+- whether it is connected, and its read mode
+- the last reading, with its values and state
+- readings accepted and rejected, with the reasons
+- the last error and when it retries
+
+**Test connection** (on a saved connector, or in the form before saving) reads once and shows the values, the raw values and anything skipped. It stores nothing.
+
+**How connectors run.** One supervisor starts every enabled connector when Monitor starts:
+
+- **Isolation:** each connector runs in its own loop, so a machine that fails never holds up the others.
+- **Backoff:** on an error, the connector disconnects and tries again after 1 s, doubling up to 60 s, and starts again from 1 s after a good read.
+- **Changes:** editing a connector restarts it with the new settings. Disabling or deleting it stops it.
+- **Shutdown:** on `SIGTERM`, every connector disconnects and the readings still queued are stored.
+- **Turning it off:** set `MONITOR_CONNECTORS=off` for a server that cannot reach the plant network.
+
 ## Tests
 
 ```powershell
@@ -261,7 +347,7 @@ cd monitor
 npm test
 ```
 
-There are 45 tests in nine files:
+There are 53 tests in ten files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
@@ -282,6 +368,15 @@ There are 45 tests in nine files:
   - an unset connection recorded as `not_configured`, then sent once it is set up
   - the key never in an API reply or the database
 - `mqtt.test.js`: a real MQTT broker inside the test. It publishes both payload formats and checks that readings and states are stored through the normal intake. It also covers rejected messages and their reasons, batching, the status in Settings without the password, and a reconnect after the broker drops the connection.
+- `connectors.test.js`: machine connectors against real servers inside the test: an OPC UA server (node-opcua), a Modbus TCP server written in the test, and a folder that answers Euromap 63 sessions like a machine. It covers:
+  - values reaching `readings` through the normal intake, scaled, with the machine state mapped (Euromap 77 modes for OPC UA, value maps for Modbus and Euromap 63)
+  - OPC UA by subscription and by polling, a password from an environment variable, and a missing node reported as skipped
+  - Modbus types, word order and the planning of requests
+  - Euromap 63 job and request files, removal of the session's files and of stale ones, a timeout, and a job the machine refuses
+  - errors backing off and recovering (a wrong password, a server restart, Modbus device exceptions, a machine that stops answering), without affecting the other connectors
+  - a restart after a change, disabling, deleting, a clean stop, and a changed device ID
+  - the API for the super user only, its input checks, and passwords never in a reply, the database in clear, an error or the audit log
+  - *Test connection* reading without storing
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 - `manuals.test.js`: the AI reading the documents, with a stand-in client, covering:
   - text from a PDF made in the test (page by page), Word, Excel, text and CSV, and passages of a few hundred words
@@ -310,6 +405,6 @@ There are 45 tests in nine files:
 
 ## Next steps
 
-- **Protocol bridges:** an OPC UA bridge that posts to `/api/ingest`. MQTT is built in.
+- **Protocols:** native Siemens S7 (ISO-on-TCP), and OPC UA certificate management from the dashboard. OPC UA, Euromap 63, Modbus TCP and MQTT are built in.
 - **Scale:** several plants and companies (tenancy), and PostgreSQL for more than one instance.
 - **Languages:** German and other languages for the dashboard.

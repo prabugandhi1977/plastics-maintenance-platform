@@ -18,6 +18,7 @@ import { registerPeople, allocateOnDraft, assignmentOut, assign } from './people
 import { sendDraft, retryPending, mouldcareOut, mouldcareStatus } from './mouldcare.js';
 import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle, askManuals } from './ai/claude.js';
 import { indexPending } from './manuals.js';
+import { registerConnectors, startConnectors, stopConnectors, connectorsEnabled } from './connectors/index.js';
 
 const r = createRouter();
 // Demo accounts come with demo data unless MONITOR_DEMO_ACCOUNTS=false (a public site with simulated machines).
@@ -184,6 +185,7 @@ r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process
 
 registerSetup(r);
 registerPeople(r);
+registerConnectors(r);
 
 // ---- HTTP plumbing ----
 const STATIC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
@@ -244,7 +246,10 @@ if (process.argv[1]?.endsWith('index.js')) {
     let lastError = null;
     startMqtt(mqttCfg).on('connect', () => { lastError = null; console.log(`MQTT: subscribed to ${mqttCfg.topic} on ${mqttStatus().url}`); })
       .on('error', e => { if (e.message !== lastError) console.error(`MQTT: ${(lastError = e.message)}`); });
-    const shutdown = async () => { server.close(); try { await stopMqtt(); } finally { process.exit(0); } };
-    process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
   }
+  // Machine connectors (OPC UA / Euromap 77, Euromap 63, Modbus TCP) set up in Settings › Connections & models.
+  if (connectorsEnabled()) startConnectors({ log: true });
+  else console.log('Machine connectors: off (MONITOR_CONNECTORS)');
+  const shutdown = async () => { server.close(); try { await Promise.all([stopMqtt(), stopConnectors()]); } finally { process.exit(0); } };
+  process.once('SIGTERM', shutdown); process.once('SIGINT', shutdown);
 }
