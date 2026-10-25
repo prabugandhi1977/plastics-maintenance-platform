@@ -174,6 +174,7 @@ export function registerSetup(r) {
       run('DELETE FROM readings WHERE machine_id=? AND key=?', m.id, s.key);
       run('UPDATE ticket_drafts SET finding_id=NULL WHERE finding_id IN (SELECT id FROM findings WHERE machine_id=? AND signal_key=?)', m.id, s.key);
       run('DELETE FROM findings WHERE machine_id=? AND signal_key=?', m.id, s.key);
+      for (const t of ['decisions', 'learned', 'rebaselines', 'learning_log']) run(`DELETE FROM ${t} WHERE machine_id=? AND signal_key=?`, m.id, s.key);
       run('DELETE FROM files WHERE machine_id=? AND signal_key=?', m.id, s.key);
       run('DELETE FROM signals WHERE machine_id=? AND key=?', m.id, s.key);
     });

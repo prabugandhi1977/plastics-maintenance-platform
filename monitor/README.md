@@ -6,7 +6,7 @@ Machine and condition monitoring for plastics plants, with machine learning that
 
 - **Live machine health:** every machine with its state, a health score, its most important finding and a sparkline of the signal that matters most. It refreshes every 30 seconds.
 - **Condition monitoring per signal:** hydraulic oil, vibration, barrel and die temperatures, pressures, cooling water, motor current, chiller, dryer and compressor signals, with recommended limits per machine type (vibration per ISO 20816). Charts show the readings, the learned normal band, the limits and the projected trend.
-- **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed. Every decision is kept with the finding and in the audit log.
+- **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed, with an optional reason. Every decision is kept with the finding and in the audit log, and the analysis learns from it (details below).
 - **Machine and signal set-up under Settings, for the super user only:** the super user (the administrator role) adds, edits and deletes machines and signals, with their parameters, photos and documents (details below). Everyone else sees each machine's details, photo and documents on its page and can download them.
 - **People and ticket allocation:** users and service providers with their skills, also managed by the super user under Settings. Each ticket draft gets an assignee: suggested when drafted, set automatically by the rules or by AI, or chosen while approving, and changeable afterwards (details below).
 - **Hand-off to MouldCare:** an approved draft is sent to MouldCare as a breakdown ticket, with its reference shown on the draft. If MouldCare is down, the draft says so and is sent again later (details below).
@@ -24,6 +24,40 @@ The models live in `server/ml/`, need no labelled failures and no Python, and ea
 | **Pattern** | All of a machine's signals together, in 15-minute windows, scored against two models trained on its own history (7 days back to 1 day ago) and retrained every 6 hours. The **relationship distance** (Mahalanobis) catches signals that normally move together and have stopped doing so. The **extended isolation forest** catches operating states never seen before. A pattern driven mostly by one signal that already has its own finding is reported once, not twice. |
 
 The **health score** starts at 100 and loses points for each open finding: up to 55 for a critical limit breach, 25 to 40 for a degrading trend, and 15 for an unusual signal or pattern. A machine with any open finding is at least *Watch*. A machine with a critical finding, or a score under 50, is *At risk*.
+
+## Learning from decisions
+
+Each decision people make on a finding is kept as a labelled example (`server/ml/learning.js`, tables in `migrations/007_decision_learning.sql`): the detector and machine, the signal, the score and severity, the features at the time (the finding's detail, the latest value of every signal, the machine state, how long it was open), who decided, the outcome and the reason. *Confirmed* and *fixed* count as real problems, *false alarm* as not; *acknowledged* is not a decision. A later decision on the same finding replaces its example.
+
+**Reasons.** A false alarm can say why: *planned change*, *sensor fault*, *normal for this product*, *limit too tight* or *other* (with a note). A fix can say what was found: worn part, leak, fouling, electrical fault, setting adjusted, sensor fault fixed or other.
+
+**The rule.** Per machine, signal and detector (limit, unusual, degrading, pattern):
+
+- precision = (real + 2) / (decisions + 4). The prior of 2 real and 2 false keeps it at 50 % until people decide, so one or two decisions cannot swing it.
+- From 3 decisions, a sensitivity factor follows. Below 50 % precision it is 1 + 2 × (0.5 − precision), quieter, at most 2. From 50 to 75 % it is 1, as built. Above 75 % it is 1 − 0.8 × (precision − 0.75), more sensitive, at least 0.8.
+
+| Detector | What the factor changes | Bounds |
+| --- | --- | --- |
+| Unusual | The threshold, 4 × factor spreads from normal | 3.2 to 8 spreads |
+| Degrading | How far ahead a trend towards the critical limit is reported, 168 h ÷ factor | 84 to 210 h. A trend reaching the critical limit within 48 h is always reported |
+| Pattern | Both pattern-model thresholds × factor | A distance over twice the model's own threshold (critical) is always reported |
+| Limit | A warning breach must pass the limit by (factor − 1) × 25 % of the gap to the critical limit | At most a quarter of the way. People's limits are never changed or tightened, and critical limits are never touched |
+
+A critical limit breach is never held back: not by learning, and not by the 24-hour quiet after a false alarm on the same limit's warning. *Limit too tight* is counted and shown on the machine page, for the super user to review the limit; the limit itself only changes when a person changes it.
+
+**Rebaseline.** A false alarm marked *normal for this product* or *planned change* rebaselines that signal: its normal and trend are relearned from the last 12 hours on (it shows *learning* for about two hours while the new normal builds up), and the machine's pattern models retrain on the day up to the decision.
+
+**Ranking.** Findings are listed with critical limit breaches first, then by how likely they are to be real: the learned precision, doubled for a critical finding.
+
+**Explained.** Every adjustment is logged with the setting, its old and new value, and how many decisions it rests on, for example: *Unusual threshold for the unusual detector on Pump / motor vibration: 6 → 6.2 spreads, because 0 of 5 decisions were real (learned precision 22 %).* The log is shown on the machine page and the summary is in the audit log.
+
+**Where to see it.**
+- Each finding shows *Learned from N decisions: X % were real*.
+- Each machine page has a *What the system has learned* card, with each signal's detectors, their settings, recent reasons, rebaselines and the change log. The super user can **Reset learning** per signal (or for the pattern models): the decisions stay on record but stop counting, the detectors go back to how they were built, and any rebaseline ends.
+- **Settings › Connections & models** shows how many decisions are recorded and how many adjustments are active.
+- The AI explanation and ticket-draft prompts include the learned precision, the adjustment, the tally of recent reasons and up to three recent notes, quoted as data.
+
+Viewers cannot decide on findings. Only the super user can reset learning.
 
 ## AI features (Claude)
 
@@ -261,10 +295,16 @@ cd monitor
 npm test
 ```
 
-There are 45 tests in nine files:
+There are 55 tests in ten files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
+- `learning.test.js`: learning from decisions on the demo plant, covering:
+  - the rule (prior, minimum decisions, bounds) and the reason checks; each decision stored as a labelled example with its features
+  - repeated false alarms raising the threshold within bounds and lowering the finding's rank, and confirmations and fixes restoring it
+  - a warning limit held back by a learned margin while the person's limit stays unchanged, and a critical breach reported anyway, despite the margin and the 24-hour quiet
+  - a rebaseline on *normal for this product*, with the signal normal again at its new level and the pattern models retrained
+  - reset by the super user only, viewers unable to decide, every adjustment explained, the Settings summary, and the learned precision and reasons in the AI prompts
 - `seed.test.js`: demo machines without demo accounts, and the first admin from the environment.
 - `setup.test.js`: adding, editing and deleting machines and signals, covering:
   - the parameter and limit checks, unique tags and device IDs, and who may do what

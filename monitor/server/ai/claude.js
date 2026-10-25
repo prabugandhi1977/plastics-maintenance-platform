@@ -13,6 +13,7 @@ import { KNOWLEDGE, MACHINE_TYPES } from '../catalog.js';
 import { analysisOf } from '../ml/analyze.js';
 import { median } from '../ml/stats.js';
 import { search, findingQuery, searchable } from '../manuals.js';
+import { learningFacts } from '../ml/learning.js';
 
 export const AI_MODEL = process.env.MONITOR_AI_MODEL || 'claude-opus-5-5';
 let client = null;
@@ -108,7 +109,7 @@ export async function explainFinding(f, { refresh = false, now = Date.now() } = 
   if (aiEnabled()) {
     try {
       const k = KNOWLEDGE[f.signal_key], ps = passagesFor(f, machine, sig);
-      const r = await structured({ system: ENGINEER, schema: EXPLAIN_SCHEMA, prompt: `${machineFacts(machine, now)}\n\nExplain this finding to the maintenance engineer: ${findingTitle(f, sig)} (${f.kind}, ${f.severity}). Detail: ${f.detail_json}.${k ? `\nTypical causes for this signal from the plant's knowledge base: ${JSON.stringify(k)}.` : ''}${passagesBlock(ps)}\nUse the other signals and the history to rank the causes; say which evidence would separate them. Where a passage gives a procedure, value or part for this machine, use it and cite it.` });
+      const r = await structured({ system: ENGINEER, schema: EXPLAIN_SCHEMA, prompt: `${machineFacts(machine, now)}\n\nExplain this finding to the maintenance engineer: ${findingTitle(f, sig)} (${f.kind}, ${f.severity}). Detail: ${f.detail_json}.${learningFacts(f, quote)}${k ? `\nTypical causes for this signal from the plant's knowledge base: ${JSON.stringify(k)}.` : ''}${passagesBlock(ps)}\nUse the other signals and the history to rank the causes; say which evidence would separate them. Where a passage gives a procedure, value or part for this machine, use it and cite it.` });
       if (r) out = { source: 'ai', model: r.model, ...r.value, sources: sourcesOf(r.value.sources, ps) };
     } catch (e) { console.error('AI explanation failed:', e.message); }
   }
@@ -132,7 +133,7 @@ export async function draftTicket(f, user, now = Date.now()) {
   if (aiEnabled()) {
     try {
       const ps = passagesFor(f, machine, sig);
-      const r = await structured({ system: ENGINEER, schema: TICKET_SCHEMA, prompt: `${machineFacts(machine, now)}\n\nFinding: ${findingTitle(f, sig)} (${f.kind}, ${f.severity}). Detail: ${f.detail_json}.\nAssessment so far: ${JSON.stringify({ summary: exp.summary, likelyCauses: exp.likelyCauses, checkFirst: exp.checkFirst })}.${passagesBlock(ps)}\nDraft the maintenance ticket a planner would raise for this. Priority follows urgency and risk to people and production. Where a passage names the procedure or part numbers, put them in the actions and parts and cite it.` });
+      const r = await structured({ system: ENGINEER, schema: TICKET_SCHEMA, prompt: `${machineFacts(machine, now)}\n\nFinding: ${findingTitle(f, sig)} (${f.kind}, ${f.severity}). Detail: ${f.detail_json}.${learningFacts(f, quote)}\nAssessment so far: ${JSON.stringify({ summary: exp.summary, likelyCauses: exp.likelyCauses, checkFirst: exp.checkFirst })}.${passagesBlock(ps)}\nDraft the maintenance ticket a planner would raise for this. Priority follows urgency and risk to people and production. Where a passage names the procedure or part numbers, put them in the actions and parts and cite it.` });
       if (r) { draft = { ...r.value, sources: sourcesOf(r.value.sources, ps) }; source = 'ai'; }
     } catch (e) { console.error('AI ticket draft failed:', e.message); }
   }
