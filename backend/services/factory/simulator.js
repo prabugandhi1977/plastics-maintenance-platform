@@ -2,9 +2,9 @@
 // written through the same recordState/recordCount path real PLC and sensor adapters will use. Deterministic per
 // machine and slot, so a re-run produces the same history. Enabled with FACTORY_SIMULATOR=true (off by default, so it
 // never invents data for real customers on a live site).
-import { one, all, run, transaction, reduceSeq } from '../../common/db.js';
+import { id as newId, now, one, all, run, transaction, reduceSeq } from '../../common/db.js';
 import { recordState, recordCount, currentProduct, plantOf, stateAlerts } from './production.js';
-import { shiftWindows, inShift } from './time.js';
+import { shiftWindows, inShift, currentShift } from './time.js';
 import { PRODUCTION_MACHINES, parametersFor } from '../../common/catalog.js';
 import { recordEnergy } from './energy.js';
 import { recordCondition } from './condition.js';
@@ -12,6 +12,7 @@ import { recordVision } from './quality.js';
 import { recordSafety } from './safety.js';
 import { recordSighting } from './assets.js';
 import { DEFECT_TYPES } from '../../common/catalog.js';
+import { raiseAndon, acknowledgeCall, resolveCall, SYSTEM } from './andon.js';
 
 export const SLOT_MIN=15, SLOT=SLOT_MIN*60000, BACKFILL_DAYS=Math.max(7,Number(process.env.FACTORY_BACKFILL_DAYS)||7);
 export const simulatorEnabled=()=>process.env.FACTORY_SIMULATOR==='true';
@@ -78,6 +79,7 @@ export async function simulateMachine(e,until=Date.now()) {
       const at=new Date(t).toISOString(), slot=String(t/SLOT);
       const [state,reason]=inShift(windows,t)?nextState(prev,e,slot,ch):['planned_stop','no_production_planned'];
       const change=await recordState(e,state,reason,at,'simulator');
+      if (change.changed) await simulatedOperator(e,plant,state,reason,change,at,t>=until-30*60000);
       // Alerts only for recent events, so the first backfill does not flood the alert list.
       if (t>=recentFrom) await stateAlerts(e,state,reason,change,at);
       if (state==='running') {
@@ -104,6 +106,39 @@ export async function simulateMachine(e,until=Date.now()) {
     await run("INSERT INTO factory_cursors (equipment_id,stream,until) VALUES (?,'production',?) ON CONFLICT(equipment_id,stream) DO UPDATE SET until=excluded.until",e.id,new Date(end).toISOString());
   });
   return slots;
+}
+// Operators at the tablet: most stops get a reason entered (the downtime Pareto), and a breakdown that just happened
+// often brings a maintenance andon call. Live calls are raised at the real time, so escalation timing is realistic.
+const SIM_OPERATORS=['J. Rivera','K. Patel','M. Novak','S. Okafor','L. Chen'];
+async function simulatedOperator(e,plant,state,reason,change,at,live) {
+  const r=k=>rand(e.id,at,k), st=await one('SELECT station_id FROM operator_station_machines WHERE equipment_id=? LIMIT 1',e.id);
+  const operator=SIM_OPERATORS[Math.floor(r('op')*SIM_OPERATORS.length)%SIM_OPERATORS.length];
+  if (['down','idle','setup'].includes(state)&&r('classify')<0.75) {
+    const open=await one('SELECT id FROM machine_states WHERE equipment_id=? AND ended_at IS NULL',e.id), shift=await currentShift(plant,Date.parse(at));
+    await run("INSERT INTO operator_events (id,company_id,plant_id,equipment_id,station_id,kind,state,reason,state_id,operator_name,created_by,shift_name,shift_date,created_at) VALUES (?,?,?,?,?,'downtime',?,?,?,?,?,?,?,?)",newId(),e.company_id,e.plant_id,e.id,st?.station_id||null,state,reason,open.id,operator,SYSTEM.id,shift?.name||null,shift?.date||null,at);
+  }
+  if (live&&st&&state==='down'&&r('andon')<0.6) {
+    const station=await one('SELECT * FROM operator_stations WHERE id=?',st.station_id);
+    const {call,created}=await raiseAndon(e,{type:'maintenance',note:`Machine stopped: ${String(reason||'fault').replaceAll('_',' ')}`},{user:SYSTEM,stationId:station.id,operator,name:operator,detail:{via:'station',stationId:station.id,station:station.name,operator,simulated:true}});
+    if (created) { const ids=await simulatedCalls(); ids.push(call.id); await saveSimulatedCalls(ids); }
+  }
+}
+const simulatedCalls=async ()=>JSON.parse((await one("SELECT value FROM settings WHERE key='sim_andon_calls'"))?.value||'[]');
+const saveSimulatedCalls=async ids=>await run("INSERT INTO settings (key,value,updated_at) VALUES ('sim_andon_calls',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify(ids.slice(-200)),now());
+// The simulated maintenance technician answers a few minutes after the call and closes it when the machine runs again
+// (or after up to an hour). Calls a person already handled are left alone.
+export async function simulateResponders(at=Date.now()) {
+  const ids=await simulatedCalls(), keep=[];
+  for (const key of ids) {
+    const c=await one('SELECT * FROM andon_calls WHERE id=?',key); if (!c||c.status==='resolved') continue;
+    const who=await one("SELECT id,name FROM users WHERE company_id=? AND active=1 AND role IN ('maintenance','customer_admin') ORDER BY CASE WHEN role='maintenance' THEN 0 ELSE 1 END,created_at LIMIT 1",c.company_id);
+    if (!who) { keep.push(key); continue; }
+    const actor={user:who,stationId:null,operator:who.name,name:who.name,detail:{via:'simulator'}}, age=(at-Date.parse(c.raised_at))/60000;
+    if (c.status==='open'&&age>=2+rand(key,'ack')*9) await acknowledgeCall(c,actor);
+    const running=(await one('SELECT state FROM machine_states WHERE equipment_id=? AND ended_at IS NULL',c.equipment_id))?.state==='running';
+    if ((running&&age>=8)||age>=25+rand(key,'res')*35) await resolveCall({...c,status:'acknowledged'},{resolution:'Repaired and tested'},actor); else keep.push(key);
+  }
+  if (ids.length) await saveSimulatedCalls(keep);
 }
 // Each machine has two or three typical defects (a mould with a worn vent burns, a hot one sinks…).
 function splitDefects(e,slot,rejected) {
@@ -149,5 +184,6 @@ export async function simulateAll(until=Date.now()) {
   const machines=await all(`SELECT * FROM equipment WHERE status='in_service' AND machine_type IN (${PRODUCTION_MACHINES.map(()=>'?').join(',')})`,...PRODUCTION_MACHINES);
   const slots=(await reduceSeq(machines, async (n,e)=>n+await simulateMachine(e,until),0));
   await simulateAssets(until);
+  await simulateResponders(until);
   return slots;
 }
