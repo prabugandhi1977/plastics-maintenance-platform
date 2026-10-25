@@ -63,9 +63,10 @@ export function register(r) {
   // Who is at the tablet and which machines it can work on (a person: their company's machines).
   r.get('/operator/me',async (ctx)=>{
     const machines=(await A.machinesOf(ctx,ctx.query.get('plantId')||null)).map(e=>({id:e.id,assetTag:e.asset_tag,make:e.make,model:e.model,plantId:e.plant_id,location:e.location}));
-    if (ctx.station) { const {pin_hash,...s}=ctx.station; return {station:await A.stationOut(s),machines}; }
+    const companyLocale=async companyId=>(companyId&&(await one('SELECT locale FROM companies WHERE id=?',companyId))?.locale)||'en';
+    if (ctx.station) { const {pin_hash,...s}=ctx.station; return {station:await A.stationOut(s),machines,locale:await companyLocale(s.company_id)}; }
     const plants=isDispatch(ctx.u)?await all('SELECT id,name,company_id FROM plants ORDER BY name'):isCustomer(ctx.u)?await all('SELECT id,name,company_id FROM plants WHERE company_id=? ORDER BY name',ctx.u.company_id):[];
-    return {user:{id:ctx.u.id,name:ctx.u.name,role:ctx.u.role,companyId:ctx.u.company_id},plants,machines};
+    return {user:{id:ctx.u.id,name:ctx.u.name,role:ctx.u.role,companyId:ctx.u.company_id},plants,machines,locale:ctx.u.locale||await companyLocale(ctx.u.company_id)};
   },{station:true});
 
   // ---------- At the machine ----------

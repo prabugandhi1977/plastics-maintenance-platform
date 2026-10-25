@@ -325,3 +325,12 @@ html.dark .chip.mod-quality,html.dark .module-card.mod-quality{background:#16352
 .pm-bar span{display:block;height:100%;background:var(--good)} .pm-bar .pm-due_soon{background:var(--brand)} .pm-bar .pm-due{background:var(--warn)} .pm-bar .pm-overdue{background:var(--bad)} .pm-bar .pm-inactive{background:#9aa9ad}
 .pm-item{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center}
 @media (max-width:640px){.pm-item{grid-template-columns:1fr}}
+
+/* Production › Andon */
+.btn-link{display:inline-flex;align-items:center;border-radius:9px;padding:10px 15px;background:var(--btn);color:#fff;font-weight:650;line-height:1.2;text-decoration:none}
+.btn-link:hover{background:var(--brand-dark);text-decoration:none} .btn-link.secondary{background:#e7eff0;color:#16414a} .btn-link.secondary:hover{background:#d8e6e8}
+html.dark .btn-link.secondary{background:#23393f;color:#d6e8e9}
+.andon-type{display:inline-flex;gap:6px;align-items:center;font-weight:650;white-space:nowrap;border-left:4px solid #c62f2f;padding-left:8px}
+.andon-type.quality{border-color:#d29a00} .andon-type.material{border-color:#2a78d6} .andon-type.supervisor{border-color:#7b4fc9} .andon-type.safety{border-color:#1a1a1a} html.dark .andon-type.safety{border-color:#f5c400}
+.timer{font-variant-numeric:tabular-nums;font-size:16px} tr.row-alert .timer{color:var(--bad)}
+.station-code{font-size:15px;letter-spacing:.08em;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:2px 6px}

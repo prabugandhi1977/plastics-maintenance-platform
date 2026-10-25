@@ -40,6 +40,11 @@ const TOPICS=[
     'A critical alarm such as fire or a PPE violation makes the phone vibrate and sound.',
     'Tap <b>View</b> for the photo and details, and <b>Acknowledge</b> so colleagues know it is handled.'],
     tips:['Your duties are set by an administrator in the office workspace under Companies, plants & users › Users › Vision duties.']},
+  {id:'andon',title:'Andon calls',steps:[
+    'When an operator calls for help at a machine, the call appears at the top of the work list under <b>Andon calls</b>, with how long it has been open.',
+    '<b>On my way</b> acknowledges it: escalation stops and your response time is recorded.',
+    '<b>Resolved</b> closes it; add a short note of what was done.',
+    'For a maintenance call, <b>Breakdown ticket</b> raises a ticket with the machine, its state and the time of the call filled in, and opens it.']},
   {id:'install',title:'Install the app on your phone',steps:[
     'Open this page in the phone\'s browser and sign in.',
     'Android (Chrome): menu ⋮ › <b>Install app</b> or <b>Add to Home screen</b>.',
