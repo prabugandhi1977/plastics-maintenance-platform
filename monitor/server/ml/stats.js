@@ -18,8 +18,9 @@ export function linearFit(points) {
 const HOUR = 3600000;
 // Judge one signal from its running points [{t, v}], oldest first. Baseline: everything before the last `recentHours`.
 // Unusual: the recent median sits `threshold` spreads or more from the baseline median. Degrading: a steady trend
-// (hourly medians over 48 h, a good straight-line fit) that reaches the critical limit within 7 days.
-export function assessSignal(points, { limits = {}, recentHours = 12, minBaseline = 120, minRecent = 30, threshold = 4, now = Date.now() } = {}) {
+// (hourly medians over 48 h, a good straight-line fit) that reaches the critical limit within 7 days (horizonHours;
+// learning from people's decisions moves both, and a trend reaching the critical limit within 48 h always counts).
+export function assessSignal(points, { limits = {}, recentHours = 12, minBaseline = 120, minRecent = 30, threshold = 4, horizonHours = 7 * 24, now = Date.now() } = {}) {
   const cut = now - recentHours * HOUR;
   const base = points.filter(p => p.t < cut).map(p => p.v), recent = points.filter(p => p.t >= cut).map(p => p.v);
   if (base.length < minBaseline || recent.length < minRecent) return { status: 'learning', baselinePoints: base.length, recentPoints: recent.length };
@@ -37,7 +38,7 @@ export function assessSignal(points, { limits = {}, recentHours = 12, minBaselin
     const hoursTo = bound => bound == null || (fit.slope > 0) !== (bound > nowFit) ? null : Math.max(0, Math.round((bound - nowFit) / fit.slope));
     out.hoursToWarning = hoursTo(fit.slope > 0 ? limits.warn_high : limits.warn_low);
     out.hoursToCritical = hoursTo(fit.slope > 0 ? limits.crit_high : limits.crit_low);
-    if (out.hoursToCritical != null && out.hoursToCritical <= 7 * 24) out.status = 'degrading';
+    if (out.hoursToCritical != null && out.hoursToCritical <= Math.max(48, horizonHours)) out.status = 'degrading';
   }
   return out;
 }

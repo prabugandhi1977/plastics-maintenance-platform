@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
-import { ROOT, one, all, run, audit } from './db.js';
+import { ROOT, one, all, run, audit, transaction } from './db.js';
 import { HttpError, createRouter, bodyOf, rawOf, json, Reply, reply, bad, deny, missing, text, choice, optNumber } from './http.js';
 import { authenticate, tokenFor, verifyPassword, checkLockout, recordFailure, clearFailures, ingestKeyOk, can } from './auth.js';
 import { ingest } from './ingest.js';
@@ -11,6 +11,7 @@ import { mqttConfig, mqttStatus, startMqtt, stopMqtt } from './mqtt.js';
 import { MACHINE_TYPES } from './catalog.js';
 import { analysisOf, analyzeAll, analyzeMachine, forgetAnalysis } from './ml/analyze.js';
 import { median } from './ml/stats.js';
+import { REASONS, recordDecision, resetLearning, findingLearning, byRank, machineLearning, learningSummary } from './ml/learning.js';
 import { simulate, simulatorEnabled, FAULTS } from './simulator.js';
 import { seedDemo, bootstrapAdmin } from './seed.js';
 import { registerSetup } from './setup.js';
@@ -33,8 +34,13 @@ function findingOut(f, sigs) {
   const m = one('SELECT tag,name FROM machines WHERE id=?', f.machine_id);
   return { id: f.id, machineId: f.machine_id, machineTag: m.tag, machineName: m.name, signalKey: f.signal_key, signalLabel: sig?.label ?? null, unit: sig?.unit ?? null,
     kind: f.kind, severity: f.severity, status: f.status, title: findingTitle(f, sig), score: f.score, detail: JSON.parse(f.detail_json),
-    firstSeen: f.first_seen, lastSeen: f.last_seen, resolvedAt: f.resolved_at, note: f.note, explanation: f.explanation_json ? JSON.parse(f.explanation_json) : null };
+    firstSeen: f.first_seen, lastSeen: f.last_seen, resolvedAt: f.resolved_at, note: f.note, explanation: f.explanation_json ? JSON.parse(f.explanation_json) : null,
+    decision: decisionOut(f.id), learning: findingLearning(f) };
 }
+const decisionOut = fid => { const d = one('SELECT status,reason,note,decided_at FROM decisions WHERE finding_id=? AND reset_at IS NULL', fid); return d ? { status: d.status, reason: d.reason, at: d.decided_at } : null; };
+// Active findings first, then by rank (critical limit breaches, then the likely-real, from people's decisions).
+const ordered = list => list.sort((a, b) => (ACTIVE_STATUSES.includes(b.status) - ACTIVE_STATUSES.includes(a.status)) || byRank(a, b));
+const ACTIVE_STATUSES = ['open', 'acknowledged', 'confirmed'];
 const ACTIVE = "status IN ('open','acknowledged','confirmed')";
 
 r.get('/health', () => ({ ok: true, time: new Date().toISOString() }), { public: true });
@@ -67,10 +73,10 @@ r.get('/overview', () => {
   const now = Date.now();
   const machines = all('SELECT * FROM machines ORDER BY tag').map(m => {
     const a = analysisOf(m, now), sigs = a.signals;
-    const top = one(`SELECT * FROM findings WHERE machine_id=? AND ${ACTIVE} ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, CASE kind WHEN 'limit' THEN 0 WHEN 'degrading' THEN 1 WHEN 'pattern' THEN 2 ELSE 3 END LIMIT 1`, m.id);
+    const top = ordered(all(`SELECT * FROM findings WHERE machine_id=? AND ${ACTIVE} ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, CASE kind WHEN 'limit' THEN 0 WHEN 'degrading' THEN 1 WHEN 'pattern' THEN 2 ELSE 3 END`, m.id).map(f => findingOut(f, sigs)))[0];
     const focus = [...sigs].sort((x, y) => (RANK[y.limitStatus?.severity] ?? RANK[y.assessment.status] ?? 0) - (RANK[x.limitStatus?.severity] ?? RANK[x.assessment.status] ?? 0))[0];
     return { id: m.id, tag: m.tag, name: m.name, type: m.type, typeLabel: MACHINE_TYPES[m.type], line: m.line, state: a.state, hasData: a.hasData, lastData: a.lastData, health: a.health,
-      activeFindings: one(`SELECT COUNT(*) n FROM findings WHERE machine_id=? AND ${ACTIVE}`, m.id).n, topFinding: top ? findingOut(top, sigs) : null,
+      activeFindings: one(`SELECT COUNT(*) n FROM findings WHERE machine_id=? AND ${ACTIVE}`, m.id).n, topFinding: top ?? null,
       focus: focus ? { key: focus.key, label: focus.label, unit: focus.unit, latest: focus.latest, status: focus.limitStatus?.severity ?? focus.assessment.status, spark: sparkOf(m.id, focus.key, now) } : null };
   });
   machines.sort((a, b) => a.health.score - b.health.score || a.tag.localeCompare(b.tag));
@@ -81,8 +87,18 @@ r.get('/overview', () => {
 
 r.get('/machines/:id', ({ params }) => {
   const m = machineOr404(params.id), a = analysisOf(m), now = Date.now();
-  const findings = all(`SELECT * FROM findings WHERE machine_id=? AND (${ACTIVE} OR last_seen>?) ORDER BY CASE WHEN ${ACTIVE} THEN 0 ELSE 1 END, last_seen DESC LIMIT 30`, m.id, now - 14 * DAY).map(f => findingOut(f, a.signals));
-  return { machine: { ...m, typeLabel: MACHINE_TYPES[m.type] }, analysis: a, findings };
+  const findings = ordered(all(`SELECT * FROM findings WHERE machine_id=? AND (${ACTIVE} OR last_seen>?) ORDER BY CASE WHEN ${ACTIVE} THEN 0 ELSE 1 END, last_seen DESC LIMIT 30`, m.id, now - 14 * DAY).map(f => findingOut(f, a.signals)));
+  return { machine: { ...m, typeLabel: MACHINE_TYPES[m.type] }, analysis: a, findings, learning: machineLearning(m.id) };
+});
+// What the system has learned on this machine, and the super user's reset per signal (signal null = the pattern models).
+r.get('/machines/:id/learning', ({ params }) => machineLearning(machineOr404(params.id).id));
+r.post('/machines/:id/learning/reset', ({ user, params, body }) => {
+  admin(user); const m = machineOr404(params.id), key = body.signal == null || body.signal === '' ? '' : String(body.signal);
+  if (key && !one('SELECT 1 FROM signals WHERE machine_id=? AND key=?', m.id, key)) missing('Signal not found');
+  const out = transaction(() => resetLearning(m.id, key, user.id));
+  audit(user.id, 'learning.reset', 'machine', m.id, { signal: key || null, decisions: out.decisions });
+  forgetAnalysis(m.id); analyzeMachine(m);
+  return { ...out, learning: machineLearning(m.id) };
 });
 
 // Ask the manuals: an answer from this machine's documents with the passages it used, for everyone signed in.
@@ -117,17 +133,27 @@ r.put('/machines/:id/limits', ({ user, params, body }) => {
 r.get('/findings', ({ query }) => {
   const status = query.get('status') || 'active', mid = query.get('machine') || null;
   const where = status === 'active' ? ACTIVE : status === 'all' ? '1' : `status='${choice(status, 'status', ['open', 'acknowledged', 'confirmed', 'false_alarm', 'resolved'])}'`;
-  return all(`SELECT * FROM findings WHERE ${where} AND (? IS NULL OR machine_id=?) ORDER BY CASE WHEN ${ACTIVE} THEN 0 ELSE 1 END, CASE severity WHEN 'critical' THEN 0 ELSE 1 END, last_seen DESC LIMIT 200`, mid, mid).map(f => findingOut(f));
+  return ordered(all(`SELECT * FROM findings WHERE ${where} AND (? IS NULL OR machine_id=?) ORDER BY CASE WHEN ${ACTIVE} THEN 0 ELSE 1 END, CASE severity WHEN 'critical' THEN 0 ELSE 1 END, last_seen DESC LIMIT 200`, mid, mid).map(f => findingOut(f)));
 });
+r.get('/decision-reasons', () => REASONS);
 // People decide: acknowledged (seen), confirmed (real problem), false_alarm (quiet for 24 h), resolved (fixed).
+// Confirmed, false_alarm and resolved are kept as labelled examples the analysis learns from, with an optional
+// reason (body.reason, from /decision-reasons) on a false alarm or a fix.
 r.patch('/findings/:id', ({ user, params, body }) => {
   write(user); const f = findingOr404(params.id);
   const status = choice(body.status, 'status', ['acknowledged', 'confirmed', 'false_alarm', 'resolved']);
   const note = body.note == null ? f.note : String(body.note).slice(0, 1000);
-  run('UPDATE findings SET status=?,note=?,decided_by=?,resolved_at=CASE WHEN ? IN (\'resolved\',\'false_alarm\') THEN ? ELSE resolved_at END WHERE id=?', status, note, user.id, status, Date.now(), f.id);
-  audit(user.id, `finding.${status}`, 'finding', f.id, { note });
+  const reason = body.reason == null || body.reason === '' ? null : REASONS[status] ? choice(body.reason, 'reason', Object.keys(REASONS[status])) : bad('A reason is only given for a false alarm or a fix');
+  if (reason === 'other' && !String(body.note ?? '').trim()) bad('Say what it was in the note when the reason is “Other”');
+  const now = Date.now(), a = analysisOf(machineOr404(f.machine_id), now);
+  const features = { signals: Object.fromEntries(a.signals.map(s => [s.key, s.latest])), state: a.state, health: a.health.score };
+  const learned = transaction(() => {
+    run('UPDATE findings SET status=?,note=?,decided_by=?,resolved_at=CASE WHEN ? IN (\'resolved\',\'false_alarm\') THEN ? ELSE resolved_at END WHERE id=?', status, note, user.id, status, now, f.id);
+    return status === 'acknowledged' ? null : recordDecision(f, { status, reason, note, userId: user.id, features, now });
+  });
+  audit(user.id, `finding.${status}`, 'finding', f.id, { note, ...(reason ? { reason } : {}), ...(learned?.adjustment ? { learned: learned.adjustment.summary } : {}), ...(learned?.rebaseline ? { rebaseline: learned.rebaseline.summary } : {}) });
   forgetAnalysis(f.machine_id);
-  return findingOut(findingOr404(f.id));
+  return { ...findingOut(findingOr404(f.id)), learned: learned ? { adjustment: learned.adjustment?.summary ?? null, rebaseline: learned.rebaseline?.summary ?? null } : null };
 });
 r.post('/findings/:id/explain', async ({ user, params, body }) => { const f = findingOr404(params.id); if (body.refresh) write(user); return explainFinding(f, { refresh: !!body.refresh }); });
 // Drafting also ranks who could take the ticket: the best is kept as a suggestion, or assigned in an automatic mode.
@@ -179,7 +205,7 @@ r.post('/chat', async ({ user, body }) => {
 r.delete('/chat', ({ user }) => { newConversation(user.id); return chatView(user.id); });
 
 r.post('/models/retrain', ({ user }) => { admin(user); run('DELETE FROM models'); const res = analyzeAll(); audit(user.id, 'models.retrain', 'models', null); return res.map(a => ({ machineId: a.machineId, model: a.model })); });
-r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, mouldcare: mouldcareStatus(), mqtt: mqttStatus(), ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
+r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, mouldcare: mouldcareStatus(), mqtt: mqttStatus(), learning: learningSummary(), ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
   machines: all('SELECT * FROM machines ORDER BY tag').map(m => ({ id: m.id, tag: m.tag, name: m.name, deviceId: m.device_id, signals: all('SELECT key,label,unit,warn_low,warn_high,crit_low,crit_high FROM signals WHERE machine_id=? ORDER BY rowid', m.id) })) }; });
 
 registerSetup(r);
