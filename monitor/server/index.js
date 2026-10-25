@@ -19,6 +19,8 @@ import { registerPeople, allocateOnDraft, assignmentOut, assign } from './people
 import { sendDraft, retryPending, mouldcareOut, mouldcareStatus } from './mouldcare.js';
 import { aiEnabled, AI_MODEL, explainFinding, draftTicket, writeReport, chat, chatView, newConversation, findingTitle, askManuals } from './ai/claude.js';
 import { indexPending } from './manuals.js';
+import { registerRootCause } from './ai/rootcause.js';
+import { rootCauseBrief, rootCauseStats, recordActualCause } from './rootcause.js';
 import { registerConnectors, startConnectors, stopConnectors, connectorsEnabled } from './connectors/index.js';
 
 const r = createRouter();
@@ -36,7 +38,7 @@ function findingOut(f, sigs) {
   return { id: f.id, machineId: f.machine_id, machineTag: m.tag, machineName: m.name, signalKey: f.signal_key, signalLabel: sig?.label ?? null, unit: sig?.unit ?? null,
     kind: f.kind, severity: f.severity, status: f.status, title: findingTitle(f, sig), score: f.score, detail: JSON.parse(f.detail_json),
     firstSeen: f.first_seen, lastSeen: f.last_seen, resolvedAt: f.resolved_at, note: f.note, explanation: f.explanation_json ? JSON.parse(f.explanation_json) : null,
-    decision: decisionOut(f.id), learning: findingLearning(f) };
+    decision: decisionOut(f.id), learning: findingLearning(f), rootCause: rootCauseBrief(f.id) };
 }
 const decisionOut = fid => { const d = one('SELECT status,reason,note,decided_at FROM decisions WHERE finding_id=? AND reset_at IS NULL', fid); return d ? { status: d.status, reason: d.reason, at: d.decided_at } : null; };
 // Active findings first, then by rank (critical limit breaches, then the likely-real, from people's decisions).
@@ -150,7 +152,9 @@ r.patch('/findings/:id', ({ user, params, body }) => {
   const features = { signals: Object.fromEntries(a.signals.map(s => [s.key, s.latest])), state: a.state, health: a.health.score };
   const learned = transaction(() => {
     run('UPDATE findings SET status=?,note=?,decided_by=?,resolved_at=CASE WHEN ? IN (\'resolved\',\'false_alarm\') THEN ? ELSE resolved_at END WHERE id=?', status, note, user.id, status, now, f.id);
-    return status === 'acknowledged' ? null : recordDecision(f, { status, reason, note, userId: user.id, features, now });
+    const learned = status === 'acknowledged' ? null : recordDecision(f, { status, reason, note, userId: user.id, features, now });
+    if (status === 'resolved' && body.rootCause) recordActualCause(f, body.rootCause, user.id, now); // the engineer's own finding of the cause; changes nothing else
+    return learned;
   });
   audit(user.id, `finding.${status}`, 'finding', f.id, { note, ...(reason ? { reason } : {}), ...(learned?.adjustment ? { learned: learned.adjustment.summary } : {}), ...(learned?.rebaseline ? { rebaseline: learned.rebaseline.summary } : {}) });
   forgetAnalysis(f.machine_id);
@@ -158,8 +162,8 @@ r.patch('/findings/:id', ({ user, params, body }) => {
 });
 r.post('/findings/:id/explain', async ({ user, params, body }) => { const f = findingOr404(params.id); if (body.refresh) write(user); return explainFinding(f, { refresh: !!body.refresh }); });
 // Drafting also ranks who could take the ticket: the best is kept as a suggestion, or assigned in an automatic mode.
-r.post('/findings/:id/ticket', async ({ user, params }) => {
-  write(user); const ticketId = await draftTicket(findingOr404(params.id), user); audit(user.id, 'ticket.draft', 'ticket', ticketId);
+r.post('/findings/:id/ticket', async ({ user, params, body }) => {
+  write(user); const ticketId = await draftTicket(findingOr404(params.id), user, Date.now(), body.rootCauseIndex ?? null); audit(user.id, 'ticket.draft', 'ticket', ticketId);
   await allocateOnDraft(ticketId, user);
   return reply(201, ticketOut(one('SELECT * FROM ticket_drafts WHERE id=?', ticketId)));
 });
@@ -206,12 +210,13 @@ r.post('/chat', async ({ user, body }) => {
 r.delete('/chat', ({ user }) => { newConversation(user.id); return chatView(user.id); });
 
 r.post('/models/retrain', ({ user }) => { admin(user); run('DELETE FROM models'); const res = analyzeAll(); audit(user.id, 'models.retrain', 'models', null); return res.map(a => ({ machineId: a.machineId, model: a.model })); });
-r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, mouldcare: mouldcareStatus(), mqtt: mqttStatus(), learning: learningSummary(), ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
+r.get('/settings', ({ user }) => { admin(user); return { ingestKeySet: !!process.env.MONITOR_INGEST_KEY, mouldcare: mouldcareStatus(), mqtt: mqttStatus(), learning: learningSummary(), rootCause: rootCauseStats(), ai: aiEnabled(), aiModel: AI_MODEL, simulator: simulatorEnabled(), faults: simulatorEnabled() ? FAULTS.map(f => ({ tag: f.tag, signal: f.key, story: f.story })) : [],
   machines: all('SELECT * FROM machines ORDER BY tag').map(m => ({ id: m.id, tag: m.tag, name: m.name, deviceId: m.device_id, signals: all('SELECT key,label,unit,warn_low,warn_high,crit_low,crit_high FROM signals WHERE machine_id=? ORDER BY rowid', m.id) })) }; });
 
 registerSetup(r);
 registerPeople(r);
 registerConnectors(r);
+registerRootCause(r);
 
 // ---- HTTP plumbing ----
 const STATIC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',

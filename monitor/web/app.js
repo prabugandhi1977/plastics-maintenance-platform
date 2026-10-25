@@ -4,6 +4,7 @@ import { signalChart, sparkline } from '/charts.js';
 import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, btn, dialog, select, textarea, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 import { icon, tile, heading } from '/icons.js';
 import { initConnectors, connectorsSection, ACTIONS as CONNECTOR_ACTIONS, action as connectorAction } from '/connectors.js';
+import { initRootCause, whyButton, whyPanel, causeLine, recordButton, causeFields, causeFrom, statsHtml as rootCauseStats, ACTIONS as WHY_ACTIONS, action as whyAction } from '/rootcause.js';
 import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -21,6 +22,7 @@ async function api(path, method = 'GET', body) {
 initSetup({ api, esc, state, render });
 initPeople({ api, esc, state, render });
 initConnectors({ api, esc, state, render });
+initRootCause({ api, esc, state, render });
 const canWrite = () => ['admin', 'engineer'].includes(state.user?.role);
 const time = t => t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const ago = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -168,17 +170,18 @@ function findingCard(f) {
   const facts = f.kind === 'limit' ? `${d.latest} ${esc(f.unit)} against the ${d.severity} limit ${d.limit}` : f.kind === 'degrading' ? `${d.slopePerDay > 0 ? '+' : ''}${d.slopePerDay} ${esc(f.unit)}/day · critical limit in ~${d.hoursToCritical} h` : f.kind === 'unusual' ? `normal ${d.baseline} → now ${d.recent} ${esc(f.unit)} (${d.score} spreads)` : `${d.method === 'new_state' ? `new operating state, score ${d.score} (alarm above ${d.threshold})` : `signals out of step, distance ${d.distance} (alarm above ${d.distanceThreshold})`} · ${d.contributors.map(c => esc(c.key)).join(', ')}`;
   return `<div class="card finding ${f.severity} ${isActive ? '' : 'closed'}">
     <div class="row"><b class="grow ih">${icon(f.kind === 'degrading' ? 'trend' : f.kind === 'pattern' ? 'model' : f.kind === 'unusual' ? 'watch' : 'findings', 'i sev')}<span>${route().page === 'machine' ? '' : `<a href="#/machine/${f.machineId}">${esc(f.machineTag)}</a> · `}${esc(f.title)}</span></b>${chip(f.severity, f.severity)}${chip(f.status, STATUS[f.status])}</div>
-    ${learnedLine(f)}
+    ${learnedLine(f)}${causeLine(f)}
     <div class="small muted">${esc(KIND[f.kind])} · ${facts} · since ${time(f.firstSeen)}${isActive ? '' : ` · closed ${time(f.resolvedAt || f.lastSeen)}`}${f.note ? ` · note: “${esc(f.note)}”` : ''}</div>
     <div class="row">
       <button class="btn sm" data-act="explain" data-id="${f.id}" type="button">${ib(show ? 'x' : 'sparkles', show ? 'Hide explanation' : state.config?.ai ? 'Explain with AI' : 'Explain')}</button>
+      ${whyButton(f)}${recordButton(f)}
       ${canWrite() && isActive ? `${f.status === 'open' ? `<button class="btn sm" data-act="status" data-status="acknowledged" data-id="${f.id}" type="button">${ib('watch', 'Acknowledge')}</button>` : ''}
         ${f.status !== 'confirmed' ? `<button class="btn sm" data-act="status" data-status="confirmed" data-id="${f.id}" type="button">${ib('check', 'Confirm real')}</button>` : ''}
         <button class="btn sm" data-act="status" data-status="false_alarm" data-id="${f.id}" type="button">${ib('x', 'False alarm')}</button>
         <button class="btn sm" data-act="status" data-status="resolved" data-id="${f.id}" type="button">${ib('wrench', 'Mark fixed')}</button>
         <button class="btn sm primary" data-act="ticket" data-id="${f.id}" type="button">${ib('tickets', 'Draft ticket')}</button>` : ''}
     </div>
-    ${show ? (e ? explanationView(e) : '<div class="explain muted">Working out the explanation…</div>') : ''}</div>`;
+    ${show ? (e ? explanationView(e) : '<div class="explain muted">Working out the explanation…</div>') : ''}${whyPanel(f)}</div>`;
 }
 function learnedLine(f) {
   const l = f.learning, reason = f.decision?.reason && reasons ? (reasons[f.decision.status]?.[f.decision.reason]) : null;
@@ -214,7 +217,7 @@ async function pageTickets() {
     `<div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="tickets-filter" data-filter="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
     ${list.length ? `<div class="grid">${list.map(t => { const d = t.draft; return `<article class="card grid">
       <div class="row">${heading('tickets', esc(d.title), 2, d.priority === 'critical' || d.priority === 'high' ? 'risk' : 'watch')}${t.source === 'ai' ? chip('ai', 'AI draft') : chip('', 'Standard draft')}${chip(t.status, t.status)}${chip(d.priority === 'critical' || d.priority === 'high' ? 'critical' : 'warning', PRIORITY[d.priority] + ' priority')}</div>
-      <dl class="facts"><dt>Machine</dt><dd><a href="#/machine/${t.machineId}">${esc(d.machineTag)}</a> ${esc(d.machineName)}</dd><dt>Category</dt><dd>${esc(d.failureCategory)}</dd><dt>Machine state</dt><dd>${esc(String(d.machineState).replace('_', ' '))}</dd><dt>Symptoms</dt><dd>${esc(d.symptoms)}</dd>
+      <dl class="facts"><dt>Machine</dt><dd><a href="#/machine/${t.machineId}">${esc(d.machineTag)}</a> ${esc(d.machineName)}</dd><dt>Category</dt><dd>${esc(d.failureCategory)}</dd><dt>Machine state</dt><dd>${esc(String(d.machineState).replace('_', ' '))}</dd><dt>Symptoms</dt><dd>${esc(d.symptoms)}</dd>${d.rootCause ? `<dt>Root cause</dt><dd>${esc(d.rootCause.cause)} ${chip(d.rootCause.confirmed ? 'good' : '', d.rootCause.confirmed ? 'Confirmed' : 'Most likely')}</dd>` : ''}
       <dt>Actions</dt><dd><ol style="margin:0;padding-left:18px">${d.suggestedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ol></dd>${d.partsToCheck?.length ? `<dt>Parts to check</dt><dd>${d.partsToCheck.map(esc).join(', ')}</dd>` : ''}
       ${d.sources?.length ? `<dt>Sources</dt><dd>${sourcesHtml(d.sources, '')}</dd>` : ''}<dt>Drafted</dt><dd>${time(t.createdAt)} by ${esc(t.createdBy)}</dd></dl>
       ${assignmentHtml(t, canWrite())}${mouldcareHtml(t)}
@@ -231,7 +234,7 @@ function mouldcareHtml(t) {
     : '<span class="small muted">Not sent yet.</span>';
   return `<div class="assign"><span class="small muted assign-l">MouldCare</span><div class="assign-row">${line}</div>${m?.status === 'sent' ? '' : send(m?.status === 'failed' ? 'Retry' : 'Send to MouldCare')}</div>`;
 }
-const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}${d.sources?.length ? `\n\nSources:\n${d.sources.map(s => `- ${s.document}${s.page ? `, page ${s.page}` : ''}`).join('\n')}` : ''}`; };
+const ticketText = t => { const d = t.draft; return `${d.title}\nMachine: ${d.machineTag} ${d.machineName}\nPriority: ${d.priority}\nFailure category: ${d.failureCategory}\nMachine state: ${d.machineState}${d.rootCause ? `\nRoot cause (${d.rootCause.confirmed ? 'confirmed' : 'most likely'}): ${d.rootCause.cause}` : ''}\n\nSymptoms:\n${d.symptoms}\n\nSuggested actions:\n${d.suggestedActions.map((a, i) => `${i + 1}. ${a}`).join('\n')}${d.partsToCheck?.length ? `\n\nParts to check: ${d.partsToCheck.join(', ')}` : ''}${d.sources?.length ? `\n\nSources:\n${d.sources.map(s => `- ${s.document}${s.page ? `, page ${s.page}` : ''}`).join('\n')}` : ''}`; };
 
 // ---- Reports ----
 function markdown(src) {
@@ -295,6 +298,7 @@ async function connectionsTab() {
         : `${chip('', 'Off')} ${esc(mc.problem)}. Set MONITOR_MOULDCARE_URL and MONITOR_MOULDCARE_KEY on the server.`)}
       ${row('signal', 'MQTT intake', mqttHtml(s.mqtt))}
       ${row('sparkles', 'Learning from decisions', s.learning ? `${s.learning.decisions} decision${s.learning.decisions === 1 ? '' : 's'} recorded (${s.learning.real} real, ${s.learning.falseAlarms} false alarms) · ${s.learning.adjustmentsActive ? chip('watch', `${s.learning.adjustmentsActive} adjustment${s.learning.adjustmentsActive === 1 ? '' : 's'} active`) : chip('', 'No adjustments')}${s.learning.rebaselinesActive ? ` · ${s.learning.rebaselinesActive} rebaselined` : ''}${s.learning.lastChangeAt ? ` · last change ${ago(s.learning.lastChangeAt)}` : ''}<div class="small muted">Shown per machine under “What the system has learned”, where the super user can reset it per signal.</div>` : '—')}
+      ${row('search', 'Root-cause analysis', rootCauseStats(s.rootCause))}
       ${row('refresh', 'Simulator', s.simulator ? `${chip('watch', 'On')} demo data` : chip('', 'Off'))}</dl>
       ${s.mqtt.reasons.length ? `<details><summary class="small">Last rejected MQTT messages</summary><ul class="small">${s.mqtt.reasons.map(x => `<li>${ago(x.at)} · <code>${esc(x.topic)}</code> · ${esc(x.reason)}</li>`).join('')}</ul></details>` : ''}
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
@@ -312,10 +316,11 @@ async function decide(id, status) {
   reasons ??= await api('/decision-reasons');
   const fa = status === 'false_alarm', opts = Object.entries(reasons[status]);
   dialog(fa ? 'False alarm' : 'Mark fixed', `<p class="small muted span">${fa ? 'Why? Optional. The system learns from it: “Normal for this product” and “Planned change” make it relearn this signal\'s normal from its last 12 hours. A false alarm stays quiet for 24 hours.' : 'What was found? Optional. Fixed findings count as real problems, so alerts like this one rank higher.'}</p>
-    ${select('reason', fa ? 'Why?' : 'What was found?', opts, { blank: 'No reason given' })}${textarea('note', 'Note (required for “Other”)')}`,
+    ${select('reason', fa ? 'Why?' : 'What was found?', opts, { blank: 'No reason given' })}${textarea('note', 'Note (required for “Other”)')}${fa ? '' : await causeFields(id)}`,
   { submit: fa ? 'Mark false alarm' : 'Mark fixed', dlgIcon: fa ? 'x' : 'wrench', onSubmit: async fd => {
     const reason = fd.get('reason') || null, note = String(fd.get('note') || '').trim();
-    const r = await api(`/findings/${id}`, 'PATCH', { status, ...(reason ? { reason } : {}), ...(note ? { note } : {}) });
+    const rootCause = fa ? undefined : causeFrom(fd);
+    const r = await api(`/findings/${id}`, 'PATCH', { status, ...(reason ? { reason } : {}), ...(note ? { note } : {}), ...(rootCause ? { rootCause } : {}) });
     if (r.learned?.adjustment || r.learned?.rebaseline) state.learnedNotice = [r.learned.adjustment, r.learned.rebaseline].filter(Boolean).join(' ');
   } });
 }
@@ -326,6 +331,7 @@ function bindActions() {
     const { act, id } = el.dataset;
     try {
       if (SETUP_ACTIONS.includes(act)) { e.preventDefault(); return await setupAction(act, el); }
+      if (WHY_ACTIONS.includes(act)) { e.preventDefault(); return await whyAction(act, el); }
       if (PEOPLE_ACTIONS.includes(act)) { e.preventDefault(); return await peopleAction(act, el); }
       if (CONNECTOR_ACTIONS.includes(act)) { e.preventDefault(); return await connectorAction(act, el); }
       if (act === 'tickets-filter') { location.hash = el.dataset.filter === 'all' ? '#/tickets' : `#/tickets?assigned=${el.dataset.filter}`; return; }
