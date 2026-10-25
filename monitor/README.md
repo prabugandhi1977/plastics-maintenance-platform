@@ -6,7 +6,7 @@ Machine and condition monitoring for plastics plants, with machine learning that
 
 - **Live machine health:** every machine with its state, a health score, its most important finding and a sparkline of the signal that matters most. It refreshes every 30 seconds.
 - **Condition monitoring per signal:** hydraulic oil, vibration, barrel and die temperatures, pressures, cooling water, motor current, chiller, dryer and compressor signals, with recommended limits per machine type (vibration per ISO 20816). Charts show the readings, the learned normal band, the limits and the projected trend.
-- **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed. Every decision is kept with the finding and in the audit log.
+- **Findings, and people's decisions on them:** each finding can be acknowledged, confirmed as real, marked a false alarm (it then stays quiet for 24 hours) or marked fixed, with an optional reason. Every decision is kept with the finding and in the audit log, and the analysis learns from it (details below).
 - **Machine and signal set-up under Settings, for the super user only:** the super user (the administrator role) adds, edits and deletes machines and signals, with their parameters, photos and documents (details below). Everyone else sees each machine's details, photo and documents on its page and can download them.
 - **People and ticket allocation:** users and service providers with their skills, also managed by the super user under Settings. Each ticket draft gets an assignee: suggested when drafted, set automatically by the rules or by AI, or chosen while approving, and changeable afterwards (details below).
 - **Hand-off to MouldCare:** an approved draft is sent to MouldCare as a breakdown ticket, with its reference shown on the draft. If MouldCare is down, the draft says so and is sent again later (details below).
@@ -24,6 +24,40 @@ The models live in `server/ml/`, need no labelled failures and no Python, and ea
 | **Pattern** | All of a machine's signals together, in 15-minute windows, scored against two models trained on its own history (7 days back to 1 day ago) and retrained every 6 hours. The **relationship distance** (Mahalanobis) catches signals that normally move together and have stopped doing so. The **extended isolation forest** catches operating states never seen before. A pattern driven mostly by one signal that already has its own finding is reported once, not twice. |
 
 The **health score** starts at 100 and loses points for each open finding: up to 55 for a critical limit breach, 25 to 40 for a degrading trend, and 15 for an unusual signal or pattern. A machine with any open finding is at least *Watch*. A machine with a critical finding, or a score under 50, is *At risk*.
+
+## Learning from decisions
+
+Each decision people make on a finding is kept as a labelled example (`server/ml/learning.js`, tables in `migrations/007_decision_learning.sql`): the detector and machine, the signal, the score and severity, the features at the time (the finding's detail, the latest value of every signal, the machine state, how long it was open), who decided, the outcome and the reason. *Confirmed* and *fixed* count as real problems, *false alarm* as not; *acknowledged* is not a decision. A later decision on the same finding replaces its example.
+
+**Reasons.** A false alarm can say why: *planned change*, *sensor fault*, *normal for this product*, *limit too tight* or *other* (with a note). A fix can say what was found: worn part, leak, fouling, electrical fault, setting adjusted, sensor fault fixed or other.
+
+**The rule.** Per machine, signal and detector (limit, unusual, degrading, pattern):
+
+- precision = (real + 2) / (decisions + 4). The prior of 2 real and 2 false keeps it at 50 % until people decide, so one or two decisions cannot swing it.
+- From 3 decisions, a sensitivity factor follows. Below 50 % precision it is 1 + 2 × (0.5 − precision), quieter, at most 2. From 50 to 75 % it is 1, as built. Above 75 % it is 1 − 0.8 × (precision − 0.75), more sensitive, at least 0.8.
+
+| Detector | What the factor changes | Bounds |
+| --- | --- | --- |
+| Unusual | The threshold, 4 × factor spreads from normal | 3.2 to 8 spreads |
+| Degrading | How far ahead a trend towards the critical limit is reported, 168 h ÷ factor | 84 to 210 h. A trend reaching the critical limit within 48 h is always reported |
+| Pattern | Both pattern-model thresholds × factor | A distance over twice the model's own threshold (critical) is always reported |
+| Limit | A warning breach must pass the limit by (factor − 1) × 25 % of the gap to the critical limit | At most a quarter of the way. People's limits are never changed or tightened, and critical limits are never touched |
+
+A critical limit breach is never held back: not by learning, and not by the 24-hour quiet after a false alarm on the same limit's warning. *Limit too tight* is counted and shown on the machine page, for the super user to review the limit; the limit itself only changes when a person changes it.
+
+**Rebaseline.** A false alarm marked *normal for this product* or *planned change* rebaselines that signal: its normal and trend are relearned from the last 12 hours on (it shows *learning* for about two hours while the new normal builds up), and the machine's pattern models retrain on the day up to the decision.
+
+**Ranking.** Findings are listed with critical limit breaches first, then by how likely they are to be real: the learned precision, doubled for a critical finding.
+
+**Explained.** Every adjustment is logged with the setting, its old and new value, and how many decisions it rests on, for example: *Unusual threshold for the unusual detector on Pump / motor vibration: 6 → 6.2 spreads, because 0 of 5 decisions were real (learned precision 22 %).* The log is shown on the machine page and the summary is in the audit log.
+
+**Where to see it.**
+- Each finding shows *Learned from N decisions: X % were real*.
+- Each machine page has a *What the system has learned* card, with each signal's detectors, their settings, recent reasons, rebaselines and the change log. The super user can **Reset learning** per signal (or for the pattern models): the decisions stay on record but stop counting, the detectors go back to how they were built, and any rebaseline ends.
+- **Settings › Connections & models** shows how many decisions are recorded and how many adjustments are active.
+- The AI explanation and ticket-draft prompts include the learned precision, the adjustment, the tally of recent reasons and up to three recent notes, quoted as data.
+
+Viewers cannot decide on findings. Only the super user can reset learning.
 
 ## AI features (Claude)
 
@@ -213,7 +247,7 @@ How the intake handles a request:
 - **Machine state:** `state` is `running`, `idle`, `down` or `off`. Only running time counts towards a machine's normal.
 - **Errors:** each reading comes back accepted or rejected with a reason: an unknown device, a time in the future or more than 30 days old, or a value that is not a number. Unknown signal names are skipped and listed.
 
-Machines, their device IDs and signal limits are set up under **Settings** by the super user.
+Machines, their device IDs and signal limits are set up under **Settings** by the super user. To read machines without a gateway, see [Connect machines directly](#connect-machines-directly).
 
 ## Connect over MQTT
 
@@ -254,6 +288,92 @@ How the MQTT intake works:
 - **Reconnects:** if the broker goes away, Monitor reconnects on its own. It waits a little longer after each failed try, up to a minute.
 - **Status:** **Settings › Connections & models** shows whether Monitor is connected, the last message, how many readings were accepted and rejected, and the reasons for the last rejections.
 
+## Connect machines directly
+
+Monitor can also poll machines itself, with no gateway in between. The super user sets up **connectors** under **Settings › Connections & models**. Each connector belongs to one machine and reads its signals every poll interval (1 s to 1 hour). The readings go through the same checks as `POST /api/ingest`, in batches, so unknown devices, unknown signals and values that are not numbers are handled the same way.
+
+| Connector | For | Address of a signal |
+| --- | --- | --- |
+| **OPC UA / Euromap 77** | Newer injection moulding machines (Euromap 77 / OPC 40077), Siemens S7-1200/1500, and any PLC or gateway with an OPC UA server | A node ID, such as `ns=2;s=Machine.OilTemp` |
+| **Euromap 63** | Older injection moulding machines that exchange files in a shared folder | A parameter name, such as `@ActCycTim` |
+| **Modbus TCP** | Most PLCs (Allen-Bradley, Mitsubishi, Omron, Delta, Schneider) and energy meters | A register: address, function, type, word order |
+
+Each signal can have a `scale` and an `offset`: the stored value is the raw value × scale + offset. The machine state can come from a node, parameter or register too, with a map from its values to `running`, `idle`, `down` or `off`.
+
+**Signal mapping.** The mapping is JSON: each key is a signal key of the machine, and each value says where to read it.
+
+```json
+{ "hydraulic_oil_temp": { "node": "ns=2;s=Machine.OilTemp" },
+  "injection_pressure": { "node": "ns=2;s=Machine.InjPressure", "scale": 0.1 } }
+```
+
+**OPC UA / Euromap 77.**
+
+- **Endpoint:** `opc.tcp://host:4840`. A user name or password inside the URL is refused.
+- **Security:** mode `None`, `Sign` or `SignAndEncrypt`, and a policy (default `Basic256Sha256` when signing). Use `SignAndEncrypt` with a user name and password.
+- **Certificate:** Monitor's own client certificate is made once and kept in `/data/opcua-pki`, so a server that trusts it keeps trusting it. If the server must trust Monitor, add that certificate to the server's trust list. By default Monitor accepts the server's certificate. Switch this off per connector to accept only servers whose certificate is in `/data/opcua-pki/trusted/certs`. A refused certificate lands in `/data/opcua-pki/rejected`; move it to `trusted/certs` to accept it.
+- **Read mode:** *Subscription* (the default) lets the server push changes. If the server refuses a subscription, the connector polls instead and says so in its status. *Polling* reads every node on every poll.
+- **Machine state:** a state node with no map uses the Euromap 77 machine modes:
+
+  | Mode | State |
+  | --- | --- |
+  | 1 Automatic, 2 Semi-automatic | running |
+  | 0 Other, 3 Manual, 4 Setup | idle |
+  | 5 Sleep | off |
+
+  Names (`AUTOMATIC`, `MANUAL`, `SLEEP`) work too. Give your own map for anything else, for example an alarm flag mapped to `down`.
+
+**Euromap 63.** Each poll is one session in the machine's session folder:
+
+1. Monitor writes the job `SESSnnnn.JOB`, which holds a `REPORT` command with the parameters (`DATE, TIME, @ActCycTim, ...`).
+2. Monitor writes the request `SESSnnnn.REQ`: `00000001 EXECUTE "SESSnnnn.JOB";`.
+3. The machine writes its report `SESSnnnn.DAT` (a header line and a line of values) and its response `SESSnnnn.RSP`.
+4. Monitor reads the values and removes the session's files.
+
+Settings for Euromap 63:
+
+- **Session folder:** it must be inside `MONITOR_EUROMAP63_ROOT` (default `/data/euromap63`). Mount the machines' shared folders there, one folder per machine.
+- **Folder as the machine sees it:** a prefix (such as `C:\EM63\`) for machines that need full paths in the job.
+- **Timeout:** if the machine does not answer within the timeout (default 10 s), the session fails and its request is withdrawn.
+- **Stale files:** session files (`SESS*.REQ/RSP/JOB/DAT/LOG`) left from earlier sessions are removed once they are older than three timeouts, and at least a minute. Other files in the folder are not touched. The folder is meant for Monitor alone, as Euromap 63 expects one host per session folder.
+
+**Modbus TCP.** The endpoint is `host:port` (port 502 by default), with a unit ID (default 1). Each signal is a register:
+
+```json
+{ "hydraulic_oil_temp": { "address": 100, "function": "holding", "type": "float32", "wordOrder": "big" },
+  "motor_current":      { "address": 10,  "function": "input",   "type": "int16",   "scale": 0.1 } }
+```
+
+- **`address`:** the 0-based protocol address. Register 40001 is address 0 with `holding`, and 30001 is address 0 with `input`.
+- **`function`:** `holding` (3), `input` (4), `coil` (1) or `discrete` (2).
+- **`type`:** `int16`, `uint16`, `int32`, `uint32` or `float32`.
+- **`wordOrder`:** `big` puts the high word first, `little` puts the low word first (for 32-bit types).
+- Neighbouring registers are read in one request. The client is built into Monitor over `node:net`, with no dependency.
+
+**Siemens S7.** No native S7 (ISO-on-TCP) driver: the pure-JavaScript libraries for it are small and not well maintained. Read an S7-1200/1500 through its built-in OPC UA server, or any S7 through Modbus TCP (`MB_SERVER`) or an OPC UA gateway.
+
+**Passwords.** OPC UA passwords never appear in an API reply, the audit log or a log line, and are scrubbed from error messages. There are two ways to give one:
+
+- **Typed in Settings:** stored encrypted (AES-256-GCM, with a key derived from `MONITOR_SECRET`), so a copy of the database alone does not reveal it. If `MONITOR_SECRET` changes, type the password again.
+- **From an environment variable:** give the name of one that starts with `MONITOR_CONNECTOR_`, such as `MONITOR_CONNECTOR_IMM07_PASSWORD`. The prefix stops a connector from sending another secret on the server (such as `ANTHROPIC_API_KEY`) to a machine.
+
+**Status and Test connection.** The list shows for each connector:
+
+- whether it is connected, and its read mode
+- the last reading, with its values and state
+- readings accepted and rejected, with the reasons
+- the last error and when it retries
+
+**Test connection** (on a saved connector, or in the form before saving) reads once and shows the values, the raw values and anything skipped. It stores nothing.
+
+**How connectors run.** One supervisor starts every enabled connector when Monitor starts:
+
+- **Isolation:** each connector runs in its own loop, so a machine that fails never holds up the others.
+- **Backoff:** on an error, the connector disconnects and tries again after 1 s, doubling up to 60 s, and starts again from 1 s after a good read.
+- **Changes:** editing a connector restarts it with the new settings. Disabling or deleting it stops it.
+- **Shutdown:** on `SIGTERM`, every connector disconnects and the readings still queued are stored.
+- **Turning it off:** set `MONITOR_CONNECTORS=off` for a server that cannot reach the plant network.
+
 ## Tests
 
 ```powershell
@@ -261,10 +381,16 @@ cd monitor
 npm test
 ```
 
-There are 45 tests in nine files:
+There are 63 tests in eleven files:
 
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
 - `api.test.js`: the whole app on a fresh database. It covers sign-in, roles and lockout, finding all three planted faults with nothing on the healthy machines, the intake's validation, false alarms staying quiet, the standard AI fallbacks, limits, and security headers.
+- `learning.test.js`: learning from decisions on the demo plant, covering:
+  - the rule (prior, minimum decisions, bounds) and the reason checks; each decision stored as a labelled example with its features
+  - repeated false alarms raising the threshold within bounds and lowering the finding's rank, and confirmations and fixes restoring it
+  - a warning limit held back by a learned margin while the person's limit stays unchanged, and a critical breach reported anyway, despite the margin and the 24-hour quiet
+  - a rebaseline on *normal for this product*, with the signal normal again at its new level and the pattern models retrained
+  - reset by the super user only, viewers unable to decide, every adjustment explained, the Settings summary, and the learned precision and reasons in the AI prompts
 - `seed.test.js`: demo machines without demo accounts, and the first admin from the environment.
 - `setup.test.js`: adding, editing and deleting machines and signals, covering:
   - the parameter and limit checks, unique tags and device IDs, and who may do what
@@ -282,6 +408,15 @@ There are 45 tests in nine files:
   - an unset connection recorded as `not_configured`, then sent once it is set up
   - the key never in an API reply or the database
 - `mqtt.test.js`: a real MQTT broker inside the test. It publishes both payload formats and checks that readings and states are stored through the normal intake. It also covers rejected messages and their reasons, batching, the status in Settings without the password, and a reconnect after the broker drops the connection.
+- `connectors.test.js`: machine connectors against real servers inside the test: an OPC UA server (node-opcua), a Modbus TCP server written in the test, and a folder that answers Euromap 63 sessions like a machine. It covers:
+  - values reaching `readings` through the normal intake, scaled, with the machine state mapped (Euromap 77 modes for OPC UA, value maps for Modbus and Euromap 63)
+  - OPC UA by subscription and by polling, a password from an environment variable, and a missing node reported as skipped
+  - Modbus types, word order and the planning of requests
+  - Euromap 63 job and request files, removal of the session's files and of stale ones, a timeout, and a job the machine refuses
+  - errors backing off and recovering (a wrong password, a server restart, Modbus device exceptions, a machine that stops answering), without affecting the other connectors
+  - a restart after a change, disabling, deleting, a clean stop, and a changed device ID
+  - the API for the super user only, its input checks, and passwords never in a reply, the database in clear, an error or the audit log
+  - *Test connection* reading without storing
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
 - `manuals.test.js`: the AI reading the documents, with a stand-in client, covering:
   - text from a PDF made in the test (page by page), Word, Excel, text and CSV, and passages of a few hundred words
@@ -310,6 +445,6 @@ There are 45 tests in nine files:
 
 ## Next steps
 
-- **Protocol bridges:** an OPC UA bridge that posts to `/api/ingest`. MQTT is built in.
+- **Protocols:** native Siemens S7 (ISO-on-TCP), and OPC UA certificate management from the dashboard. OPC UA, Euromap 63, Modbus TCP and MQTT are built in.
 - **Scale:** several plants and companies (tenancy), and PostgreSQL for more than one instance.
 - **Languages:** German and other languages for the dashboard.

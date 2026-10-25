@@ -3,6 +3,7 @@ import { signaturePad } from '/shared/signature.js';
 import { scanInput, bindScanInput } from '/shared/scan.js';
 import { assetVisual, loadAuthImages, chatText, imageSrc, authImageUrl } from '/shared/media.js';
 import { helpView, helpLabel } from '/mobile/help.js';
+import { ANDON_ICONS, typeLabel, callStatusLabel, reasonLabel, stateLabel, elapsed, tickTimers } from '/shared/andon.js';
 
 // Field app for engineers. Works with poor connectivity: assigned work and opened tickets are cached per user,
 // changes are queued in IndexedDB with a client action ID (the server deduplicates replays), applied to the cached
@@ -62,9 +63,10 @@ async function refresh(){
   if(!state.cat)await loadCatalog();
   try{state.tickets=await request('/tickets');cache.set('tickets',state.tickets);state.online=true;}catch(e){if(e.http&&e.status===401)return signOut();state.online=false;state.error=_t('field.showingCachedWorkChangesWill');return render();}
   if(state.selected&&!state.pending){try{state.selected=await withTelemetry(await request(`/tickets/${state.selected.id}`));cache.set('ticket',state.selected,state.selected.id);}catch(e){if(e.http&&[403,404].includes(e.status))state.selected=null;}}
+  await loadAndon();
   render();
 }
-function signOut(){stopVision();if(state.user)cache.clear();sessionStorage.removeItem('mc_token');sessionStorage.removeItem('mc_user');Object.assign(state,{token:null,user:null,tickets:[],selected:null,help:null});render();}
+function signOut(){stopVision();if(state.user)cache.clear();sessionStorage.removeItem('mc_token');sessionStorage.removeItem('mc_user');Object.assign(state,{token:null,user:null,tickets:[],selected:null,help:null,andon:[]});render();}
 
 function telemetryCard(m){if(!m)return state.selected?.status==='completed'?'':`<div class="section">${t('section.machineData')}</div><div class="card muted">${_t('field.unavailableOfflineOrNotShared')}</div>`;return `<div class="section">${t('section.machineData')}</div><div class="card"><p>${badge('status',m.status)} ${m.lastObservedAt?`<span class="muted">${formatDateTime(m.lastObservedAt,zone())}</span>`:''}</p>${m.metrics?`<p>${_t('field.runningHoursCycles',{value:formatNumber(m.metrics.runningHours.value,1),value2:formatNumber(m.metrics.cycleCount.value),value3:formatTemperature(m.metrics.temperatureC.value,state.user.preferences?.units)})}</p>`:''}${m.activeAlarms.map(a=>`<p>${badge('severity',a.severity)} <b>${safe(a.code)}</b> ${safe(a.message)}</p>`).join('')}</div>`}
 function render(){
@@ -76,7 +78,7 @@ function render(){
   document.querySelectorAll('[data-ticket]').forEach(x=>x.onclick=()=>open(x.dataset.ticket));
   document.querySelectorAll('[data-form]').forEach(x=>x.onclick=()=>showForm(x.dataset.form));
   document.querySelectorAll('[data-check]').forEach(x=>x.onclick=()=>{const c=state.selected.checklist.find(i=>i.id===x.dataset.check),done=!c.done;if(c.id.startsWith('local-')){state.notice=_t('field.thisItemSyncsFirstTick');return render()}mutate(`/checklist/${c.id}`,{done,note:c.note},tk=>{tk.checklist.find(i=>i.id===c.id).done=done?1:0})});
-  bindVision();
+  bindVision();bindAndon();
   if(!state.selected&&!state.help)bindScanInput(document,'code',onScan,err=>{state.error=err.message;render()});
   if(state.selected&&navigator.onLine)loadAuthImages(document,state.token);
 }
@@ -92,7 +94,7 @@ async function onScan(code){
   throw Error(_t('field.noCachedOpenWorkFor'));
 }
 function showRaise(code,asset){state.raise={code,asset};render();showForm('raise');}
-function list(){return `${visionList()}<div class="card"><h2>${_t('field.scanAMachine')}</h2><p class="muted">${canRaise()?_t('field.scanItsQrLabelOr'):_t('field.scanItsQrLabelOr2')}</p>${scanInput('code')}</div><div id="form-slot"></div><div class="section">${t('section.assigned')}</div>${state.tickets.length?state.tickets.map(tk=>`<div class="card" data-ticket="${safe(tk.id)}"><div class="row"><h2>${safe(tk.title)}</h2>${badge('priority',tk.priority)}</div><p class="muted">${safe(tk.symptoms)}</p><div class="row"><span>${badge('status',tk.status)}</span><span class="muted">${formatDateTime(tk.created_at)}</span></div></div>`).join(''):`<div class="card empty">${t('msg.noRecords')}</div>`}`}
+function list(){return `${andonList()}${visionList()}<div class="card"><h2>${_t('field.scanAMachine')}</h2><p class="muted">${canRaise()?_t('field.scanItsQrLabelOr'):_t('field.scanItsQrLabelOr2')}</p>${scanInput('code')}</div><div id="form-slot"></div><div class="section">${t('section.assigned')}</div>${state.tickets.length?state.tickets.map(tk=>`<div class="card" data-ticket="${safe(tk.id)}"><div class="row"><h2>${safe(tk.title)}</h2>${badge('priority',tk.priority)}</div><p class="muted">${safe(tk.symptoms)}</p><div class="row"><span>${badge('status',tk.status)}</span><span class="muted">${formatDateTime(tk.created_at)}</span></div></div>`).join(''):`<div class="card empty">${t('msg.noRecords')}</div>`}`}
 function detail(){
   const tk=state.selected,work=tk.workLogs||[],check=tk.checklist||[],events=tk.events||[],open=tk.status!=='completed';
   return `<div class="actions">${TRANSITIONS[tk.status]?`<button class="secondary" data-form="status">${t('action.updateStatus')}</button>`:''}${open?`<button data-form="work">${t('action.logWork')}</button><button class="secondary" data-form="check">${t('action.checklist')}</button>`:''}<button class="secondary" data-form="part">${t('action.requestPart')}</button>${canUseStock()?`<button class="secondary" data-form="stock">${_t('field.spUseFromStock')}</button>`:''}<button class="secondary" data-form="ai">${_t('field.askAiAssistant')}</button><button class="secondary" data-form="guide">${tk.priority==='critical'?_t('field.repairGuideVr'):_t('field.repairGuide')}</button><button class="secondary" data-form="photo">${_t('field.addPhoto')}</button><button class="secondary" data-form="safety">${_t('field.reportSafetyConcern')}</button>${tk.status==='completed'&&!tk.signoff?`<button data-form="signoff">${t('action.signoff')}</button>`:''}</div><div id="form-slot"></div>
@@ -200,3 +202,17 @@ async function login(e){e.preventDefault();const v=Object.fromEntries(new FormDa
 window.addEventListener('online',()=>{state.online=true;sync()});window.addEventListener('offline',()=>{state.online=false;render()});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/mobile/sw.js').catch(()=>{});
 if(state.user){pending().then(refresh);startVision()}else fetch('/api/config').then(r=>r.json()).then(c=>{state.demoAccounts=!!c.demoAccounts}).catch(()=>{}).finally(render);
+
+// Andon calls from operator tablets: the people who answer them (company staff, dispatch) see the open calls here and
+// acknowledge, resolve or turn a maintenance call into a breakdown ticket. Needs a connection (calls are live).
+const canSeeAndon=()=>['customer_admin','plant_manager','maintenance','platform_admin','dispatcher'].includes(state.user?.role);
+async function loadAndon(){if(!canSeeAndon()||!navigator.onLine){state.andon=[];return}try{state.andon=await request('/andon/calls')}catch{state.andon=state.andon||[]}}
+function andonList(){const list=state.andon||[];if(!list.length)return'';return `<div class="section">${_t('field.andonCalls')}</div>${list.map(c=>`<div class="card andon-card ${safe(c.type)} ${safe(c.status)}"><div class="row"><b>${ANDON_ICONS[c.type]||''} ${safe(typeLabel(c.type))} · ${safe(c.assetTag)}</b><span class="badge ${c.status==='open'?'critical':'warning'}">${safe(callStatusLabel(c.status))}${c.level?` ▲${c.level}`:''}</span></div><p class="muted">${safe(c.machine)}${c.machineState?` · ${safe(stateLabel(c.machineState))}${c.machineReason?` (${safe(reasonLabel(c.machineReason))})`:''}`:''}</p>${c.note?`<p>${safe(c.note)}</p>`:''}<p class="muted">${_t('field.andonWaiting')} <b data-since="${safe(c.raisedAt)}">${elapsed(c.raisedAt)}</b>${c.operator?` · ${safe(c.operator)}`:''}${c.acknowledgedBy?` · ${safe(c.acknowledgedBy)}`:''}</p><div class="actions">${c.status==='open'?`<button data-andon-ack="${safe(c.id)}">${_t('field.andonAcknowledge')}</button>`:''}${c.type==='maintenance'&&!c.ticketId&&canRaise()?`<button class="secondary" data-andon-ticket="${safe(c.id)}">${_t('field.andonTicket')}</button>`:''}<button class="secondary" data-andon-resolve="${safe(c.id)}">${_t('field.andonResolve')}</button></div></div>`).join('')}`;}
+function bindAndon(){
+  const go=async(path,body,msg,after)=>{try{const r=await request(path,'POST',body);state.notice=msg;await loadAndon();if(after)await after(r);render()}catch(e){state.error=e.message;render()}};
+  document.querySelectorAll('[data-andon-ack]').forEach(x=>x.onclick=()=>go(`/andon/calls/${x.dataset.andonAck}/acknowledge`,{},_t('field.andonAcknowledged')));
+  document.querySelectorAll('[data-andon-resolve]').forEach(x=>x.onclick=()=>{const note=prompt(_t('field.andonWhatWasDone'));if(note===null)return;go(`/andon/calls/${x.dataset.andonResolve}/resolve`,{resolution:note},_t('field.andonResolved'))});
+  document.querySelectorAll('[data-andon-ticket]').forEach(x=>x.onclick=()=>go(`/andon/calls/${x.dataset.andonTicket}/ticket`,{},_t('field.andonTicketRaised'),async r=>{await refresh();if(r?.ticketId)await open(r.ticketId)}));
+}
+setInterval(()=>tickTimers(),1000);
+setInterval(async()=>{if(state.user&&!state.selected&&!state.help&&canSeeAndon()&&document.visibilityState==='visible'&&!document.querySelector('#form-slot form')){const before=JSON.stringify(state.andon);await loadAndon();if(JSON.stringify(state.andon)!==before)render()}},20000);

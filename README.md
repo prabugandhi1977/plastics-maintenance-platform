@@ -74,7 +74,7 @@ The menu follows the plant's functions:
 
 | Group | Pages |
 | --- | --- |
-| **Production (IMM)** | Live shop floor, OEE performance, Products & cycle times, Machine alerts |
+| **Production (IMM)** | Live shop floor, Andon & operator tablets, OEE performance, Products & cycle times, Machine alerts |
 | **Vision inspection & quality** | Vision overview, Inspection results (FPY, PPM), Vision incidents, Cameras & AI modules, Edge nodes & licences |
 | **Traceability** | Trace search & genealogy, Batches & material lots, Process control (SPC), Dispatch & shipments, Field returns & warranty |
 | **Maintenance** | Maintenance overview, Breakdown tickets, Preventive maintenance, Equipment register, Condition monitoring, Service contracts, Spare parts requests, Spare parts stock, Asset tracking |
@@ -233,6 +233,27 @@ Every record has mandatory, industry-standard data (see *Mandatory master data* 
 8. **Users.** As Acme, deactivate and reactivate Lee Maintenance on the **Companies, plants & users** page. A deactivated user is signed out on their next request.
 9. **Machine data.** As admin, open **Equipment register → Coperion ZSK 58**. Its data is stale, with a critical alarm. Then open **Machine data (IoT)** for sync runs and the quarantined records.
 
+## Operator tablet and andon
+
+Machines get a wall- or machine-mounted tablet and, optionally, a hall TV.
+
+| Page | What it is |
+| --- | --- |
+| `/operator/` | **Operator tablet.** Big touch targets, landscape 768–1280 px and phones. Shows the machine's state and how long, product or job, cycle time against ideal, good and scrap today, and the shift's OEE. The operator gives the **downtime reason** (tree from the existing downtime codes: breakdown, mould fault, waiting for material …), **logs scrap** with reason and quantity, **starts and finishes a job or mould change**, and **calls for help**. |
+| `/andon/` | **Andon board (TV mode).** One tile per machine of a plant, coloured by state, with open calls and running timers, dark theme, refreshes every 15 seconds. A waiting call pulses. |
+| Production › Andon & operator tablets | Open calls (acknowledge, resolve, breakdown ticket), the report (calls and mean response and resolution time by type, machine and shift; downtime reasons Pareto and scrap from operator entries), stations, and who is called and when it escalates. |
+| Field app | Open calls at the top of the work list: *On my way*, *Resolved*, *Breakdown ticket*. |
+
+**Stations and sign-in.** A customer admin or plant manager adds a *station* (a tablet bound to one or more machines of a plant, or a board for the whole plant). The station has a generated 8-character code and a PIN of 4–8 digits that is hashed like a password (not 1234 or 1111). The tablet signs in with code and PIN and gets a station token (12 hours for a tablet, 30 days for a board) that works only on the routes meant for stations and only on the station's own machines; a user token cannot be used as a station token or the other way round. Five wrong PINs lock the station for 15 minutes (stored in the database, so it survives restarts); there is also a per-address limit on station sign-ins. A new PIN, *Sign out tablets* or deactivating the station ends every session. Operators can instead sign in with their own account (`maintenance`, plant manager, customer admin), which acts on their company's machines. Every action is in the audit log with the station and the operator's name (the tablet asks who is working; it is a name, not a login).
+
+**Andon calls.** Types: maintenance, quality, material, supervisor, safety. A call raises an alert (module `andon`) and notifies the roles set for its type, by email and on WhatsApp (people who opted in) when those channels are configured. If nobody has acknowledged it after the minutes set for the next level, it escalates: the next roles are notified and the call turns critical. Safety is always critical. Defaults: maintenance calls maintenance, then plant managers after 5 minutes, then customer admins and platform dispatch after 15; change them per company on the *Escalation* tab. Acknowledging or resolving works from the tablet, the desktop page, the Alerts page and the field app. A maintenance call becomes a breakdown ticket in one tap, with machine, state and the time of the call filled in. Response time is call to acknowledgement; resolution time is call to resolved. A second tap on the same type at the same machine joins the open call.
+
+**What the tablet changes in the data.** Machines with machine data (PLC or simulator) keep reporting their own state; the operator classifies a stop (the current one or any from the last 12 hours) and the reason replaces the stop's reason in OEE losses. A machine without machine data is stopped and restarted by the operator. Scrap is stored as a production count without output, so OEE quality and scrap reports include it, and cannot exceed the day's good output. A started job sets the product the machine is measured against.
+
+**Demo.** The demo seed adds tablets (codes `IMM45TAB` PIN `482915` for Chicago bays 4–5, `BM01TAB2` PIN `371946` for the blow hall, `EXT23TAB` PIN `615204` for Cologne), the Chicago board `CHIBOARD` PIN `730152`, and a week of resolved calls. With `FACTORY_SIMULATOR=true`, operators also give reasons for most simulated stops, and breakdowns raise maintenance calls that a simulated technician answers. None of this is added without `MOULDCARE_SEED_DEMO=true`. Change or deactivate stations before going live.
+
+Code: `backend/services/factory/andon.js`, `routes/operator.js`; migration `007_operator_andon.sql`; tests `backend/tests/operator-andon.test.js`.
+
 ## WhatsApp notifications
 
 Technicians and plant managers can get the same alerts that are emailed, plus a message when a ticket is assigned to them and when a ticket they reported is completed. Each person opts in under **My account → Notifications** (or an admin does it when editing the user) and needs a phone number in international format, e.g. `+919876543210`. Messages are short: heading, machine tag, title, severity or priority. Every message is listed with its status under **Machine alerts → Email notifications**, next to whether email and WhatsApp are configured.
@@ -390,6 +411,7 @@ Each test file uses its own temporary PostgreSQL schema (created on start, dropp
 
 ```text
 backend/server.js               HTTP entry: static files with security headers, router, offline replay, background jobs
+backend/services/factory/andon.js  operator stations, andon calls and escalation, reports (routes/operator.js)
 backend/common/                 Shared by every service:
   db.js, http.js                  database, migrations runner, router, JSON replies, body parsing
   security.js, access.js          passwords, signed tokens, roles; tenant-scoped lookups and permission helpers

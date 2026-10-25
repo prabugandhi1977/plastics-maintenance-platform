@@ -1,8 +1,9 @@
 // MouldCare Monitor dashboard: plain modules, no build step. Routes live in the URL hash (#/machine/<id>), the
 // sign-in token in session storage, and every page refreshes itself every 30 seconds while open.
 import { signalChart, sparkline } from '/charts.js';
-import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, btn, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
+import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, btn, dialog, select, textarea, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
 import { icon, tile, heading } from '/icons.js';
+import { initConnectors, connectorsSection, ACTIONS as CONNECTOR_ACTIONS, action as connectorAction } from '/connectors.js';
 import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,6 +20,7 @@ async function api(path, method = 'GET', body) {
 }
 initSetup({ api, esc, state, render });
 initPeople({ api, esc, state, render });
+initConnectors({ api, esc, state, render });
 const canWrite = () => ['admin', 'engineer'].includes(state.user?.role);
 const time = t => t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const ago = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -54,15 +56,18 @@ function layout(inner) {
     <div class="main"><header class="topbar">${state.config?.simulator ? '<span class="pill-env" title="Readings come from the built-in simulator, not real machines">Simulated data</span>' : ''}<span class="grow"></span>
       <div class="seg" role="group" aria-label="Theme">${[['light', 'sun'], ['dark', 'moon'], ['auto', 'auto']].map(([t, i]) => `<button type="button" data-theme="${t}" class="${theme === t ? 'on' : ''}" aria-pressed="${theme === t}">${icon(i, 'bi')}<span>${t[0].toUpperCase() + t.slice(1)}</span></button>`).join('')}</div>
       <span class="who">${tile(state.user.role === 'admin' ? 'shield' : 'user', state.user.role === 'admin' ? 'ai' : 'brand')}<span class="small"><b>${esc(state.user.name)}</b><br><span class="muted">${esc(ROLE[state.user.role] || state.user.role)}</span></span></span><button class="btn sm" id="signout" type="button">${ib('logout', 'Sign out')}</button></header>
-    <main class="content" id="main">${inner}</main></div></div>`;
+    <main class="content" id="main">${notice()}${inner}</main></div></div>`;
 }
 
+// A one-time line after a decision changed what the system learned (shown on the next paint only).
+const notice = () => { const n = state.learnedNotice; state.learnedNotice = null; return n ? `<div class="notice">${icon('sparkles', 'i xs')} ${esc(n)}</div>` : ''; };
 let generation = 0;
 async function render() {
   clearInterval(state.timer);
   const gen = ++generation;
   if (!state.config) state.config = await api('/config').catch(() => ({}));
   if (!state.token) return renderLogin();
+  if (!reasons) reasons = await api('/decision-reasons').catch(() => null);
   const { page, arg, sub } = route();
   const pages = { overview: pageOverview, machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: () => pageSettings(arg, sub) };
   const draw = async () => {
@@ -132,7 +137,25 @@ async function pageMachine(mid) {
         <dl class="facts"><dt>Trained</dt><dd>${time(model.trainedAt)} on ${model.rows} windows</dd>
         <dt>Relationship distance</dt><dd class="num">${model.pattern?.distance ?? '—'} <span class="muted">(alarm above ${model.distanceThreshold})</span></dd>
         <dt>Isolation forest</dt><dd class="num">${model.pattern?.score ?? '—'} <span class="muted">(alarm above ${model.threshold}; ordinary ≈ 0.5)</span></dd>
-        ${model.pattern ? `<dt>Driving the distance</dt><dd>${model.pattern.contributors.map(c => `${esc(c.key)} ${c.value} <span class="muted">(normal ${c.normal}, ${Math.round(c.share * 100)}%)</span>`).join('<br>')}${model.pattern.explainedBy ? `<br><span class="small muted">Mostly ${esc(model.pattern.explainedBy)}, which already has its own finding.</span>` : ''}</dd>` : ''}</dl>`: `<p class="muted">${esc(model.note || 'Not trained yet.')}</p>`}</section>`;
+        ${model.pattern?.learnedFactor ? `<dt>Learned</dt><dd class="small">Thresholds × ${model.pattern.learnedFactor} from people's decisions (model's own: ${model.pattern.modelDistanceThreshold} and ${model.pattern.modelThreshold})</dd>` : ''}
+        ${model.pattern ? `<dt>Driving the distance</dt><dd>${model.pattern.contributors.map(c => `${esc(c.key)} ${c.value} <span class="muted">(normal ${c.normal}, ${Math.round(c.share * 100)}%)</span>`).join('<br>')}${model.pattern.explainedBy ? `<br><span class="small muted">Mostly ${esc(model.pattern.explainedBy)}, which already has its own finding.</span>` : ''}</dd>` : ''}</dl>`: `<p class="muted">${esc(model.note || 'Not trained yet.')}</p>`}</section>
+    ${learningCard(mid, d.learning)}`;
+}
+// ---- What the system has learned from people's decisions on this machine ----
+const pct = v => `${Math.round(v * 100)}%`;
+function learningCard(mid, l) {
+  if (!l) return '';
+  const admin = state.user.role === 'admin', keys = [...new Set([...l.scopes.map(s => s.signalKey ?? ''), ...l.rebaselines.map(b => b.signalKey ?? '')])];
+  const bySignal = keys.map(k => ({ key: k, label: (l.scopes.find(s => (s.signalKey ?? '') === k) ?? l.rebaselines.find(b => (b.signalKey ?? '') === k)).signalLabel, scopes: l.scopes.filter(s => (s.signalKey ?? '') === k), rebaseline: l.rebaselines.find(b => (b.signalKey ?? '') === k) }));
+  const scopeLine = s => `<li><b>${esc(KIND[s.kind])}</b> · ${s.decisions} decision${s.decisions === 1 ? '' : 's'}, ${s.real} real · learned precision ${pct(s.precision)}
+    ${s.adjusted ? `<br>${chip(s.factor > 1 ? 'watch' : 'good', s.factor > 1 ? 'Quieter' : 'More sensitive')} ${esc(s.setting.name)}: ${s.setting.base} → <b>${s.setting.value}</b> ${esc(s.setting.unit)}` : `<br><span class="muted">${s.decisions < l.rule.minDecisions ? `Runs as built until ${l.rule.minDecisions} decisions.` : 'Runs as built: people found most of these real.'}</span>`}
+    ${s.tooTight ? `<br><span class="small">${icon('shield', 'i xs')} ${s.tooTight} said the limit is too tight. Limits are only changed by the super user${admin ? ` under <a href="#/settings/signals/${esc(mid)}">Settings › Signals</a>` : ''}.</span>` : ''}
+    ${s.reasons.length ? `<br><span class="small muted">Recent: ${s.reasons.map(r => `${esc(STATUS[r.status])}${r.reasonLabel ? ` (${esc(r.reasonLabel)})` : ''}${r.note ? ` “${esc(r.note)}”` : ''}`).join(' · ')}</span>` : ''}</li>`;
+  return `<section class="card"><div class="row">${heading('sparkles', 'What the system has learned', 2, 'ai')}</div>
+    <p class="small muted">From people's decisions on this machine. Each confirmed, fixed or false-alarm finding is kept as an example. Per signal and detector the share that was real (with a prior of ${l.rule.priorReal} real and ${l.rule.priorFalse} false, so one or two decisions do not swing it) tunes that detector within fixed bounds, from ${l.rule.minDecisions} decisions. Critical limit breaches are always reported, and limits set by people are never changed.</p>
+    ${bySignal.length ? `<div class="grid">${bySignal.map(g => `<article class="card"><div class="row"><h3 class="grow ih">${icon(g.key ? 'signal' : 'model', 'i')}<span>${esc(g.label)}</span></h3>${admin ? btn('learn-reset', 'Reset learning', 'refresh', { cls: 'sm danger', data: { id: mid, key: g.key, label: g.label } }) : ''}</div>
+      <ul class="small">${g.scopes.map(scopeLine).join('')}${g.rebaseline ? `<li>${chip('ai', 'Rebaselined')} Normal learned from ${time(g.rebaseline.from)} on: “${esc(g.rebaseline.reasonLabel)}”${g.rebaseline.by ? ` · ${esc(g.rebaseline.by)}` : ''}</li>` : ''}</ul></article>`).join('')}</div>` : '<p class="muted">Nothing learned yet. Confirm real findings and mark false alarms, and the detectors adjust to this machine.</p>'}
+    ${l.log.length ? `<details><summary class="small">Changes (${l.log.length})</summary><ul class="small">${l.log.map(x => `<li>${time(x.at)} · ${esc(x.summary)}${x.by ? ` <span class="muted">(${esc(x.by)})</span>` : ''}</li>`).join('')}</ul></details>` : ''}</section>`;
 }
 function signalCard(s, ser) {
   const x = s.assessment, status = s.limitStatus?.severity ?? x.status;
@@ -145,6 +168,7 @@ function findingCard(f) {
   const facts = f.kind === 'limit' ? `${d.latest} ${esc(f.unit)} against the ${d.severity} limit ${d.limit}` : f.kind === 'degrading' ? `${d.slopePerDay > 0 ? '+' : ''}${d.slopePerDay} ${esc(f.unit)}/day · critical limit in ~${d.hoursToCritical} h` : f.kind === 'unusual' ? `normal ${d.baseline} → now ${d.recent} ${esc(f.unit)} (${d.score} spreads)` : `${d.method === 'new_state' ? `new operating state, score ${d.score} (alarm above ${d.threshold})` : `signals out of step, distance ${d.distance} (alarm above ${d.distanceThreshold})`} · ${d.contributors.map(c => esc(c.key)).join(', ')}`;
   return `<div class="card finding ${f.severity} ${isActive ? '' : 'closed'}">
     <div class="row"><b class="grow ih">${icon(f.kind === 'degrading' ? 'trend' : f.kind === 'pattern' ? 'model' : f.kind === 'unusual' ? 'watch' : 'findings', 'i sev')}<span>${route().page === 'machine' ? '' : `<a href="#/machine/${f.machineId}">${esc(f.machineTag)}</a> · `}${esc(f.title)}</span></b>${chip(f.severity, f.severity)}${chip(f.status, STATUS[f.status])}</div>
+    ${learnedLine(f)}
     <div class="small muted">${esc(KIND[f.kind])} · ${facts} · since ${time(f.firstSeen)}${isActive ? '' : ` · closed ${time(f.resolvedAt || f.lastSeen)}`}${f.note ? ` · note: “${esc(f.note)}”` : ''}</div>
     <div class="row">
       <button class="btn sm" data-act="explain" data-id="${f.id}" type="button">${ib(show ? 'x' : 'sparkles', show ? 'Hide explanation' : state.config?.ai ? 'Explain with AI' : 'Explain')}</button>
@@ -155,6 +179,11 @@ function findingCard(f) {
         <button class="btn sm primary" data-act="ticket" data-id="${f.id}" type="button">${ib('tickets', 'Draft ticket')}</button>` : ''}
     </div>
     ${show ? (e ? explanationView(e) : '<div class="explain muted">Working out the explanation…</div>') : ''}</div>`;
+}
+function learnedLine(f) {
+  const l = f.learning, reason = f.decision?.reason && reasons ? (reasons[f.decision.status]?.[f.decision.reason]) : null;
+  const line = l?.decisions ? `${icon('sparkles', 'i xs')} Learned from ${l.decisions} decision${l.decisions === 1 ? '' : 's'}: ${pct(l.realShare)} were real${l.factor > 1 ? ' · alerts here now need a bigger change' : l.factor < 1 ? ' · alerts here are raised sooner' : ''}` : '';
+  return line || reason ? `<div class="small learned">${line}${reason ? `${line ? ' · ' : ''}Why: ${esc(reason)}` : ''}</div>` : '';
 }
 function explanationView(e) {
   return `<div class="explain"><div class="row"><b class="grow ih">${icon(e.urgency === 'stop_now' ? 'risk' : 'clock', 'i')}<span>${esc(URGENCY[e.urgency] || '')}</span></b>${e.source === 'ai' ? chip('ai', 'AI') : chip('', 'Standard')}</div>
@@ -258,21 +287,37 @@ const mqttHtml = q => !q.enabled ? `${chip('', 'Off')} set MONITOR_MQTT_URL on t
   `${q.connected ? chip('good', 'Connected') : chip('watch', 'Not connected')} <code>${esc(q.url)}</code> · topic <code>${esc(q.topic)}</code>
   <br><span class="small muted">Last message ${ago(q.lastMessageAt)} · ${q.accepted.toLocaleString()} accepted · ${q.rejected.toLocaleString()} rejected${q.reconnects ? ` · ${q.reconnects} reconnects` : ''}${q.lastError ? ` · ${esc(q.lastError)}` : ''}</span>`;
 async function connectionsTab() {
-  const s = await api('/settings'), mc = s.mouldcare;
+  const [s, connectors] = await Promise.all([api('/settings'), connectorsSection()]), mc = s.mouldcare;
   const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
   return `<section class="card"><div class="row">${heading('plug', 'Connections')}</div><dl class="facts">${row('sparkles', 'AI assistant', s.ai ? `${chip('good', 'On')} ${esc(s.aiModel)}` : `${chip('', 'Off')} set ANTHROPIC_API_KEY on the server`)}
       ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
       ${row('send', 'MouldCare', mc.configured ? `${chip('good', 'On')} <code>${esc(mc.url)}</code> · ${mc.sent} sent${mc.failed ? ` · ${chip('critical', `${mc.failed} not sent`)}` : ''}${mc.lastSentAt ? ` · last ${ago(mc.lastSentAt)}` : ''}${mc.lastError ? `<div class="small muted">Last error: ${esc(mc.lastError)}</div>` : ''}`
         : `${chip('', 'Off')} ${esc(mc.problem)}. Set MONITOR_MOULDCARE_URL and MONITOR_MOULDCARE_KEY on the server.`)}
       ${row('signal', 'MQTT intake', mqttHtml(s.mqtt))}
+      ${row('sparkles', 'Learning from decisions', s.learning ? `${s.learning.decisions} decision${s.learning.decisions === 1 ? '' : 's'} recorded (${s.learning.real} real, ${s.learning.falseAlarms} false alarms) · ${s.learning.adjustmentsActive ? chip('watch', `${s.learning.adjustmentsActive} adjustment${s.learning.adjustmentsActive === 1 ? '' : 's'} active`) : chip('', 'No adjustments')}${s.learning.rebaselinesActive ? ` · ${s.learning.rebaselinesActive} rebaselined` : ''}${s.learning.lastChangeAt ? ` · last change ${ago(s.learning.lastChangeAt)}` : ''}<div class="small muted">Shown per machine under “What the system has learned”, where the super user can reset it per signal.</div>` : '—')}
       ${row('refresh', 'Simulator', s.simulator ? `${chip('watch', 'On')} demo data` : chip('', 'Off'))}</dl>
       ${s.mqtt.reasons.length ? `<details><summary class="small">Last rejected MQTT messages</summary><ul class="small">${s.mqtt.reasons.map(x => `<li>${ago(x.at)} · <code>${esc(x.topic)}</code> · ${esc(x.reason)}</li>`).join('')}</ul></details>` : ''}
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
       <p class="small muted">Approved ticket drafts are sent to MouldCare as breakdown tickets, matched to the machine by its tag (the asset tag in MouldCare). The key is a company integration key made in MouldCare; it stays on this server.</p>
       <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
   -d '{"readings":[{"device":"${esc(s.machines[0]?.deviceId || 'plc-imm-01')}","at":"2026-10-19T08:15:00Z","state":"running","values":{"hydraulic_oil_temp":47.2}}]}'</pre></details></section>
+    ${connectors}
     <section class="card"><div class="row">${heading('model', 'Pattern models', 2, 'ai')}<button class="btn sm" data-act="retrain" type="button">${ib('refresh', 'Retrain models now')}</button></div>
       <p class="small muted">Each machine's pattern models retrain every 6 hours on its own history, and again after its signals change. Retrain now after a repair or a change in how a machine runs.</p></section>`;
+}
+
+// ---- Deciding on a finding: an optional reason, which the system learns from ----
+let reasons = null; // the reason lists, loaded on the first page after sign-in
+async function decide(id, status) {
+  reasons ??= await api('/decision-reasons');
+  const fa = status === 'false_alarm', opts = Object.entries(reasons[status]);
+  dialog(fa ? 'False alarm' : 'Mark fixed', `<p class="small muted span">${fa ? 'Why? Optional. The system learns from it: “Normal for this product” and “Planned change” make it relearn this signal\'s normal from its last 12 hours. A false alarm stays quiet for 24 hours.' : 'What was found? Optional. Fixed findings count as real problems, so alerts like this one rank higher.'}</p>
+    ${select('reason', fa ? 'Why?' : 'What was found?', opts, { blank: 'No reason given' })}${textarea('note', 'Note (required for “Other”)')}`,
+  { submit: fa ? 'Mark false alarm' : 'Mark fixed', dlgIcon: fa ? 'x' : 'wrench', onSubmit: async fd => {
+    const reason = fd.get('reason') || null, note = String(fd.get('note') || '').trim();
+    const r = await api(`/findings/${id}`, 'PATCH', { status, ...(reason ? { reason } : {}), ...(note ? { note } : {}) });
+    if (r.learned?.adjustment || r.learned?.rebaseline) state.learnedNotice = [r.learned.adjustment, r.learned.rebaseline].filter(Boolean).join(' ');
+  } });
 }
 
 // ---- Actions ----
@@ -282,6 +327,7 @@ function bindActions() {
     try {
       if (SETUP_ACTIONS.includes(act)) { e.preventDefault(); return await setupAction(act, el); }
       if (PEOPLE_ACTIONS.includes(act)) { e.preventDefault(); return await peopleAction(act, el); }
+      if (CONNECTOR_ACTIONS.includes(act)) { e.preventDefault(); return await connectorAction(act, el); }
       if (act === 'tickets-filter') { location.hash = el.dataset.filter === 'all' ? '#/tickets' : `#/tickets?assigned=${el.dataset.filter}`; return; }
       if (act === 'hours') { state.hours[id] = Number(el.dataset.hours); return render(); }
       if (act === 'filter') { location.hash = `#/findings?status=${el.dataset.status}`; return; }
@@ -292,8 +338,13 @@ function bindActions() {
         return render();
       }
       if (act === 'status') {
-        const status = el.dataset.status, note = status === 'false_alarm' || status === 'resolved' ? prompt(status === 'false_alarm' ? 'Why is it a false alarm? (optional)' : 'What was fixed? (optional)') : null;
-        await api(`/findings/${id}`, 'PATCH', { status, ...(note ? { note } : {}) }); return render();
+        const status = el.dataset.status;
+        if (status === 'false_alarm' || status === 'resolved') return decide(id, status);
+        await api(`/findings/${id}`, 'PATCH', { status }); return render();
+      }
+      if (act === 'learn-reset') {
+        if (!confirm(`Reset what the system has learned for ${el.dataset.label}? Its decisions stay on record but stop counting, its detectors go back to how they were built, and any rebaseline ends.`)) return;
+        await api(`/machines/${id}/learning/reset`, 'POST', { signal: el.dataset.key || null }); return render();
       }
       if (act === 'ticket') { el.disabled = true; el.textContent = 'Drafting…'; await api(`/findings/${id}/ticket`, 'POST', {}); location.hash = '#/tickets'; return; }
       if (act === 'mouldcare-send') { el.disabled = true; el.querySelector('span').textContent = 'Sending…'; await api(`/tickets/${id}/mouldcare`, 'POST', {}); return render(); }

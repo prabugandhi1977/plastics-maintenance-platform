@@ -8,6 +8,8 @@ const secret = configured || 'local-monitor-secret-change-before-deployment';
 
 export const hashPassword = (pw, salt = randomBytes(16).toString('hex')) => `${salt}:${scryptSync(pw, salt, 64).toString('hex')}`;
 export function verifyPassword(pw, hash) { const [salt, hex] = hash.split(':'); return timingSafeEqual(Buffer.from(hex, 'hex'), scryptSync(pw, salt, 64)); }
+// A key for one purpose (e.g. encrypting stored credentials), derived from MONITOR_SECRET.
+export const keyFor = purpose => scryptSync(secret, `mouldcare-monitor:${purpose}`, 32);
 const sign = data => createHmac('sha256', secret).update(data).digest('base64url');
 const TOKEN_HOURS = 12;
 export function tokenFor(user) {

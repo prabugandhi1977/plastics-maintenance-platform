@@ -15,14 +15,14 @@ import { iot, runSync, createAdapter } from './services/iot/index.js';
 import { scanPredictive } from './services/ml/insights.js';
 import { scanQuality } from './services/ml/quality.js';
 import { reviewPending } from './services/vision/review.js';
-import { factory, factoryOps, simulateAll, simulatorEnabled, checkMissing, checkEnergyAlerts } from './services/factory/index.js';
+import { factory, factoryOps, operator, simulateAll, simulatorEnabled, checkMissing, checkEnergyAlerts, checkAndonEscalations, authenticateStation } from './services/factory/index.js';
 import { traceability } from './services/traceability/index.js';
 import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
 import { sendQueuedWhatsapp } from './common/whatsapp.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,traceability,assistant,vision]) area.register(router);
+for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,assistant,vision]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
@@ -44,8 +44,10 @@ async function api(req,res,url) {
   const {route,params,pathExists}=router.match(req.method,url.pathname);
   if (!route) throw new HttpError(pathExists?405:404,pathExists?'Method not allowed':'Endpoint not found');
   const body=['POST','PATCH','PUT'].includes(req.method)?await bodyOf(req):{};
-  const u=route.public?null:await authenticate(req); if (!route.public&&!u) throw new HttpError(401,'Authentication required');
-  const ctx={u,body,params,query:url.searchParams,req,res};
+  // Routes marked {station:true} also accept an operator station token; the handler then gets ctx.station (u is null).
+  const u=route.public?null:await authenticate(req), station=!route.public&&!u&&route.station?await authenticateStation(req):null;
+  if (!route.public&&!u&&!station) throw new HttpError(401,'Authentication required');
+  const ctx={u,station,body,params,query:url.searchParams,req,res};
   // Each request keeps the atomicity it had with SQLite: writes run in one serialised transaction, reads in a
   // consistent read-only snapshot (concurrently). Routes marked external (AI and remote calls) run outside, so a
   // slow external call never holds the writer lock; their statements autocommit as before.
@@ -90,6 +92,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   setInterval(async ()=>{ try { await transaction(async ()=>await checkMissing()); } catch(e) { console.error('Missing-asset check failed:',e.message); } },5*60000).unref();
   // Energy: running demand near or over contract demand, and the month's power factor below target (plants with a tariff).
   setInterval(async ()=>{ try { await transaction(async ()=>await checkEnergyAlerts()); } catch(e) { console.error('Energy demand check failed:',e.message); } },60000).unref();
+  // Andon: calls nobody has acknowledged escalate to the next level of people once its minutes have passed.
+  setInterval(async ()=>{ try { await transaction(async ()=>await checkAndonEscalations()); } catch(e) { console.error('Andon escalation check failed:',e.message); } },60000).unref();
   // Preventive maintenance: plans that fall due open a job; plans 10 % past their interval raise an alert.
   setInterval(async ()=>{ try { await transaction(async ()=>await syncPm()); } catch(e) { console.error('Preventive maintenance check failed:',e.message); } },15*60000).unref();
   // Machine learning: predictive alerts from learned baselines (degrading or unusual signals).
