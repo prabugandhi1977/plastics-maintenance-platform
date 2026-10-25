@@ -292,6 +292,16 @@ button.chip{cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink);font-w
 @media(max-width:900px){.topbar{position:static;padding:10px 18px}.brand-line{display:none}.tb-user{text-align:left}}
 @media(max-width:560px){.topbar{padding:10px 14px}.topbar-tools{justify-content:flex-start}}
 
+/* Mould process fingerprint panel */
+.fp-block{display:grid;gap:16px} .fp-block>.panel{margin:0} .fp-intro{margin:0 0 -4px}
+.fp.panel .kpis{margin:10px 0 14px} .fp-section{margin-top:12px} .fp-section .section-title{margin-top:0}
+.fp tr.fp-moved td{background:var(--warn-wash,rgba(250,178,25,.12))}
+.fp-actions{margin:14px 0 4px} .fp-more{margin:10px 0;border-top:1px solid var(--line);padding-top:8px} .fp-more>summary{cursor:pointer;font-weight:650;font-size:14px}
+.fp-advice-area{margin-top:10px} .fp-advice{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:10px 0;background:var(--surface-2)} .fp-advice.latest{border-color:var(--brand)}
+.fp-advice .notice{margin:8px 0} .fp-changes{padding-left:22px;margin:8px 0} .fp-changes>li{margin:0 0 14px} .fp-change{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.fp-advice .chip{white-space:normal;overflow-wrap:anywhere} .fp-outcome{margin-top:10px} button.secondary.active{outline:2px solid var(--brand)}
+.fp .notice.danger{background:var(--bad-wash);color:#903f37}
+.fp,.fp-block{min-width:0} .fp .chart-grid{grid-template-columns:1fr} .fp-advice .pill{text-transform:none;white-space:normal;text-align:left;line-height:1.35} .fp-advice,.fp-advice li,.fp .notice{overflow-wrap:anywhere}
 /* ---------- Dark theme: same roles, values stepped for a dark surface (text 4.5:1+, marks 3:1+) ---------- */
 html.dark{
   --ink:#e3edef; --ink-2:#b8c7ca; --muted:#93a7ab; --line:#263c43; --line-2:#36515a;
@@ -339,3 +349,4 @@ html.dark .btn-link.secondary{background:#23393f;color:#d6e8e9}
 .andon-type.quality{border-color:#d29a00} .andon-type.material{border-color:#2a78d6} .andon-type.supervisor{border-color:#7b4fc9} .andon-type.safety{border-color:#1a1a1a} html.dark .andon-type.safety{border-color:#f5c400}
 .timer{font-variant-numeric:tabular-nums;font-size:16px} tr.row-alert .timer{color:var(--bad)}
 .station-code{font-size:15px;letter-spacing:.08em;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+html.dark .fp .notice.danger{background:#3f2320;color:#f0b4ab}

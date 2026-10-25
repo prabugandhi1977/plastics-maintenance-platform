@@ -584,6 +584,22 @@ The routes marked "works offline" above accept an `X-Client-Action-Id: <UUID>` h
 - The field app queues actions in IndexedDB, shows them on its cached copy of the ticket straight away, and syncs them in order when back online.
 - An action rejected by validation stays in the queue for the engineer to review; it is never silently dropped.
 
+## Mould process fingerprint and advice
+
+A mould is equipment of type `mould`. A scope is the mould plus `equipmentId` (machine) and `productId`. View: customer roles of the company, dispatchers, platform admins. Manage (build, rebaseline, reset, check, advice): customer admin, plant manager, platform admin. Other companies get 403. Code: `backend/services/process/`.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/moulds/:id/fingerprint` | `{mould, scopes[], canManage, aiEnabled, stepLimit}`. A scope has `status` (`active`, `none`, `reset`), `version`, `sampleSize`, `batches`, period, `params` (mean, sd, p05, p95, window), `correlations`, `shifts`, `days`, `labels`, `versions`, and `drift` (`status` ok/stale/insufficient, `score`, `level`, `parameters[]` with recent, delta, z, pctOfRange, contribution, `series[]`, `byShift[]`, `thresholds`). Without a fingerprint: `canBuild`, `reasons[]` |
+| `GET` | `/process/fingerprints?productId=` | Same scopes for every mould that made the product |
+| `POST` | `/moulds/:id/fingerprint/build` | `{equipmentId, productId, days?}` → 201; 422 `{error, reasons[]}` when data is too thin; 400 if one is already active |
+| `POST` | `/moulds/:id/fingerprint/rebaseline` | `{equipmentId, productId, reason, days?}` (default 7): new version from recent good production; 422 when too thin. Audited (`fingerprint.rebaseline`) |
+| `POST` | `/moulds/:id/fingerprint/reset` | `{equipmentId, productId, reason}`; closes the version and the drift alert. Audited (`fingerprint.reset`) |
+| `POST` | `/moulds/:id/fingerprint/check` | Judge now: raises, escalates or resolves the single `process` alert (`process-drift:<mould>`) |
+| `POST` | `/moulds/:id/process-advice` | `{equipmentId, productId, question?, confirmLargerStep?, maxStepPct?}` → 201 advice `{id, source: ai\|standard, advice{summary, confidence, changes[{rank, parameter, direction, current, step, target, requestedStep, clamped, expectedEffect, rationale, risk, evidence[]}], checkFirst, risks, dataGaps}, sources[], outcome}`. 422 when there is no fingerprint or too few recent readings. Suggestion only |
+| `GET` | `/moulds/:id/process-advice?equipmentId&productId` | Last 20 advice records |
+| `POST` | `/process-advice/:id/outcome` | `{outcome: helped\|did_not_help\|not_tried, note?}`; the asker or a manager |
+
 ## IoT integration interface
 
 Machine data enters through one pipeline, whichever way it arrives:
