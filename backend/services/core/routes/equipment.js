@@ -1,4 +1,5 @@
 // Asset register: equipment master data with type-specific parameter sets, QR lookup, manuals/photos, and downloads.
+import { auditFor } from '../../energy-audit/access.js';
 import { randomBytes } from 'node:crypto';
 import { id, now, one, all, run } from '../../../common/db.js';
 import { canCompany, canManageCompany, isInternal } from '../../../common/security.js';
@@ -13,6 +14,7 @@ import { qrLabel, resolveScan, rfidTag } from '../../../common/scan.js';
 const companyOfAttachmentTarget=async (u,type,entityId)=>{
   if (type==='equipment') return (await getEquipment(u,entityId)).company_id;
   if (type==='ticket') return (await getTicket(u,entityId)).company_id;
+  if (type==='energy_audit') return (await auditFor(u,entityId)).company_id;
   const log=await byId('work_logs',entityId); if (!log) missing(); return (await getTicket(u,log.ticket_id)).company_id;
 };
 const yearBuilt=v=>integer(typeof v==='string'?Number(v):v,'yearBuilt',1950,new Date().getUTCFullYear()+1);
@@ -101,8 +103,9 @@ export function register(r) {
   });
 
   r.post('/attachments',async ({u,body})=>{
-    const type=choice(body.entityType,'entityType',['equipment','ticket','work_log']), companyId=await companyOfAttachmentTarget(u,type,body.entityId);
+    const type=choice(body.entityType,'entityType',['equipment','ticket','work_log','energy_audit']), companyId=await companyOfAttachmentTarget(u,type,body.entityId);
     const kind=choice(body.kind,'kind',['manual','photo','evidence']);
+    if (type==='energy_audit') { if (kind!=='photo') bad('Energy audits take photos'); await auditFor(u,body.entityId,{write:true}); }
     if (type==='equipment' && !canManageCompany(u,companyId) && !isInternal(u)) deny();
     if (type!=='equipment' && kind==='manual') bad('Manuals attach to equipment');
     return created(await storeFile(u,{companyId,entityType:type,entityId:body.entityId,kind,filename:body.filename,mime:body.mime,base64:body.base64}));

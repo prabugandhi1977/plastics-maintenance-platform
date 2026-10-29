@@ -14,13 +14,16 @@ const SYSTEM={id:'u-system'};
 const SOURCES={monitor:{via:'monitor',label:'MouldCare Monitor'}};
 const hashKey=key=>createHash('sha256').update(String(key)).digest('hex');
 export const newKey=()=>{ const key=`mck_${randomBytes(24).toString('base64url')}`; return {key,hash:hashKey(key),hint:`${key.slice(0,8)}…${key.slice(-4)}`}; };
-const keyOut=k=>({id:k.id,companyId:k.company_id,name:k.name,keyHint:k.key_hint,active:!!k.active,createdAt:k.created_at,lastUsedAt:k.last_used_at});
+export const KEY_SCOPES=['tickets','energy'];
+const keyOut=k=>({id:k.id,companyId:k.company_id,name:k.name,keyHint:k.key_hint,scopes:String(k.scopes||'tickets').split(','),active:!!k.active,createdAt:k.created_at,lastUsedAt:k.last_used_at});
 const ticketOut=(t,e,isNew)=>({created:isNew,ticket:{id:t.id,status:t.status,priority:t.priority,title:t.title,assetTag:e.asset_tag,equipmentId:t.equipment_id,plantId:t.plant_id,raisedVia:t.raised_via,source:t.external_source,externalId:t.external_id,createdAt:t.created_at}});
 
-async function companyKey(req) {
+// A key carries scopes (tickets, energy): a key made for machine data cannot raise tickets, and the other way round.
+export async function companyKey(req,scope='tickets') {
   const actual=req.headers['x-integration-key'];
   const k=typeof actual==='string'&&/^mck_[A-Za-z0-9_-]{20,}$/.test(actual)?await one('SELECT * FROM integration_keys WHERE key_hash=? AND active=1',hashKey(actual)):null;
   if (!k) throw new HttpError(401,'A valid company integration key is required in X-Integration-Key');
+  if (!String(k.scopes||'tickets').split(',').includes(scope)) throw new HttpError(403,`This integration key is not allowed for ${scope}. Create a key with the ${scope} scope.`);
   return k;
 }
 const optText=(v,name,max)=>v==null||v===''?'':typeof v==='string'&&v.length<=max?v.trim():bad(`${name} must be text of at most ${max} characters`);
@@ -30,7 +33,7 @@ export function register(r) {
   // occurredAt, productionImpact, errorCodes?, suggestedActions?:[text], assigneeName?}. Sending the same source and
   // externalId again returns the ticket already raised (200) instead of a new one (201).
   r.post('/integrations/tickets',async ({req,body})=>{
-    const k=await companyKey(req), stamp=now();
+    const k=await companyKey(req,'tickets'), stamp=now();
     await run('UPDATE integration_keys SET last_used_at=? WHERE id=?',stamp,k.id);
     const source=choice(body.source,'source',Object.keys(SOURCES)), externalId=required(body.externalId,'externalId',120);
     const existing=await one('SELECT * FROM tickets WHERE company_id=? AND external_source=? AND external_id=?',k.company_id,source,externalId);
@@ -72,8 +75,9 @@ export function register(r) {
   r.post('/integration-keys',async ({u,body})=>{
     const companyId=isPlatform(u)?required(body.companyId,'companyId',80):body.companyId??u.company_id;
     if (!canManageCompany(u,companyId)) deny(); if (!await byId('companies',companyId)) bad('Unknown company');
-    const k=newKey(), key=id();
-    await run('INSERT INTO integration_keys (id,company_id,name,key_hash,key_hint,created_by,created_at) VALUES (?,?,?,?,?,?,?)',key,companyId,required(body.name,'name',80),k.hash,k.hint,u.id,now());
+    const k=newKey(), key=id(), scopes=body.scopes==null?['tickets']:[...new Set(array(body.scopes,'scopes'))];
+    if (!scopes.length||scopes.some(x=>!KEY_SCOPES.includes(x))) bad(`scopes must be a non-empty list of: ${KEY_SCOPES.join(', ')}`);
+    await run('INSERT INTO integration_keys (id,company_id,name,key_hash,key_hint,scopes,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)',key,companyId,required(body.name,'name',80),k.hash,k.hint,scopes.join(','),u.id,now());
     await audit(u,'integration_key.create','integration_key',key,companyId);
     // The key is shown once; only its hash is stored.
     return created({...keyOut(await byId('integration_keys',key)),key:k.key});

@@ -264,6 +264,41 @@ Machines get a wall- or machine-mounted tablet and, optionally, a hall TV.
 
 Code: `backend/services/factory/andon.js`, `routes/operator.js`; migration `007_operator_andon.sql`; tests `backend/tests/operator-andon.test.js`.
 
+## Energy audit: SEC test and servo-hydraulic upgrade case
+
+A phone-first installable app at **`/audit/`** (its own page, like the operator tablet: it is a long form, a live test run and big charts, not a ticket) and the desktop page **Energy (EMS) › Energy audits**. An engineer at an injection moulding machine creates an audit (machine, product/mould, material, nameplate, meter), runs a test or picks a past period, and gets:
+
+- **SEC** (kWh per kg of good product, per part and per shot), idle/standby share, average and peak kW, power factor, kVA and maximum demand, against an **editable benchmark table** by drive type and material. The shipped ranges are indicative placeholders, never measured facts.
+- A plain statement **before the test starts** of what the meter supports (for example: 10 values per second: SEC yes, cycle map yes; one report every 10 minutes: SEC yes, cycle map no).
+- A **cycle and energy map**: cycles segmented from a machine cycle signal (a counter in the samples) or, otherwise, from the power trace; an average profile with a min/max band; the HMI **phase template** (saved per product) laid on the detected cycle start, so energy per phase = ∫P dt; phases that keep power high while little work is done are flagged.
+- The **drive type**: optional input, and **inferred** from the profile (holding and cooling power against peak, standby, power factor, harmonics) as fixed pump / variable pump / servo-or-electric with a confidence and its evidence, "cannot tell" when it cannot, always overridable. A label-independent **inefficiency score**.
+- The **upgrade proposal**: fixed pump to variable pump or servo pump, variable pump to servo pump, or "no upgrade case" with what remains (standby, long cooling, power factor, slow cycle) when the profile is already servo-like or all-electric. Low / typical / high savings in kWh per kg, kWh, money (the plant's time-of-day tariff, else the company price) and CO₂ per year, retrofit cost, simple payback and net saving, the **confidence** from the data quality, and every assumption next to the result. Demand-charge effects are not included.
+- A printable **report** in English or German (`GET /api/energy-audits/:id/report?lang=de`, same approach as the IATF evidence pack: self-contained HTML, inline SVG, no scripts).
+
+**Roles.** Platform admins, customer admins, plant managers and maintenance run audits for their company; dispatchers read; the benchmark, saving-factor and material tables are edited by platform admins, customer admins and plant managers. Everything is scoped to the company and written to the audit trail.
+
+**Meters and data paths.**
+
+| Meter | Power | Resolution | Result |
+| --- | --- | --- | --- |
+| Clamp-on analyzer (voltage and current, Wi-Fi), 100 ms | measured | 10 Hz | SEC and cycle map, phase edges to about 0.2 s |
+| Any meter reporting every 1 to 2 s | measured | 0.5 to 2 s | SEC and cycle map |
+| LoRaWAN current clamp (current only, a report every few minutes) | **estimated**: kW = √3 · V · I · PF with a configured line voltage and an assumed PF (default 0.8) | minutes | SEC only, marked ESTIMATED |
+| No meter | existing `energy_readings` | 15 minutes | SEC only |
+
+- **Wi-Fi / HTTP (main path).** The meter, or a small gateway, posts JSON to `POST /api/integrations/energy-samples` with a company **integration key** with the `energy` scope in `X-Integration-Key` (`POST /api/integration-keys` with `"scopes":["energy"]`; hashed, shown once, never returned or logged; a key made for tickets cannot send machine data and the other way round). Up to 1200 samples per request (two minutes at 10 Hz), 300 requests per minute per key, 50 samples per second per meter on average, bodies up to 400 KB. A compact columnar form (`t0`, `dtMs`, `kw:[…]`) keeps a 10 Hz payload small.
+- **Any JSON, and MQTT.** `POST /api/integrations/energy-payload/:meterId` reads an object or an array of objects through the meter's **field mapping** (`kw=pwr.total *0.001`, `pf=pwr.pf`, `time=ts`). **No vendor payload format is built in**: the mapping connects a meter's own names. The platform does not run an MQTT client (no new dependency): a bridge (Node-RED, a Mosquitto script) posts each message to that address. Use *Test mapping* on the meter page with a real payload.
+- **LoRaWAN.** `POST /api/integrations/lorawan/:meterId` accepts a ChirpStack v4 or The Things Stack v3 uplink; the envelope (decoded object, time, DevEUI) is recognised from those two documented formats, and the **decoded field names are mapped by you**. Verify with *Test mapping* against your network server's real JSON before relying on it.
+- **Bluetooth (EXPERIMENTAL, unverified against any meter).** Web Bluetooth in Chrome on Android: you configure the GATT service, the characteristic and the byte layout of one notification (`name type endian offset scale`); the phone decodes, buffers offline and relays through `POST /api/energy-audit/meters/:id/relay`. The decoder is unit-tested; the Bluetooth connection itself is not tested here (no hardware, and no vendor profile is assumed).
+- **Clock.** Timestamps from the meter are used when plausible (7 days back to 5 minutes ahead); the receive time is stored with every sample and the clock offset is shown on the meter. A meter with a wrong clock can be set to "use the arrival time". Duplicate and out-of-order samples are accepted idempotently.
+- **Storage.** Raw samples are kept for audit windows (until 90 days after completion, `ENERGY_AUDIT_RAW_KEEP_DAYS`) and can be exported as CSV or deleted per audit; all other raw samples are rolled up to one-minute aggregates after 24 hours (`ENERGY_RAW_RETENTION_HOURS`) and deleted. A completed audit stores its result, so it survives the raw data.
+
+**Cycle detection (trace).** Resample to a grid of the sample interval (0.1 s at 10 Hz); period from the autocorrelation (smallest lag within 85 % of the best peak); the first start at the steepest rise of the folded profile (normally mould close); each next start tracked to the strongest rising edge near where it is due, with re-synchronisation after pauses; cycles of odd length (outside 0.8 to 1.2 of the median), with data holes, outside machine state "running" or with a correlation below 0.5 to the average are left out and counted. Limits: needs a clear repeating shape and preferably 10 or more cycles; the anchor is the steepest rise, so use *shift the cycle start* to line it up with the HMI; phases the HMI shows in parallel must be entered as one; resolution equals the sample interval.
+
+**Savings model.** Per-phase factors (share of the phase's measured energy saved) for fixed to variable, fixed to servo and variable to servo, as low / typical / high, editable per company. The defaults follow the shape of the three-drive comparison (differences sit in holding and cooling) and the 20 to 60 % that suppliers commonly quote; they are assumptions, not measurements. Annual saving = saved energy per cycle × cycles per year (annual running hours ÷ cycle time); a fixed load (heaters) can be excluded.
+
+**Demo.** With `MOULDCARE_SEED_DEMO=true` two audits are added for Acme: a fixed-pump hydraulic press with a generated 40-minute 10 Hz trace (an HMI-style template, a skipped cycle and a pause) and a LoRaWAN current clamp on the electric press (interval path, estimated, no cycle map). The traces are generated, not measured.
+
 ## WhatsApp notifications
 
 Technicians and plant managers can get the same alerts that are emailed, plus a message when a ticket is assigned to them and when a ticket they reported is completed. Each person opts in under **My account → Notifications** (or an admin does it when editing the user) and needs a phone number in international format, e.g. `+919876543210`. Messages are short: heading, machine tag, title, severity or priority. Every message is listed with its status under **Machine alerts → Email notifications**, next to whether email and WhatsApp are configured.
