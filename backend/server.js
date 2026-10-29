@@ -19,11 +19,12 @@ import { factory, factoryOps, operator, simulateAll, simulatorEnabled, checkMiss
 import { traceability } from './services/traceability/index.js';
 import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
+import { energyAudit, rollupRaw } from './services/energy-audit/index.js';
 import { processFingerprint, scanFingerprints } from './services/process/index.js';
 import { sendQueuedWhatsapp } from './common/whatsapp.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,processFingerprint,assistant,vision]) area.register(router);
+for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,processFingerprint,assistant,vision,energyAudit]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
@@ -44,7 +45,7 @@ async function runOffline(u,req,path,body,handle) {
 async function api(req,res,url) {
   const {route,params,pathExists}=router.match(req.method,url.pathname);
   if (!route) throw new HttpError(pathExists?405:404,pathExists?'Method not allowed':'Endpoint not found');
-  const body=['POST','PATCH','PUT'].includes(req.method)?await bodyOf(req):{};
+  const body=['POST','PATCH','PUT'].includes(req.method)?await bodyOf(req,route.bodyLimit):{};
   // Routes marked {station:true} also accept an operator station token; the handler then gets ctx.station (u is null).
   const u=route.public?null:await authenticate(req), station=!route.public&&!u&&route.station?await authenticateStation(req):null;
   if (!route.public&&!u&&!station) throw new HttpError(401,'Authentication required');
@@ -106,6 +107,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   // Vision: silent edge nodes raise an alert; closed, unlocked evidence past its retention is deleted (locked never).
   setInterval(async ()=>{ try { await transaction(async ()=>await checkNodes()); } catch(e) { console.error('Vision node check failed:',e.message); } },60000).unref();
   setInterval(async ()=>{ try { const n=await transaction(async ()=>await pruneMedia()); if (n) console.log(`Vision: pruned ${n} media files past retention`); } catch(e) { console.error('Vision pruning failed:',e.message); } },6*3600000).unref();
+  // Energy audit: raw high-rate meter samples older than the retention, and not needed by an audit, are rolled up to one-minute aggregates.
+  setInterval(async ()=>{ try { await transaction(async ()=>await rollupRaw()); } catch(e) { console.error('Energy sample roll-up failed:',e.message); } },30*60000).unref();
   // WhatsApp messages waiting in the outbox (e.g. queued while their request was still open) go out within a minute.
   setInterval(()=>{ sendQueuedWhatsapp().catch(e=>console.error('WhatsApp sending failed:',e.message)); },60000).unref();
   // Simulated machine data (local demos only): backfills a week on first start, then keeps the factory live.

@@ -537,6 +537,33 @@ Stations are tablets or boards bound to machines of one plant. `POST /operator/l
 
 Escalation runs every minute on the server (`checkAndonEscalations`). Audit actions: `station.create`, `station.update`, `station.login`, `station.login_failed`, `station.locked`, `operator.downtime`, `operator.scrap`, `operator.job_start` / `job_finish` / `mould_change_start` / `mould_change_finish`, `operator.resume`, `andon.raise`, `andon.escalate`, `andon.acknowledge`, `andon.resolve`, `andon.settings`.
 
+## Energy audit
+
+Company-scoped. People use the audit routes with a sign-in token (write: platform admin, customer admin, plant manager, maintenance; read: also dispatcher). Meters send data with a company integration key that has the `energy` scope (`X-Integration-Key`).
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET/POST /api/energy-audits`, `GET/PATCH /api/energy-audits/:id` | List (SEC, status, savings), create, read with analysis, edit (a completed audit is re-analysed) |
+| `POST /api/energy-audits/:id/start`, `/stop`, `/complete`, `/cancel` | Test run; `/complete` analyses a draft with a period |
+| `GET /api/energy-audits/:id/report?lang=en` or `de` | Printable HTML report |
+| `GET /api/energy-audits/:id/raw.csv`, `DELETE /api/energy-audits/:id/raw` | Export or delete the raw samples of the audit window |
+| `GET/PUT /api/energy-audit/config` | Materials, benchmark table and saving factors of the company (`null` resets to the defaults) |
+| `GET/PUT /api/energy-audit/templates/:productId` | Cycle phase template of a product: `{name, phases:[{name, seconds, category?}]}` |
+| `GET/POST /api/energy-audit/meters`, `GET/PATCH …/:id`, `GET …/:id/live`, `POST …/:id/test-mapping`, `POST …/:id/relay` | Meters, live view, dry run of a mapping, relay of samples from a signed-in phone |
+| `POST /api/attachments` with `entityType:"energy_audit"` | Photos on an audit |
+| `POST /api/integration-keys` with `"scopes":["energy"]` | Key for machine data (shown once; the default scope stays `tickets`) |
+
+**Samples** `POST /api/integrations/energy-samples` (header `X-Integration-Key`, up to 1200 samples, 400 KB). Objects:
+
+```json
+{"meterId":"…","samples":[{"t":"2026-10-01T09:30:00.100Z","kw":12.4,"pf":0.81,"volts":398,"amps":18.1},
+  {"t":1790847000200,"kw1":4.1,"kw2":4.2,"kw3":4.1}]}
+```
+
+Columns, compact (without `t0` the last sample is "now"): `{"meterId":"…","t0":"2026-10-01T09:30:00.000Z","dtMs":100,"kw":[12.4,12.6],"pf":[0.81,0.81]}`. Fields: `t` (ISO with offset or epoch ms), `kw`, `kva`, `kvar`, `pf` (0 to 1), `volts`, `amps`, `thd`, `kwhTotal` (cumulative counter), `cycle` (machine cycle counter), per phase `kw1..3`, `v1..3` (line to neutral), `i1..3`, `pf1..3`. A sample needs `kw`, per-phase values, `amps` or `kwhTotal`. The whole batch is checked first: one bad sample refuses it (400, names the sample) and nothing is stored. Reply `201 {accepted, duplicates, outOfOrder, clockOffsetMs, observedIntervalMs}`; `401` bad or inactive key, `403` key without the energy scope, `404` meter not in the key's company, `429` over a limit (`Retry-After`).
+
+**Mapped payloads.** `POST /api/integrations/energy-payload/:meterId` (an object or an array of objects) and `POST /api/integrations/lorawan/:meterId` (ChirpStack v4 / The Things Stack v3 uplink; the DevEUI must match the meter's) apply the meter's mapping, `{"kw":{"path":"pwr.total","scale":0.001},"pf":"pwr.pf","time":"ts"}` (names as above plus `time` and `objectPath`; paths like `a.b[0].c`). No vendor format is assumed.
+
 ## Tickets from other systems
 
 Trusted systems raise breakdown tickets through one intake. The first is MouldCare Monitor: when a person approves a ticket draft there, Monitor sends it here (see `monitor/README.md`). Code: `backend/services/core/routes/intake.js`.

@@ -3,6 +3,7 @@ import { seedTraceSuite } from './trace-demo.js';
 import { seedFingerprint } from './fingerprint-demo.js';
 import { seedStock } from './stock-demo.js';
 import { seedAndon } from './andon-demo.js';
+import { seedEnergyAudit } from './energy-audit-demo.js';
 import { db, id, now, one, run, transaction } from '../common/db.js';
 import { hashPassword } from '../common/security.js';
 import { parametersFor } from '../common/catalog.js';
@@ -80,6 +81,7 @@ if (await one('SELECT 1 FROM companies LIMIT 1')) {
   if (await seedFingerprint()) console.log('Mould process fingerprint demo data added');
   if (await transaction(async ()=>await seedStock())) console.log('Spare parts stock demo data added');
   if (await seedAndon()) console.log('Operator stations and andon demo data added');
+  if (await transaction(async ()=>await seedEnergyAudit())) console.log('Energy audit demo data added');
   if (await one("SELECT 1 FROM companies WHERE id='c-acme'")&&await one("SELECT 1 FROM products WHERE id='pr-cap'")&&!await one('SELECT 1 FROM zones LIMIT 1')) { await transaction(async ()=>{ await seedOperations(); }); console.log('Added traceability, safety and asset-tracking demo data'); }
   else console.log('Seed already present');
   if (isMain) { await db.close(); process.exit(0); }
@@ -133,7 +135,7 @@ await transaction(async ()=>{
   await run("UPDATE companies SET energy_price_per_kwh=0.12 WHERE id='c-acme'"); await run("UPDATE companies SET energy_price_per_kwh=0.21 WHERE id='c-nova'");
   await run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-a','demo-device-a','c-acme','eq-a',stamp);
   await run('INSERT INTO device_mappings (id,external_device_id,company_id,equipment_id,created_at) VALUES (?,?,?,?,?)','map-n','demo-device-n','c-nova','eq-n',stamp);
-  await seedOperations(); await demoRfid(); await seedVision(); await seedTraceSuite(true); await seedFingerprint(true); await seedStock(); await seedAndon();
+  await seedOperations(); await demoRfid(); await seedVision(); await seedTraceSuite(true); await seedFingerprint(true); await seedStock(); await seedAndon(); await seedEnergyAudit();
 });
 console.log('Seeded two customers, two providers, equipment, contracts, tickets and history. Password: DemoPass123!');
 }
