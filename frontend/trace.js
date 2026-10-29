@@ -7,6 +7,7 @@ import { formatNumber, t as _t } from './shared/i18n.js';
 import { barChart, lineChart, statTile } from './charts.js';
 import { scanInput, bindScanInput } from './shared/scan.js';
 import { qrSvg } from './qr.js';
+import { createFingerprint } from './fingerprint.js';
 
 export function createTrace(ctx) {
   const { state, api, render, fail, when, header, factoryManager, admin, customer } = ctx;
@@ -26,6 +27,7 @@ export function createTrace(ctx) {
   const loadCat=async()=>{ if (!state.tcat) state.tcat=await api('/trace/catalog'); };
   const paramDefs=()=>Object.fromEntries(Object.values(state.cat?.processParams||{}).flat().map(([k,l,u])=>[k,{label:l,unit:u}]));
   const pLabel=k=>paramDefs()[k]?.label||humanise(k), pUnit=k=>paramDefs()[k]?.unit||'';
+  const fp=createFingerprint({state,api,render,fail,when});
   const fmtTime=t=>new Intl.DateTimeFormat(state.user.preferences.locale,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:state.user.preferences.timezone}).format(new Date(t));
 
   // ---------- Trace search & genealogy ----------
@@ -125,6 +127,7 @@ export function createTrace(ctx) {
         `<div class="chart-grid">${s.spc.map(x=>lineChart(`spc-${x.parameter}`,{title:`${pLabel(x.parameter)} (${pUnit(x.parameter)})`,subtitle:`${_t('trace.controlChartCpk',{value:x.cpk==null?'—':formatNumber(x.cpk,2)})}`,unit:pUnit(x.parameter),points:x.series,formatTime:fmtTime,
           limits:[...(x.usl!=null?[{value:x.usl,label:_t('trace.usl'),kind:'critical'}]:[]),...(x.lsl!=null?[{value:x.lsl,label:_t('trace.lsl'),kind:'critical'}]:[]),{value:x.ucl,label:_t('trace.ucl'),kind:'warning'},{value:x.lcl,label:_t('trace.lcl'),kind:'warning'}]})).join('')}</div>`}</div>`;
     }
+    if (tab==='spc') body+=fp.block('product',state.pc.productId);
     if (tab==='deviations') body=`<div class="panel">${dataTable('deviations',{rows:deviations,search:d=>`${d.batch_number} ${d.part_number} ${d.parameter}`,filters:[{key:'status',label:_t('trace.decision'),options:['open','accepted','rejected'].map(s=>[s,humanise(s)]),match:(r,v)=>r.status===v}],empty:_t('trace.noProcessDeviationsEveryReading'),
       columns:[{title:_t('trace.batch'),cell:d=>`${codeLink(d.batch_number)}<div class="muted">${esc(d.part_number)}</div>`},{title:_t('trace.setting'),cell:d=>esc(pLabel(d.parameter))},{title:_t('trace.worstValue'),cell:d=>`<b>${formatNumber(d.value,2)}</b> ${esc(pUnit(d.parameter))}`},{title:_t('trace.window'),cell:d=>`${d.min??'–'} … ${d.max??'–'}`},{title:_t('trace.when'),cell:d=>`${when(d.started_at)}${d.ended_at?`<div class="muted">${_t('trace.to',{ended_at:when(d.ended_at)})}</div>`:'<div class="muted">ongoing</div>'}`},{title:_t('trace.decision'),cell:d=>`${pillOf(d.status)}${d.disposition?`<div class="mini">${esc(d.disposition)}</div>`:''}`},
         {title:'',cls:'row',cell:d=>`${btn(_t('trace.batchQuality'),'batchQuality','secondary small',d.batch_id)}${d.status==='open'&&factoryManager(d.company_id)?btn(_t('trace.decide'),'decideDeviation','small',d.id):''}`}]})}</div>`;
@@ -251,6 +254,7 @@ export function createTrace(ctx) {
       if (name==='newReturn') { await loadCat(); return returnForm(); }
       if (name==='decideReturn') return decideReturnForm(id);
       if (name==='authCheck') return await authCheck();
+      if (fp.ACTIONS.includes(name)) return await fp.action(name,id);
       if (name==='goDispatch') { state.page='dispatch'; state.detail=null; return render(); }
     } catch (e) { fail(e); }
   }
@@ -260,6 +264,6 @@ export function createTrace(ctx) {
     if (state.page==='fieldReturns') bindScanInput(document,'authSerial',()=>authCheck().catch(fail));
     const ps=document.querySelector('[data-pc-product]'); if (ps) ps.onchange=()=>{ state.pcProduct=ps.value; state.pc.productId=ps.value; render(); };
   }
-  const reset=()=>{ state.thub=undefined; state.pc=undefined; state.ship=undefined; state.fr=undefined; };
-  return {views,action,bind,reset,ACTIONS:['traceGo','batchQuality','gateCheck','decideDeviation','makeLabels','printBatchLabels','recallLot','recallBatch','editRules','newShipment','loadShipment','deliveryNote','newPallet','newReturn','decideReturn','authCheck','goDispatch']};
+  const reset=()=>{ state.thub=undefined; state.pc=undefined; state.ship=undefined; state.fr=undefined; fp.reset(); };
+  return {views,action,bind,reset,fingerprintBlock:fp.block,ACTIONS:[...fp.ACTIONS,'traceGo','batchQuality','gateCheck','decideDeviation','makeLabels','printBatchLabels','recallLot','recallBatch','editRules','newShipment','loadShipment','deliveryNote','newPallet','newReturn','decideReturn','authCheck','goDispatch']};
 }

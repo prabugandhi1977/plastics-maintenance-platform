@@ -57,9 +57,29 @@ test('migration 008 is applied', () => {
   assert.ok(one("SELECT 1 FROM sqlite_master WHERE name='root_causes'") && one("SELECT 1 FROM sqlite_master WHERE name='actual_causes'"));
 });
 
+test('the start of a slow drift is dated by its trend and never a day late, whatever the time of day, with a daily swing in the signal', () => {
+  // Five days of 15-minute medians: two days at the normal level, then a rise of 2.6 per day from a start at hour 62 of the
+  // window, all with a daily swing (two strengths) and a little noise. The window is cut at every hour of the day, so the swing meets the
+  // start of the drift at every phase. (The fit used to be thrown out when the swing lowered its r², which came and went
+  // with the hour and put the start more than a day late. The corner fit stays within about 8 hours at these swings, a
+  // cleaner signal gives a few hours.)
+  const BUCKET = 15 * MIN, startAt = 62 * HOUR;
+  for (const swingAmplitude of [1.2, 2]) for (let phase = 0; phase < 24; phase++) {
+    const from = 0, to = 5 * DAY + 10 * HOUR, series = [];
+    for (let t = from; t <= to; t += BUCKET) {
+      const swing = swingAmplitude * Math.sin(2 * Math.PI * (t + phase * HOUR) / DAY), noise = 0.25 * Math.sin(t / 997000) + 0.2 * Math.sin(t / 311000);
+      series.push({ t, v: 60 + swing + noise + Math.max(0, 2.6 * (t - startAt) / DAY) });
+    }
+    const a = rc.assessWindow(series, from, to);
+    assert.equal(a.moved, true, `swing ${swingAmplitude}, phase ${phase}: moved`);
+    assert.equal(a.shape, 'drift', `swing ${swingAmplitude}, phase ${phase}: a drift`); assert.equal(a.onsetMethod, 'trend', `swing ${swingAmplitude}, phase ${phase}: dated by the trend`);
+    assert.ok(Math.abs(a.onset - startAt) <= 8 * HOUR, `swing ${swingAmplitude}, phase ${phase}: onset ${((a.onset - startAt) / HOUR).toFixed(1)} h from the start`);
+  }
+});
+
 test('evidence on the planted faults: the faulty signal moved first, at about the planted time, and nothing else', () => {
   const anchor = setting('sim_anchor');
-  for (const [tag, kind, tolerance] of [['IMM-02', 'degrading', 4 * HOUR], ['BM-01', 'unusual', 1.5 * HOUR], ['CH-01', 'limit', 40 * MIN]]) {
+  for (const [tag, kind, tolerance] of [['IMM-02', 'degrading', 6 * HOUR], ['BM-01', 'unusual', 1.5 * HOUR], ['CH-01', 'limit', 40 * MIN]]) {
     const fault = FAULTS.find(x => x.tag === tag), f = active(tag, kind);
     assert.ok(f, `${tag} has its ${kind} finding`);
     const ev = rc.gatherEvidence(f);

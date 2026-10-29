@@ -7,14 +7,15 @@
 //   F1… similar past findings    D1… manual passages    K1… tickets
 // Which signal moved first: each signal's 15-minute medians (while running) are compared with its own normal, learned
 // from the first 48 hours of the window (median and MAD). The onset is where it first stayed 3 spreads or more away for
-// two windows in a row. For a slow drift, which crosses 3 spreads long after it began, the onset is where the straight
-// line through the drift meets the normal level, so it is an estimate; an abrupt step is dated to its 15-minute window.
+// two windows in a row. For a slow drift, which crosses 3 spreads long after it began, the onset is the corner of the
+// best "flat at the normal level, then a straight rise" fit to the whole window, so it is an estimate; an abrupt step is
+// dated to its 15-minute window.
 import { createHash } from 'node:crypto';
 import { one, all, run } from './db.js';
 import { bad, text } from './http.js';
 import { analysisOf } from './ml/analyze.js';
 import { runningPoints } from './ingest.js';
-import { median, mad, linearFit } from './ml/stats.js';
+import { median, mad } from './ml/stats.js';
 import { search, findingQuery } from './manuals.js';
 import { MACHINE_TYPES, ROOT_CAUSE_RULES, KNOWLEDGE } from './catalog.js';
 import { reasonLabel } from './ml/learning.js';
@@ -51,6 +52,25 @@ function buckets(points) {
 }
 const downsample = (series, max = 96) => { const step = Math.max(1, Math.ceil(series.length / max)), out = []; for (let i = 0; i < series.length; i += step) { const c = series.slice(i, i + step); out.push([c[0].t, round(c.reduce((a, b) => a + b.v, 0) / c.length)]); } return out; };
 
+// The start of a drift: the corner of a "flat, then straight line" model that fits the window best. Null when that
+// model is not clearly better than staying flat, or when the line does not rise in the direction the signal moved.
+function driftStart(series, bm, sign, first) {
+  const n = series.length, y = series.map(b => b.v - bm);
+  const flat = y.reduce((a, v) => a + v * v, 0);
+  let best = null;
+  for (let c = 0; c <= first; c++) {
+    const t0 = series[c].t; let num = 0, den = 0;
+    for (let i = c; i < n; i++) { const d = series[i].t - t0; num += y[i] * d; den += d * d; }
+    if (!den) continue;
+    const slope = num / den; if (Math.sign(slope) !== sign) continue;
+    let sse = 0;
+    for (let i = 0; i < c; i++) sse += y[i] * y[i];
+    for (let i = c; i < n; i++) { const e = y[i] - slope * (series[i].t - t0); sse += e * e; }
+    if (!best || sse < best.sse) best = { sse, t0 };
+  }
+  return best && best.sse <= 0.5 * flat ? best.t0 : null;
+}
+
 export function assessWindow(series, from, to) {
   const baseEnd = from + Math.min(48 * HOUR, 0.4 * (to - from)), base = series.filter(b => b.t < baseEnd), rest = series.filter(b => b.t >= baseEnd);
   if (base.length < 24 || rest.length < 4) return { status: 'insufficient', points: series.length };
@@ -67,9 +87,11 @@ export function assessWindow(series, from, to) {
   let onset = series[first].t, method = 'threshold';
   if (!active) { /* a short event that has passed */ }
   else if (!step) {
-    // A drift crosses 3 spreads long after it began: the straight line through it is carried back to the normal level.
-    const part = series.slice(first), fit = linearFit(part.map(b => ({ x: b.t, y: b.v })));
-    if (fit && part.length >= 12 && fit.r2 >= 0.5 && Math.sign(fit.slope) === sign) { const t = series[first].t + (bm - fit.at(series[first].t)) / fit.slope; onset = Math.round(Math.min(series[first].t, Math.max(baseEnd, t)) / BUCKET) * BUCKET; method = 'trend'; }
+    // A drift crosses 3 spreads long after it began. Its start is found by fitting "flat at the normal level, then a
+    // straight rise" to the whole window and taking the corner that fits best. A daily swing in the signal cannot move
+    // the corner much, because the normal level was learned over whole days.
+    const t0 = driftStart(series, bm, sign, first);
+    if (t0 != null) { onset = Math.round(Math.min(series[first].t, Math.max(baseEnd, t0)) / BUCKET) * BUCKET; method = 'trend'; }
   }
   return { ...out, direction: sign > 0 ? 'up' : 'down', onset, onsetMethod: method, shape: !active ? 'transient' : step ? 'step' : 'drift', active };
 }
@@ -262,7 +284,7 @@ export function standardAnalysis(ev) {
   if (!firstMover) cannotTell.push('No signal moved persistently in the window; the finding may rest on a short event, a limit that was already close, or a change older than five days.');
   if (ev.tiedWithFirst.length) cannotTell.push(`${name(firstMover)} and ${ev.tiedWithFirst.map(k => byKey[k].label).join(', ')} moved within 15 minutes of each other, so which came first cannot be told.`);
   if (ev.states.stoppedNearOnset) cannotTell.push('The machine was stopped shortly before the change began, so a start-up transient (H1) may explain part of it.');
-  if (firstMover && (firstMover.shape === 'drift')) cannotTell.push('The first mover drifted slowly, so its start is estimated from its trend line and is only good to within a few hours.');
+  if (firstMover && (firstMover.shape === 'drift')) cannotTell.push('The first mover drifted slowly, so its start is estimated from its trend line: usually good to within a few hours, but it can be off by up to about half a day when the signal swings strongly over the day.');
   return { summary, causes, cannotTell };
 }
 

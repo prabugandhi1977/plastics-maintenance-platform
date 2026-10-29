@@ -5,6 +5,7 @@ import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImag
 import { icon, tile, heading } from '/icons.js';
 import { initConnectors, connectorsSection, ACTIONS as CONNECTOR_ACTIONS, action as connectorAction } from '/connectors.js';
 import { initRootCause, whyButton, whyPanel, causeLine, recordButton, causeFields, causeFrom, statsHtml as rootCauseStats, ACTIONS as WHY_ACTIONS, action as whyAction } from '/rootcause.js';
+import { initDashboards, dashboardsPage, tvActive, applyTv, landingHash, editing as dashEditing, bindDashboards, ACTIONS as DASH_ACTIONS, action as dashAction } from '/dashboards.js';
 import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,6 +24,7 @@ initSetup({ api, esc, state, render });
 initPeople({ api, esc, state, render });
 initConnectors({ api, esc, state, render });
 initRootCause({ api, esc, state, render });
+initDashboards({ api, esc, state, render });
 const canWrite = () => ['admin', 'engineer'].includes(state.user?.role);
 const time = t => t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const ago = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -37,7 +39,7 @@ const ib = (name, label) => `${icon(name, 'bi')}<span>${label}</span>`;
 const ROLE = { admin: 'Super user', engineer: 'Engineer', viewer: 'Viewer' };
 const head = (ico, title, sub = '', actions = '', tone) => `<div class="head">${tile(ico, tone)}<div class="grow"><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${actions}</div>`;
 
-function signOut() { store.set('monitor-token', null); store.set('monitor-user', null); state.token = null; state.user = null; render(); }
+function signOut() { store.set('monitor-token', null); store.set('monitor-user', null); state.token = null; state.user = null; state.landed = false; render(); }
 function setTheme(choice) {
   try { localStorage.setItem('monitor-theme', choice); } catch {}
   document.documentElement.dataset.theme = choice;
@@ -52,7 +54,7 @@ window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); }
 let openFindings = 0;
 function layout(inner) {
   const { page } = route(), theme = document.documentElement.dataset.theme || 'auto';
-  const links = [['overview', 'Overview'], ['findings', 'Findings'], ['tickets', 'Ticket drafts'], ['reports', 'Reports'], ['chat', 'Ask AI'], ...(state.user.role === 'admin' ? [['settings', 'Settings']] : [])];
+  const links = [['overview', 'Overview'], ['dashboards', 'Dashboards'], ['findings', 'Findings'], ['tickets', 'Ticket drafts'], ['reports', 'Reports'], ['chat', 'Ask AI'], ...(state.user.role === 'admin' ? [['settings', 'Settings']] : [])];
   return `<div class="shell"><aside class="side"><div class="brand"><b>Mould<span>Care</span> Monitor</b><small>Machine &amp; condition monitoring</small></div>
     <nav class="nav" aria-label="Main">${links.map(([id, label]) => `<a href="#/${id}" class="${page === id || (id === 'overview' && page === 'machine') ? 'active' : ''}">${icon(id, 'i nav-i')}<span class="label">${label}</span>${id === 'findings' && openFindings ? `<span class="count">${openFindings}</span>` : ''}</a>`).join('')}</nav></aside>
     <div class="main"><header class="topbar">${state.config?.simulator ? '<span class="pill-env" title="Readings come from the built-in simulator, not real machines">Simulated data</span>' : ''}<span class="grow"></span>
@@ -67,25 +69,28 @@ let generation = 0;
 async function render() {
   clearInterval(state.timer);
   const gen = ++generation;
+  applyTv();
   if (!state.config) state.config = await api('/config').catch(() => ({}));
   if (!state.token) return renderLogin();
   if (!reasons) reasons = await api('/decision-reasons').catch(() => null);
+  // No page in the address: land on the person's default dashboard (their own, else the super user's), else the Overview.
+  if (!location.hash && !state.landed) { state.landed = true; const h = await landingHash(); if (h && gen === generation) history.replaceState(null, '', h); }
   const { page, arg, sub } = route();
-  const pages = { overview: pageOverview, machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: () => pageSettings(arg, sub) };
+  const pages = { overview: pageOverview, dashboards: () => dashboardsPage(arg), machine: () => pageMachine(arg), findings: pageFindings, tickets: pageTickets, reports: pageReports, chat: pageChat, settings: () => pageSettings(arg, sub) };
   const draw = async () => {
     // A slower, older page must never paint over the page the person has since moved to.
-    try { const html = await (pages[page] || pageOverview)(); if (gen === generation) paint(layout(html)); }
+    try { const html = await (pages[page] || pageOverview)(); if (gen === generation) paint(tvActive() ? html : layout(html)); }
     catch (e) { if (gen === generation) paint(layout(`<div class="error">${esc(e.message)}</div>`)); }
   };
   await draw();
-  if (gen === generation && ['overview', 'machine', 'findings'].includes(page)) state.timer = setInterval(() => { if (!document.hidden && !state.busy.size && !document.getElementById('dlg') && !document.activeElement?.matches('input,textarea,select')) draw(); }, 30000);
+  if (gen === generation && ['overview', 'machine', 'findings', 'dashboards'].includes(page)) state.timer = setInterval(() => { if (!document.hidden && !state.busy.size && !dashEditing() && !document.getElementById('dlg') && !document.activeElement?.matches('input,textarea,select')) draw(); }, 30000);
 }
 function paint(html) {
   const y = window.scrollY; $('#app').innerHTML = html; window.scrollTo(0, y);
   $('#signout')?.addEventListener('click', signOut);
   // Only the buttons: <html> carries data-theme too, and a listener on it would pile up with every repaint.
   document.querySelectorAll('button[data-theme]').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.theme)));
-  bindActions(); loadImages(); bindPeople(); bindSetup();
+  bindActions(); loadImages(); bindPeople(); bindSetup(); bindDashboards();
 }
 
 function renderLogin(error = '') {
@@ -332,6 +337,7 @@ function bindActions() {
     try {
       if (SETUP_ACTIONS.includes(act)) { e.preventDefault(); return await setupAction(act, el); }
       if (WHY_ACTIONS.includes(act)) { e.preventDefault(); return await whyAction(act, el); }
+      if (DASH_ACTIONS.includes(act)) { e.preventDefault(); return await dashAction(act, el); }
       if (PEOPLE_ACTIONS.includes(act)) { e.preventDefault(); return await peopleAction(act, el); }
       if (CONNECTOR_ACTIONS.includes(act)) { e.preventDefault(); return await connectorAction(act, el); }
       if (act === 'tickets-filter') { location.hash = el.dataset.filter === 'all' ? '#/tickets' : `#/tickets?assigned=${el.dataset.filter}`; return; }

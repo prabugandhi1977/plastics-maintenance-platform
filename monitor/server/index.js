@@ -22,6 +22,7 @@ import { indexPending } from './manuals.js';
 import { registerRootCause } from './ai/rootcause.js';
 import { rootCauseBrief, rootCauseStats, recordActualCause } from './rootcause.js';
 import { registerConnectors, startConnectors, stopConnectors, connectorsEnabled } from './connectors/index.js';
+import { registerDashboards } from './dashboards.js';
 
 const r = createRouter();
 // Demo accounts come with demo data unless MONITOR_DEMO_ACCOUNTS=false (a public site with simulated machines).
@@ -217,6 +218,7 @@ registerSetup(r);
 registerPeople(r);
 registerConnectors(r);
 registerRootCause(r);
+registerDashboards(r);
 
 // ---- HTTP plumbing ----
 const STATIC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',

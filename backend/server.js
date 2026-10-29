@@ -19,10 +19,11 @@ import { factory, factoryOps, operator, simulateAll, simulatorEnabled, checkMiss
 import { traceability } from './services/traceability/index.js';
 import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
+import { processFingerprint, scanFingerprints } from './services/process/index.js';
 import { sendQueuedWhatsapp } from './common/whatsapp.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,assistant,vision]) area.register(router);
+for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,processFingerprint,assistant,vision]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
@@ -98,6 +99,8 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   setInterval(async ()=>{ try { await transaction(async ()=>await syncPm()); } catch(e) { console.error('Preventive maintenance check failed:',e.message); } },15*60000).unref();
   // Machine learning: predictive alerts from learned baselines (degrading or unusual signals).
   setInterval(async ()=>{ try { await transaction(async ()=>await scanPredictive()); await transaction(async ()=>await scanQuality()); } catch(e) { console.error('Predictive scan failed:',e.message); } },10*60000).unref();
+  // Mould process fingerprints: learn a first one where there is enough good data, then judge each mould's recent run (one drift alert per mould).
+  setInterval(async ()=>{ try { await transaction(async ()=>await scanFingerprints()); } catch(e) { console.error('Process fingerprint scan failed:',e.message); } },10*60000).unref();
   // Vision AI second opinions for companies that opted in to automatic review (a few non-critical incidents per minute).
   setInterval(()=>{ reviewPending().catch(e=>console.error('Vision AI review failed:',e.message)); },60000).unref();
   // Vision: silent edge nodes raise an alert; closed, unlocked evidence past its retention is deleted (locked never).

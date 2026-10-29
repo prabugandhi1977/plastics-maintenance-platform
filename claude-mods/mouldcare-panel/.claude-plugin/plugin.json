@@ -1,0 +1,9 @@
+{
+  "name": "mouldcare-panel",
+  "version": "0.1.0",
+  "description": "MouldCare dev panel: server status, last test run, git branch, and buttons to run tests and start the demo",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "MouldCare"
+  }
+}
