@@ -68,6 +68,19 @@ With `ANTHROPIC_API_KEY` set, the app uses Claude (`claude-opus-5-5` by default)
 - **Reports:** a shift report (last 8 hours) or a weekly report, in Markdown.
 - **Ask AI:** a chat that looks data up with tools (`list_machines`, `machine_status`, `signal_history`, `list_findings`, `search_manuals`) before answering, and shows what it looked at.
 
+### Root-cause analysis ("Why did this happen?")
+
+On a finding, **Why did this happen?** gathers the evidence around the time it started and ranks the likely root causes. Engineers and the super user run it; viewers read the stored result.
+
+- **Evidence**, each item with an id the answer must cite: the window of every signal and which moved first (each signal against its own normal learned from the first 48 hours of a five-day window; onset from two persistent 15-minute windows beyond 3 spreads, a drift dated by carrying its trend line back to normal), correlations and lags between signals, the machine state history, the pattern model's per-signal contributions, similar past findings on this machine and on machines of the same type (outcome, reason, notes and any recorded actual cause), manual passages, and open or recent tickets.
+- **With Claude** the evidence goes as structured data and the answer is a ranked list: mechanism, evidence for and against, confidence with its reason, what to check, what would rule it out, and what cannot be told from the data. The server maps cited ids back to its own items and drops unknown ones; a cause left with no valid evidence is held at low confidence. Notes, tickets, passages and recorded causes are quoted as data and never reach the instructions.
+- **Without a key** (or if the AI fails or refuses) the standard rules rank the causes from the first-moving signal and the machine type's known failure patterns (`ROOT_CAUSE_RULES` in `server/catalog.js`, labelled "standard rules, not AI", confidence at most medium).
+- **Caching:** one result per finding, kept with a data version (window to the hour, decisions and recorded causes for the machine type, tickets, documents). It is served until the data changes or someone presses Refresh; the page says when it is stale.
+- **Closing the loop:** when a finding is resolved the engineer can pick one of the suggested causes or type their own (also later, on a resolved finding). It is stored, shown as past-finding evidence in later analyses, and counted per machine type under Settings › Connections & models (how often the top cause was the recorded one, AI and standard rules apart). Nothing else is changed by it.
+- **Tickets and reports:** a ticket draft and the reports state the confirmed or most likely cause; "Draft ticket with this cause" uses the chosen cause as the working hypothesis.
+
+API: `GET/POST /api/findings/:id/root-cause` (POST with `{ refresh }`; engineers and super user), `POST /api/findings/:id/actual-cause` (`{ pick }` and/or `{ text }`), `rootCause` in `PATCH /api/findings/:id`, and `rootCauseIndex` in `POST /api/findings/:id/ticket`. Tables: migration `008_root_cause.sql`.
+
 ### AI that reads your manuals
 
 The AI reads the documents the super user uploads for each machine and signal: manuals, data sheets and calibration certificates.
@@ -393,7 +406,7 @@ cd monitor
 npm test
 ```
 
-There are 72 tests in twelve files:
+There are 84 tests in thirteen files:
 
 - `dashboards.test.js`: custom dashboards: create, update and delete; widget validation against real machines, signals, people and size limits; sharing by audience and role (viewers read shared dashboards but cannot change them; private ones are invisible to others); the landing dashboard (own, then for everyone, then Overview); duplicates; the three templates; widgets flagged after a machine, signal or person is deleted; and the widget data endpoints behind the same sign-in and roles.
 - `ml.test.js`: the statistics, steps against trends, limits, both pattern models, and an end-to-end relationship break.
@@ -431,6 +444,12 @@ There are 72 tests in twelve files:
   - the API for the super user only, its input checks, and passwords never in a reply, the database in clear, an error or the audit log
   - *Test connection* reading without storing
 - `ai.test.js`: Claude requests against a stand-in client. It checks the model, the fallback, the structured output, grounding, caching, the refusal fallback, and the chat's tool loop with thinking blocks passed back unchanged.
+- `rootcause.test.js`: root-cause analysis, covering:
+  - the evidence on the planted demo faults (the faulty signal first, at about the planted time) and on a made-up machine with known lead and lag
+  - a stand-in AI client: citations mapped to real evidence, unknown ids dropped, a cause without evidence held to low, refusal and failure falling back to the standard rules
+  - the standard rules without a key, caching per data version, refresh and concurrent runs
+  - text in notes, tickets and recorded causes staying data, roles (viewers read, engineers and super user run)
+  - the actual cause recorded on resolving (a bad pick rolls everything back), the per-type accuracy figures, the cause fed back as evidence, and the cause in ticket drafts and reports
 - `manuals.test.js`: the AI reading the documents, with a stand-in client, covering:
   - text from a PDF made in the test (page by page), Word, Excel, text and CSV, and passages of a few hundred words
   - indexing after the upload, and removal with the file, its signal or its machine
