@@ -3,6 +3,7 @@
 import { esc, btn, simpleTable, field, select, openDialog, confirmAction, toast } from './ui.js';
 import { formatNumber, formatDateTime, t as _t } from './shared/i18n.js';
 import { statTile } from './charts.js';
+import { qrSvg } from './qr.js';
 import { adviceBox, confidenceBlock, secBlock, cycleBlock, driveBlock, proposalBlock, fmtMs, pumpLabel, clsLabel, statusLabel, money, PUMP_TYPES } from './shared/audit-view.js';
 
 export function createAuditDesk(ctx) {
@@ -28,8 +29,13 @@ export function createAuditDesk(ctx) {
       <td>${a.drive?esc(clsLabel(a.drive)):'—'}</td><td>${a.annualMoneyTypical!=null?`${money(a.annualMoneyTypical,a.currency)} / ${esc(_t('au.yearShort'))}<div class="muted">${nf(a.annualKwhTypical,0)} kWh</div>`:a.proposalStatus==='efficient'?esc(_t('au.noUpgradeCase')):'—'}</td>
       <td>${a.paybackYears!=null?`${nf(a.paybackYears,1)} ${esc(_t('au.yearsShort'))}`:'—'}</td><td>${a.confidence?esc(_t('au.conf_'+a.confidence)):'—'}</td></tr>`);
     return tiles+`<div class="panel">${simpleTable([_t('au.title'),_t('au.machine'),_t('label.status'),_t('au.sec')+' (kWh/kg)',_t('au.benchmark'),_t('au.driveShort'),_t('au.typicalSavingTotal'),_t('au.payback'),_t('au.confidence')],rows,_t('au.noAudits'))}</div>
-      <p class="muted">${_t('au.openAppHint')} <a href="/audit/" target="_blank" rel="noopener">/audit/</a></p>`;
+      ${phoneApp()}`;
   }
+  // The phone app lives on this site at /audit/: a link, a QR code to scan with the phone, and how to put it on the home screen.
+  const appUrl=()=>location.origin+'/audit/';
+  const phoneApp=()=>`<div class="panel phone-app"><div class="phone-app-qr">${qrSvg(appUrl(),150)}</div>
+      <div><h2>${esc(_t('au.phoneApp'))}</h2><p>${esc(_t('au.phoneAppText'))}</p><p><code>${esc(appUrl())}</code></p>
+      <p><a class="btn-link" href="/audit/" target="_blank" rel="noopener">${esc(_t('au.openPhoneApp'))}</a> ${btn(_t('au.copyLink'),'auditCopyLink','secondary')}</p></div></div>`;
 
   // ---------- Detail ----------
   function detail() {
@@ -60,7 +66,9 @@ export function createAuditDesk(ctx) {
     const canKey=is('platform_admin','customer_admin');
     return `<div class="panel">${simpleTable([_t('au.meterName'),_t('au.machine'),_t('au.meterKind'),_t('au.intervalMs'),_t('au.supports'),_t('au.lastSeenShort')],rows,_t('au.noMeters'))}</div>
       <div class="panel"><h2>${esc(_t('au.sendData'))}</h2><p>${esc(_t('au.sendDataText'))}</p><p class="muted">${esc(_t('au.sendDataLimits'))}</p>${canKey?`<p>${btn(_t('au.makeKey'),'auditKey','secondary')}</p>`:`<p class="muted">${esc(_t('au.keyByAdmin'))}</p>`}${state.auditNewKey?`<div class="notice ok"><b>${esc(_t('au.keyOnce'))}</b><br><code>${esc(state.auditNewKey)}</code></div>`:''}
-      <p class="muted">${esc(_t('au.registerInApp'))} <a href="/audit/" target="_blank" rel="noopener">/audit/</a></p></div>`;
+      <p class="muted">${esc(_t('au.registerInApp'))} <a href="/audit/" target="_blank" rel="noopener">/audit/</a></p></div>
+      <div class="panel"><h2>${esc(_t('au.registerTitle'))}</h2><ol class="steps">${[1,2,3,4,5,6].map(i=>`<li>${esc(_t('au.reg'+i))}</li>`).join('')}</ol></div>
+      ${phoneApp()}`;
   }
 
   // ---------- Benchmarks, factors, materials ----------
@@ -84,7 +92,7 @@ export function createAuditDesk(ctx) {
   function view() {
     if (state.auditId) return detail();
     const tab=state.energyAuditsTab||'audits';
-    header(_t('nav.energyAudits'),_t('au.pageSub'),'');
+    header(_t('nav.energyAudits'),_t('au.pageSub'),`<a class="btn-link secondary" href="/audit/" target="_blank" rel="noopener">${esc(_t('au.openPhoneApp'))}</a>`);
     return tabs([['audits',_t('au.audits')],['meters',_t('au.meters')],['settings',_t('au.settingsTab')]],tab)+(tab==='meters'?metersTab():tab==='settings'?settingsTab():listTab());
   }
 
@@ -96,6 +104,7 @@ export function createAuditDesk(ctx) {
       if (name==='auditReportEn'||name==='auditReportDe') return await download(`/energy-audits/${p.id}/report?lang=${name==='auditReportEn'?'en':'de'}`,'report.html',true);
       if (name==='auditRaw') return await download(`/energy-audits/${id}/raw.csv`,'raw.csv',false);
       if (name==='auditRawDelete') { if (!await confirmAction(_t('au.deleteRaw'),_t('au.deleteRawConfirm'),{confirmLabel:_t('au.deleteRaw')})) return; const r=await api(`/energy-audits/${id}/raw`,'DELETE'); toast(_t('au.rawDeleted',{n:r.deleted})); return await reload(); }
+      if (name==='auditCopyLink') { await navigator.clipboard.writeText(appUrl()); return toast(_t('au.linkCopied')); }
       if (name==='auditKey') { const m=state.auditMeters||[]; const k=await api('/integration-keys','POST',{name:`Energy ${new Date().toISOString().slice(0,10)}`,scopes:['energy']}); state.auditNewKey=k.key; return render(); }
       if (name==='auditEdit') return editDialog(p);
       if (name==='auditTemplate') return templateDialog(p);
@@ -142,5 +151,5 @@ export function createAuditDesk(ctx) {
     const sel=document.getElementById('audit-company'); if (sel) sel.onchange=()=>{ state.auditCompany=sel.value; state.auditCfg=undefined; state.auditBench=undefined; render(); };
   }
   const reset=()=>{ state.auditList=undefined; state.auditCur=undefined; state.auditMeters=undefined; state.auditCfg=undefined; state.auditBench=undefined; };
-  return {views:{energyAudits:view},action,bind,reset,ACTIONS:['auditBack','auditReportEn','auditReportDe','auditRaw','auditRawDelete','auditKey','auditEdit','auditTemplate','auditBenchAdd','auditBenchRemove','auditBenchReset','auditBenchSave','auditFactorsSave','auditFactorsReset','auditMaterialsSave','auditMaterialsReset']};
+  return {views:{energyAudits:view},action,bind,reset,ACTIONS:['auditCopyLink','auditBack','auditReportEn','auditReportDe','auditRaw','auditRawDelete','auditKey','auditEdit','auditTemplate','auditBenchAdd','auditBenchRemove','auditBenchReset','auditBenchSave','auditFactorsSave','auditFactorsReset','auditMaterialsSave','auditMaterialsReset']};
 }
