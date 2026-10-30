@@ -184,9 +184,14 @@ test('intake: validation of batches, sizes, clocks, duplicates and order',async(
   assert.equal((await post({t0:t,dtMs:100,kw:[1,2],pf:[0.5]})).status,400,'columns must match');
   assert.equal((await post({t0:t,kw:[1,2]})).status,400,'columns need dtMs');
   // good: out of order and duplicates
-  const r1=await post({samples:[{t:t+200,kw:5},{t:t,kw:6},{t:t+100,kw:7},{t:t,kw:6}]}); assert.equal(r1.status,201); assert.equal(r1.data.accepted,3); assert.equal(r1.data.duplicates,1); assert.ok(r1.data.outOfOrder>=1);
+  const rxFrom=nowMs(), r1=await post({samples:[{t:t+200,kw:5},{t:t,kw:6},{t:t+100,kw:7},{t:t,kw:6}]}), rxTo=nowMs(); assert.equal(r1.status,201); assert.equal(r1.data.accepted,3); assert.equal(r1.data.duplicates,1); assert.ok(r1.data.outOfOrder>=1);
   const r2=await post({samples:[{t:t+100,kw:7}]}); assert.equal(r2.data.accepted,0); assert.equal(r2.data.duplicates,1,'a replay adds nothing');
-  assert.ok(r1.data.observedIntervalMs===100&&Math.abs(r1.data.clockOffsetMs-60000)<5000,'clock offset is reported');
+  // The offset is the time the batch was received minus the time of its last sample. The test cannot know how long the
+  // request waited (a database stall of several seconds is normal on a loaded machine), so it checks the offset against
+  // the clock read just before and just after the request.
+  const offset=r1.data.clockOffsetMs, lowest=rxFrom-(t+200)-1000, highest=rxTo-(t+200)+1000;
+  assert.equal(r1.data.observedIntervalMs,100);
+  assert.ok(offset>=lowest&&offset<=highest,`clock offset is reported: ${offset} ms, expected between ${lowest} and ${highest}`);
   // columns without times: the last sample is "now"
   const r3=await post({dtMs:100,kw:[1,2,3],pf:[0.8,0.8,0.8]}); assert.equal(r3.status,201); assert.equal(r3.data.accepted,3);
   const cs=await all('SELECT ts,rx FROM energy_samples WHERE meter_id=? AND kw IN (1,2,3) ORDER BY ts',m.id); assert.ok(cs.every(x=>x.rx>=x.ts)&&cs[2].ts-cs[0].ts===200);
