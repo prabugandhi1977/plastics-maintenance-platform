@@ -151,13 +151,23 @@ test('“normal for this product” rebaselines the signal and retrains the patt
   const a = analyzeMachine(m), sig = a.signals.find(s => s.key === 'pump_vibration');
   assert.equal(sig.learning.baselineFrom, b.baseline_from); assert.equal(sig.assessment.status, 'learning', 'relearning its normal from the new level');
   assert.ok(one('SELECT trained_at FROM models WHERE machine_id=?', m.id).trained_at >= t0, 'pattern models retrained');
-  // Three hours on at the new level: the new level is the normal, where before the rebaseline it was 10 spreads off.
+  // Four hours on at the new level: the new level is the normal, where before the rebaseline it was 10 spreads off.
   const last = Object.fromEntries(all('SELECT key,value FROM readings WHERE machine_id=? AND ts=(SELECT MAX(ts) FROM readings WHERE machine_id=?)', m.id, m.id).map(x => [x.key, x.value]));
   const now = Math.floor(Date.now() / 60000) * 60000, put = db.prepare('INSERT OR REPLACE INTO readings (machine_id,key,ts,value) VALUES (?,?,?,?)');
-  for (let t = now; t <= now + 3 * HOUR; t += 60000) for (const [k, v] of Object.entries(last)) put.run(m.id, k, t, v * (1 + 0.004 * Math.sin(t / 600000)));
-  const later = analyzeMachine(m, now + 3 * HOUR).signals.find(s => s.key === 'pump_vibration');
+  // The relearning needs running data on both sides: minBaseline (120) running points in the part of the 12 h before the
+  // decision that is already more than 12 h old (4 h here, readings every 90 s), and 30 recent ones. The simulated shifts
+  // leave idle gaps there at some hours, and a rebaselined signal correctly stays “learning” until it has seen that much
+  // running data, so the machine runs throughout here instead of the test depending on the time of day.
+  const states = all('SELECT ts,state FROM states WHERE machine_id=? AND ts>=?', m.id, b.baseline_from);
+  run('DELETE FROM states WHERE machine_id=? AND ts>=?', m.id, b.baseline_from);
+  run("INSERT INTO states (machine_id,ts,state) VALUES (?,?,'running')", m.id, b.baseline_from);
+  for (let t = now; t <= now + 4 * HOUR; t += 60000) for (const [k, v] of Object.entries(last)) put.run(m.id, k, t, v * (1 + 0.004 * Math.sin(t / 600000)));
+  const later = analyzeMachine(m, now + 4 * HOUR).signals.find(s => s.key === 'pump_vibration');
   assert.equal(later.assessment.status, 'normal'); assert.ok(Math.abs(later.assessment.score) < 4);
-  run('DELETE FROM readings WHERE machine_id=? AND ts>?', m.id, Date.now()); forgetAnalysis(m.id);
+  run('DELETE FROM readings WHERE machine_id=? AND ts>?', m.id, Date.now());
+  run('DELETE FROM states WHERE machine_id=? AND ts>=?', m.id, b.baseline_from);
+  for (const x of states) run('INSERT INTO states (machine_id,ts,state) VALUES (?,?,?)', m.id, x.ts, x.state);
+  forgetAnalysis(m.id);
 });
 
 test('reset: the super user puts a signal back as built; the decisions stay on record', async () => {
