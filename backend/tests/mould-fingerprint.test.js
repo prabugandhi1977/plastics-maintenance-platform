@@ -110,7 +110,7 @@ test('drift: quiet while the settings stay in the fingerprint, detected when the
   await recent(m,'tm-drift-run',{shift:{meltTempC:6}}); await call(`/moulds/${m.mould}/fingerprint/check`,'POST',{},tokens.acme);
   assert.equal((await openAlerts(m)).length,1); assert.equal((await openAlerts(m))[0].severity,'critical');
   // Old readings do not trigger or clear anything: the run is stale, not judged as current.
-  await run('DELETE FROM process_readings WHERE batch_id=?','tm-drift-run'); await run('DELETE FROM batches WHERE id=?','tm-drift-run'); await batch('tm-drift-old','tm-drift',m.product,{status:'running',startH:90,shift:{}}); await run("UPDATE process_readings SET observed_at=to_char(((observed_at::timestamptz)-interval '60 hours') AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') WHERE batch_id='tm-drift-old'");
+  await run('DELETE FROM process_readings WHERE batch_id=?','tm-drift-run'); await run('DELETE FROM batches WHERE id=?','tm-drift-run'); await batch('tm-drift-old','tm-drift',m.product,{status:'running',startH:150,endH:60,shift:{}}); // readings written 60 h old (an UPDATE shifting them collides with the batch's own rows, depending on heap order)
   s=await view(m); assert.equal(s.drift.status,'stale'); assert.equal((await call(`/moulds/${m.mould}/fingerprint/check`,'POST',{},tokens.acme)).data.alert!=null,true,'an open alert is left alone while the data is stale');
 });
 
