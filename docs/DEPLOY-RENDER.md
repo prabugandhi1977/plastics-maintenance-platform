@@ -61,11 +61,11 @@ MouldCare Monitor (`monitor/`) used to be a second Render service. It now runs i
 
 To move over from a separate `mouldcare-monitor` service:
 
-1. **Sync the Blueprint** after merging. Render asks for `MONITOR_ADMIN_EMAIL`, `MONITOR_ADMIN_PASSWORD` and `MONITOR_MOULDCARE_KEY`. Wait for **Live**, then open `/monitor/` and sign in.
+1. **Sync the Blueprint** after merging, and read its preview first (see step 5). Render asks for `MONITOR_ADMIN_EMAIL`, `MONITOR_ADMIN_PASSWORD` and `MONITOR_MOULDCARE_KEY`. Wait for **Live**, then open `/monitor/` and sign in.
 2. **Carry the old settings over.** From the old monitor's **Environment**, copy `MONITOR_MOULDCARE_KEY`, `MONITOR_INGEST_KEY` (so gateways keep working), the `MONITOR_MQTT_*` values and `ANTHROPIC_API_KEY` if you set them. Leave `MONITOR_MOULDCARE_URL` unset: it points at this service by default.
 3. **Point gateways at the new address:** `https://<your service>/monitor/api/ingest` replaces `https://<old monitor>/api/ingest`. Note the extra `/monitor`.
 4. **Data.** The new monitor starts with its own demo data. If you set up machines, signals, users or decisions on the old one that you want to keep, copy `/data/monitor.sqlite` from the old service's disk to `/data/monitor/monitor.sqlite` on this one while the monitor is stopped. This copy has not been tried; keep the old service until you have checked the result.
-5. **Retire the old service.** Suspend `mouldcare-monitor`, wait a week, then delete the service and its disk (`monitor-data`). Deleting a disk cannot be undone. Removing a service from `render.yaml` does not delete it on Render: do it in the dashboard.
+5. **Retire the old service.** Suspend `mouldcare-monitor`, wait a week, then delete the service and its disk (`monitor-data`). Deleting a disk cannot be undone. `render.yaml` no longer lists `mouldcare-monitor`, and I could not confirm what Render does with a service that is missing from the Blueprint. **Read the sync preview before you approve it.** If it offers to delete `mouldcare-monitor` or its disk, do not approve that yet: first finish steps 2 to 4 (and copy the data if you want it), then delete the old service yourself.
 
 Memory is shared: if the service runs short on the Starter plan (512 MB), set `MONITOR_EMBED` to `false` and run the monitor as its own service again.
 
