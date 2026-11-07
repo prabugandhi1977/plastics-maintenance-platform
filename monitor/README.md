@@ -469,11 +469,13 @@ There are 84 tests in thirteen files:
 
 `NODE_ENV=production` refuses to start without a 32-character `MONITOR_SECRET`. Run one instance: SQLite and the sign-in lockout live in one process.
 
-**On Render.** The repository's `render.yaml` defines the service `mouldcare-monitor`:
-- It is built from this folder, with a 1 GB disk at `/data`, and redeploys only when `monitor/` changes.
-- It shows the demo machines with simulated readings but no demo accounts (`MONITOR_DEMO_ACCOUNTS=false`), because their password is published.
-- You sign in with `MONITOR_ADMIN_EMAIL` and `MONITOR_ADMIN_PASSWORD`, which Render asks for when it applies the Blueprint.
+**On Render.** The monitor runs inside the platform's web service (`plastics-maintenance-platform` in `render.yaml`), which saves a service and a disk:
+- `MONITOR_EMBED=true` makes the platform's container start the monitor next to the platform (`docker-entrypoint.sh`). The platform forwards `/monitor` to it, so the monitor is at `https://<your service>/monitor/`.
+- The monitor keeps its own database, in `/data/monitor` on the platform's disk, and its own sign-in. It shows the demo machines with simulated readings but no demo accounts (`MONITOR_DEMO_ACCOUNTS=false`), because their password is published. You sign in with `MONITOR_ADMIN_EMAIL` and `MONITOR_ADMIN_PASSWORD`, which Render asks for when it applies the Blueprint.
+- Gateways post to `https://<your service>/monitor/api/ingest`. The hand-off to MouldCare defaults to the same container, so only `MONITOR_MOULDCARE_KEY` needs setting.
 - To monitor real machines, set `MONITOR_SEED_DEMO` and `MONITOR_SIMULATOR` to `false` on a fresh disk.
+- Both programs share the service's memory (512 MB on Starter): about 220 MB at idle in a local check. Leave `MONITOR_CONNECTORS` off in the cloud, and move the monitor back to its own service (build from this folder, as the `Dockerfile` here does) if the service runs short of memory.
+- The page addresses are relative, so the same files also work when the monitor runs alone at the root of its own address.
 
 ## Next steps
 

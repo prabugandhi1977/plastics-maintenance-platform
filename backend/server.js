@@ -22,6 +22,7 @@ import { assistant } from './services/assistant/index.js';
 import { energyAudit, rollupRaw } from './services/energy-audit/index.js';
 import { processFingerprint, scanFingerprints } from './services/process/index.js';
 import { sendQueuedWhatsapp } from './common/whatsapp.js';
+import { monitorProxy } from './common/monitor-proxy.js';
 
 export const router=createRouter();
 for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,processFingerprint,assistant,vision,energyAudit]) area.register(router);
@@ -76,6 +77,7 @@ export function createServer() {
   return http.createServer(async(req,res)=>{
     try {
       const url=new URL(req.url,'http://localhost');
+      if (monitorProxy(req,res,url)) return;
       if (url.pathname.startsWith('/api/')) return await api(req,res,url);
       serveStatic(req,res,url.pathname);
     } catch(e) {

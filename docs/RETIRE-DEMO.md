@@ -7,7 +7,7 @@ Nothing in this repository deploys `mouldcare-demo`: its Blueprint is the `rende
 ## Before you delete anything (5 minutes)
 
 1. **Confirm nothing real is in it.** The old repository states that it holds synthetic data only. Open the service and look at its users and tickets. If anything there is real, copy it first: the data is in `/data/mouldcare.sqlite` on its disk, and `backend/scripts/import-sqlite.js` in this repository copies SQLite data into PostgreSQL (see `docs/MIGRATION-POSTGRES.md`). It was written for the later SQLite versions of the platform and has not been tried on the first demo's database, so test it on a copy before relying on it.
-2. **Find what points at it.** In Render, open the `mouldcare-monitor` service, then **Environment**, and check that `MONITOR_MOULDCARE_URL` points at `plastics-maintenance-platform`, not at the demo. Also check bookmarks, customer links, a custom domain, and any edge node or gateway configured with the demo's address.
+2. **Find what points at it.** In Render, open the `mouldcare-monitor` service (or, once the monitor runs inside the platform service, that service), then **Environment**, and check that `MONITOR_MOULDCARE_URL` is unset or points at `plastics-maintenance-platform`, not at the demo. Also check bookmarks, customer links, a custom domain, and any edge node or gateway configured with the demo's address.
 3. **Write down its settings** if you may want to recreate it (plan, region, the environment variable names). You can read them from its `render.yaml` in the old repository.
 
 ## Retire it

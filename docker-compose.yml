@@ -37,6 +37,16 @@ services:
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # MouldCare Monitor inside the same container, served at /monitor (see monitor/README.md). Off by default.
+      MONITOR_EMBED: ${MONITOR_EMBED:-false}
+      MONITOR_SECRET: ${MONITOR_SECRET:-}
+      MONITOR_INGEST_KEY: ${MONITOR_INGEST_KEY:-}
+      MONITOR_ADMIN_EMAIL: ${MONITOR_ADMIN_EMAIL:-}
+      MONITOR_ADMIN_PASSWORD: ${MONITOR_ADMIN_PASSWORD:-}
+      MONITOR_MOULDCARE_KEY: ${MONITOR_MOULDCARE_KEY:-}
+      MONITOR_SEED_DEMO: ${MONITOR_SEED_DEMO:-false}
+      MONITOR_DEMO_ACCOUNTS: ${MONITOR_DEMO_ACCOUNTS:-false}
+      MONITOR_SIMULATOR: ${MONITOR_SIMULATOR:-false}
     volumes:
       - platform-data:/data
     restart: unless-stopped

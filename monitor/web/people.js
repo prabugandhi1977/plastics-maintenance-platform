@@ -1,8 +1,8 @@
 // People and ticket allocation in the dashboard: Settings › Users and Settings › Service providers for the super
 // user, the allocation mode, and on each ticket draft who it is assigned to, with the dialogs to assign, reassign
 // and approve-and-assign (from the ranked candidates, or Claude's pick).
-import { icon, heading } from '/icons.js';
-import { btn, dialog, field, select, textarea } from '/setup.js';
+import { icon, heading } from './icons.js';
+import { btn, dialog, field, select, textarea } from './setup.js';
 let ctx; // { api, esc, state, render }
 export const initPeople = c => { ctx = c; };
 const esc = v => ctx.esc(v);

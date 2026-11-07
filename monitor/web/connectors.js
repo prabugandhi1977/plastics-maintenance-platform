@@ -2,8 +2,8 @@
 // OPC UA / Euromap 77, Euromap 63 files or Modbus TCP. Lists each connector with its live status; add, edit, delete,
 // enable and disable; and Test connection, which reads once and shows the values without storing them.
 // Passwords are typed here but never shown again: the server keeps them encrypted and only says whether one is set.
-import { icon, heading } from '/icons.js';
-import { btn, dialog, field, select, textarea } from '/setup.js';
+import { icon, heading } from './icons.js';
+import { btn, dialog, field, select, textarea } from './setup.js';
 let ctx; // { api, esc, state, render }
 export const initConnectors = c => { ctx = c; };
 const esc = v => ctx.esc(v);

@@ -1,12 +1,13 @@
 // MouldCare Monitor dashboard: plain modules, no build step. Routes live in the URL hash (#/machine/<id>), the
 // sign-in token in session storage, and every page refreshes itself every 30 seconds while open.
-import { signalChart, sparkline } from '/charts.js';
-import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, btn, dialog, select, textarea, ACTIONS as SETUP_ACTIONS, action as setupAction } from '/setup.js';
-import { icon, tile, heading } from '/icons.js';
-import { initConnectors, connectorsSection, ACTIONS as CONNECTOR_ACTIONS, action as connectorAction } from '/connectors.js';
-import { initRootCause, whyButton, whyPanel, causeLine, recordButton, causeFields, causeFrom, statsHtml as rootCauseStats, ACTIONS as WHY_ACTIONS, action as whyAction } from '/rootcause.js';
-import { initDashboards, dashboardsPage, tvActive, applyTv, landingHash, editing as dashEditing, bindDashboards, ACTIONS as DASH_ACTIONS, action as dashAction } from '/dashboards.js';
-import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from '/people.js';
+import { API } from './base.js';
+import { signalChart, sparkline } from './charts.js';
+import { initSetup, machineInfo, machinesTab, machineSetup, signalsTab, loadImages, bindSetup, sourcesHtml, btn, dialog, select, textarea, ACTIONS as SETUP_ACTIONS, action as setupAction } from './setup.js';
+import { icon, tile, heading } from './icons.js';
+import { initConnectors, connectorsSection, ACTIONS as CONNECTOR_ACTIONS, action as connectorAction } from './connectors.js';
+import { initRootCause, whyButton, whyPanel, causeLine, recordButton, causeFields, causeFrom, statsHtml as rootCauseStats, ACTIONS as WHY_ACTIONS, action as whyAction } from './rootcause.js';
+import { initDashboards, dashboardsPage, tvActive, applyTv, landingHash, editing as dashEditing, bindDashboards, ACTIONS as DASH_ACTIONS, action as dashAction } from './dashboards.js';
+import { initPeople, usersTab, providersTab, assignmentHtml, bindPeople, ACTIONS as PEOPLE_ACTIONS, action as peopleAction } from './people.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = s => document.querySelector(s);
@@ -14,7 +15,7 @@ const store = { get: k => { try { return sessionStorage.getItem(k); } catch { re
 const state = { token: store.get('monitor-token'), user: JSON.parse(store.get('monitor-user') || 'null'), config: null, timer: null, busy: new Set(), openExplain: new Set(), hours: {} };
 
 async function api(path, method = 'GET', body) {
-  const r = await fetch('/api' + path, { method, headers: { 'content-type': 'application/json', ...(state.token ? { authorization: `Bearer ${state.token}` } : {}) }, body: body == null ? undefined : JSON.stringify(body) });
+  const r = await fetch(API + path, { method, headers: { 'content-type': 'application/json', ...(state.token ? { authorization: `Bearer ${state.token}` } : {}) }, body: body == null ? undefined : JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401 && state.token) { signOut(); throw new Error('Your session ended. Sign in again.'); }
   if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
@@ -298,7 +299,7 @@ async function connectionsTab() {
   const [s, connectors] = await Promise.all([api('/settings'), connectorsSection()]), mc = s.mouldcare;
   const row = (ico, k, v) => `<dt>${icon(ico, 'i xs')} ${k}</dt><dd>${v}</dd>`;
   return `<section class="card"><div class="row">${heading('plug', 'Connections')}</div><dl class="facts">${row('sparkles', 'AI assistant', s.ai ? `${chip('good', 'On')} ${esc(s.aiModel)}` : `${chip('', 'Off')} set ANTHROPIC_API_KEY on the server`)}
-      ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST /api/ingest</code> with header <code>X-Ingest-Key</code>`)}
+      ${row('plug', 'Gateway intake', `${s.ingestKeySet ? chip('good', 'On') : `${chip('', 'Off')} set MONITOR_INGEST_KEY on the server`} · <code>POST ${API}/ingest</code> with header <code>X-Ingest-Key</code>`)}
       ${row('send', 'MouldCare', mc.configured ? `${chip('good', 'On')} <code>${esc(mc.url)}</code> · ${mc.sent} sent${mc.failed ? ` · ${chip('critical', `${mc.failed} not sent`)}` : ''}${mc.lastSentAt ? ` · last ${ago(mc.lastSentAt)}` : ''}${mc.lastError ? `<div class="small muted">Last error: ${esc(mc.lastError)}</div>` : ''}`
         : `${chip('', 'Off')} ${esc(mc.problem)}. Set MONITOR_MOULDCARE_URL and MONITOR_MOULDCARE_KEY on the server.`)}
       ${row('signal', 'MQTT intake', mqttHtml(s.mqtt))}
@@ -308,7 +309,7 @@ async function connectionsTab() {
       ${s.mqtt.reasons.length ? `<details><summary class="small">Last rejected MQTT messages</summary><ul class="small">${s.mqtt.reasons.map(x => `<li>${ago(x.at)} · <code>${esc(x.topic)}</code> · ${esc(x.reason)}</li>`).join('')}</ul></details>` : ''}
       ${s.faults.length ? `<p class="small muted">Simulated developing faults: ${s.faults.map(f => `<b>${esc(f.tag)}</b> ${esc(f.story)}`).join('; ')}.</p>` : ''}
       <p class="small muted">Approved ticket drafts are sent to MouldCare as breakdown tickets, matched to the machine by its tag (the asset tag in MouldCare). The key is a company integration key made in MouldCare; it stays on this server.</p>
-      <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST/api/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
+      <details><summary class="small">Example gateway request</summary><pre class="small" style="overflow-x:auto">curl -X POST $HOST${API}/ingest -H "X-Ingest-Key: $KEY" -H "content-type: application/json" \\
   -d '{"readings":[{"device":"${esc(s.machines[0]?.deviceId || 'plc-imm-01')}","at":"2026-10-19T08:15:00Z","state":"running","values":{"hydraulic_oil_temp":47.2}}]}'</pre></details></section>
     ${connectors}
     <section class="card"><div class="row">${heading('model', 'Pattern models', 2, 'ai')}<button class="btn sm" data-act="retrain" type="button">${ib('refresh', 'Retrain models now')}</button></div>

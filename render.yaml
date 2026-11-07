@@ -1,6 +1,6 @@
 # Render Blueprint: a managed PostgreSQL database plus the MouldCare web service built from the Dockerfile, with a small
-# persistent disk for uploaded files (photos, manuals, vision evidence); and MouldCare Monitor (monitor/), a separate
-# web service with its own SQLite database on its own disk.
+# persistent disk for uploaded files (photos, manuals, vision evidence). MouldCare Monitor (monitor/) runs inside that
+# same web service (MONITOR_EMBED=true) and is served at /monitor; its SQLite database is on the same disk, in /data/monitor.
 # Render generates the secrets; you enter the first admin's email and password when creating the Blueprint.
 # Region is fixed at creation; singapore is closest to India (alternatives: frankfurt, oregon, ohio, virginia).
 services:
@@ -58,28 +58,13 @@ services:
         sync: false
       - key: WHATSAPP_API_VERSION
         sync: false
-
-  # MouldCare Monitor: machine and condition monitoring with ML and AI (monitor/README.md). Its database is SQLite on
-  # its own disk. It shows the six demo machines with simulated readings and no demo accounts (their password is
-  # published); you sign in with the admin email and password you enter when the Blueprint asks. When real gateways
-  # send data, set MONITOR_SEED_DEMO and MONITOR_SIMULATOR to false on a fresh disk.
-  - type: web
-    name: mouldcare-monitor
-    runtime: docker
-    dockerfilePath: ./monitor/Dockerfile
-    dockerContext: ./monitor
-    plan: starter
-    region: singapore
-    healthCheckPath: /api/health
-    autoDeploy: true
-    buildFilter:
-      paths:
-        - monitor/**
-    disk:
-      name: monitor-data
-      mountPath: /data
-      sizeGB: 1
-    envVars:
+      # MouldCare Monitor, served at /monitor from this same service (machine and condition monitoring with ML and AI;
+      # monitor/README.md). It keeps its own database and sign-in. It shows the six demo machines with simulated readings
+      # and no demo accounts (their password is published); sign in with the admin email and password you enter below.
+      # When real gateways send data, set MONITOR_SEED_DEMO and MONITOR_SIMULATOR to false on a fresh disk. Gateways post to
+      # https://<this service>/monitor/api/ingest. Set MONITOR_EMBED to false to leave the Monitor off.
+      - key: MONITOR_EMBED
+        value: "true"
       - key: MONITOR_SECRET
         generateValue: true
       - key: MONITOR_INGEST_KEY
@@ -94,12 +79,8 @@ services:
         value: "false"
       - key: MONITOR_SIMULATOR
         value: "true"
-      # AI explanations, ticket drafts, reports and chat. Leave empty to use the built-in explanations only.
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      # Hand-off to MouldCare: its address and a company integration key made there (npm run integration:key).
-      - key: MONITOR_MOULDCARE_URL
-        sync: false
+      # Hand-off to MouldCare: the address defaults to this service itself; the key is a company integration key made
+      # in MouldCare (npm run integration:key).
       - key: MONITOR_MOULDCARE_KEY
         sync: false
       # MQTT intake. Leave MONITOR_MQTT_URL empty to keep it off. The topic defaults to mouldcare/#.
@@ -113,8 +94,7 @@ services:
         sync: false
       - key: MONITOR_MQTT_CLIENT_ID
         sync: false
-      # Machine connectors (Settings › Connections & models) poll machines directly. A cloud service usually cannot
-      # reach the plant network: set off there. Euromap 63 folders must be inside MONITOR_EUROMAP63_ROOT.
+      # Machine connectors poll machines directly; a cloud service usually cannot reach the plant network: set off there.
       - key: MONITOR_CONNECTORS
         sync: false
       - key: MONITOR_EUROMAP63_ROOT

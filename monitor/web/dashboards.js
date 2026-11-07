@@ -1,9 +1,10 @@
 // Custom dashboards: the list (#/dashboards), one dashboard (#/dashboards/<id>) with its edit mode, and the TV view
 // (?tv=1, or #/dashboards/<id>?tv=1): full screen, dark, read-only, refreshed every 30 seconds, with no navigation.
 // Widgets read the same API as the rest of the app, so a dashboard never shows more than the person could already open.
-import { signalChart, sparkline } from '/charts.js';
-import { icon, tile, heading } from '/icons.js';
-import { btn, dialog, field, select, textarea } from '/setup.js';
+import { BASE } from './base.js';
+import { signalChart, sparkline } from './charts.js';
+import { icon, tile, heading } from './icons.js';
+import { btn, dialog, field, select, textarea } from './setup.js';
 let ctx; // { api, esc, state, render }
 export const initDashboards = c => { ctx = c; };
 const esc = v => ctx.esc(v);
@@ -29,7 +30,7 @@ export function applyTv() {
 }
 // Where to land when the address has no page: the person's own default, else the super user's default for everyone.
 export async function landingHash() { const d = await api('/dashboards/default').catch(() => null); return d?.dashboardId ? `#/dashboards/${d.dashboardId}` : null; }
-const tvLink = id => `${location.origin}/?tv=1#/dashboards/${id}`;
+const tvLink = id => `${location.origin}${BASE}?tv=1#/dashboards/${id}`;
 
 // ---- Catalog and machines for the pickers ----
 let catalogP = null, machinesP = null; const signalsOf = new Map();
@@ -146,7 +147,7 @@ export async function dashboardsPage(arg) {
   const grid = `<div class="dgrid${edit ? ' editing' : ''}">${widgets.map((w, i) => widgetCard(w, res, { tv, edit, i, n: widgets.length })).join('') || `<div class="card empty dgrid-empty">${edit ? 'No widgets yet. Choose “Add widget”.' : d.canEdit ? 'This dashboard is empty. Choose Edit, then “Add widget”.' : 'This dashboard is empty.'}</div>`}</div>`;
   if (tv) return `<div class="tv"><header class="tv-bar"><h1>${esc(d.name)}</h1><span class="small muted grow">Updated ${new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} · refreshes every 30 seconds</span><a class="btn sm" href="/#/dashboards/${esc(d.id)}">${ib('x', 'Exit TV mode')}</a></header>${grid}</div>`;
   const actions = edit ? '' : `<div class="row">${d.canEdit ? btn('dash-edit', 'Edit', 'edit', { cls: 'sm primary' }) : ''}${btn('dash-dup', 'Duplicate', 'copy', { data: { id: d.id } })}
-      <a class="btn sm" href="/?tv=1#/dashboards/${esc(d.id)}">${ib('tv', 'TV mode')}</a>${btn('dash-tv-link', 'Copy TV link', 'link', { data: { id: d.id } })}</div>`;
+      <a class="btn sm" href="${BASE}?tv=1#/dashboards/${esc(d.id)}">${ib('tv', 'TV mode')}</a>${btn('dash-tv-link', 'Copy TV link', 'link', { data: { id: d.id } })}</div>`;
   const head = `<div class="head">${tile('dashboards')}<div class="grow"><h1>${esc(d.name)}</h1>${d.description ? `<p>${esc(d.description)}</p>` : ''}<div class="meta">${shareChip(d)}${d.isLanding ? chip('good', 'Your landing page') : ''}<span class="small muted">${d.mine ? 'Yours' : `By ${esc(d.ownerName)}`} · ${d.widgetCount} widget${d.widgetCount === 1 ? '' : 's'}</span></div></div>${actions}</div>`;
   return `<p><a href="#/dashboards">${icon('back', 'i xs')} All dashboards</a></p>${head}${edit ? editBar() : ''}${grid}`;
 }
