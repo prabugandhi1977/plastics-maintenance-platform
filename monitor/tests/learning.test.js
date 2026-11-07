@@ -154,6 +154,12 @@ test('“normal for this product” rebaselines the signal and retrains the patt
   // Three hours on at the new level: the new level is the normal, where before the rebaseline it was 10 spreads off.
   const last = Object.fromEntries(all('SELECT key,value FROM readings WHERE machine_id=? AND ts=(SELECT MAX(ts) FROM readings WHERE machine_id=?)', m.id, m.id).map(x => [x.key, x.value]));
   const now = Math.floor(Date.now() / 60000) * 60000, put = db.prepare('INSERT OR REPLACE INTO readings (machine_id,key,ts,value) VALUES (?,?,?,?)');
+  // The simulator stops or idles a machine in a few 30-minute slots, at times that follow the clock, and records nothing while
+  // it is stopped. Stopped time does not count toward a baseline, which needs 120 running points, and the three hours after the
+  // rebaseline hold only 180: one stopped slot left 119 and the signal stayed in 'learning', so the test failed or passed
+  // depending on the time of day. Keep the machine running through the whole period, at the new level.
+  run("DELETE FROM states WHERE machine_id=? AND ts>? AND state<>'running'", m.id, t0 - 12 * HOUR);
+  for (let t = Math.ceil((t0 - 12 * HOUR) / 60000) * 60000; t < now; t += 60000) for (const [k, v] of Object.entries(last)) db.prepare('INSERT OR IGNORE INTO readings (machine_id,key,ts,value) VALUES (?,?,?,?)').run(m.id, k, t, v * (1 + 0.004 * Math.sin(t / 600000)));
   for (let t = now; t <= now + 3 * HOUR; t += 60000) for (const [k, v] of Object.entries(last)) put.run(m.id, k, t, v * (1 + 0.004 * Math.sin(t / 600000)));
   const later = analyzeMachine(m, now + 3 * HOUR).signals.find(s => s.key === 'pump_vibration');
   assert.equal(later.assessment.status, 'normal'); assert.ok(Math.abs(later.assessment.score) < 4);
