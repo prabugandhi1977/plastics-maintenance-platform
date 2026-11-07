@@ -2,9 +2,9 @@
 // causes with confidence, the evidence for and against (each cited item with a small chart for signals), the checks to
 // do and a shortcut to draft a ticket with the chosen cause. Also the actual-cause field when a finding is resolved,
 // and the accuracy figures for Settings. Engineers and the super user run it; viewers read what is stored.
-import { icon, heading } from '/icons.js';
-import { sparkline } from '/charts.js';
-import { btn, dialog, select, textarea, sourcesHtml } from '/setup.js';
+import { icon, heading } from './icons.js';
+import { sparkline } from './charts.js';
+import { btn, dialog, select, textarea, sourcesHtml } from './setup.js';
 let ctx; // { api, esc, state, render }
 export const initRootCause = c => { ctx = c; };
 const esc = v => ctx.esc(v);

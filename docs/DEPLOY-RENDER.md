@@ -55,6 +55,20 @@ Your data is in `/data/mouldcare.sqlite` on the service's disk, and uploaded fil
 3. **Restart.** Click **Manual Deploy**, then **Restart service**, and sign in with your usual accounts.
 4. **Keep the old file** for a few weeks as a fallback. It is not used any more and can be deleted later.
 
+## Fold MouldCare Monitor into this service
+
+MouldCare Monitor (`monitor/`) used to be a second Render service. It now runs inside this one (`MONITOR_EMBED=true` in `render.yaml`) and is served at `https://<your service>/monitor/`, so you pay for one web service and one disk instead of two. It is still its own program with its own database and sign-in; see `monitor/README.md`.
+
+To move over from a separate `mouldcare-monitor` service:
+
+1. **Sync the Blueprint** after merging, and read its preview first (see step 5). Render asks for `MONITOR_ADMIN_EMAIL`, `MONITOR_ADMIN_PASSWORD` and `MONITOR_MOULDCARE_KEY`. Wait for **Live**, then open `/monitor/` and sign in.
+2. **Carry the old settings over.** From the old monitor's **Environment**, copy `MONITOR_MOULDCARE_KEY`, `MONITOR_INGEST_KEY` (so gateways keep working), the `MONITOR_MQTT_*` values and `ANTHROPIC_API_KEY` if you set them. Leave `MONITOR_MOULDCARE_URL` unset: it points at this service by default.
+3. **Point gateways at the new address:** `https://<your service>/monitor/api/ingest` replaces `https://<old monitor>/api/ingest`. Note the extra `/monitor`.
+4. **Data.** The new monitor starts with its own demo data. If you set up machines, signals, users or decisions on the old one that you want to keep, copy `/data/monitor.sqlite` from the old service's disk to `/data/monitor/monitor.sqlite` on this one while the monitor is stopped. This copy has not been tried; keep the old service until you have checked the result.
+5. **Retire the old service.** Suspend `mouldcare-monitor`, wait a week, then delete the service and its disk (`monitor-data`). Deleting a disk cannot be undone. `render.yaml` no longer lists `mouldcare-monitor`, and I could not confirm what Render does with a service that is missing from the Blueprint. **Read the sync preview before you approve it.** If it offers to delete `mouldcare-monitor` or its disk, do not approve that yet: first finish steps 2 to 4 (and copy the data if you want it), then delete the old service yourself.
+
+Memory is shared: if the service runs short on the Starter plan (512 MB), set `MONITOR_EMBED` to `false` and run the monitor as its own service again.
+
 ## If something goes wrong
 
 | What you see | What to do |
@@ -67,3 +81,5 @@ Your data is in `/data/mouldcare.sqlite` on the service's disk, and uploaded fil
 | Logs say `DATABASE_URL is required in production` | The web service is not linked to the database. Sync the Blueprint (step 1 above), or add `DATABASE_URL` in **Environment** using the database's *Internal Database URL*. |
 | After moving from SQLite, logs say `MOULDCARE_ADMIN_PASSWORD must have at least 12 characters` | `MOULDCARE_ADMIN_EMAIL` names an account that isn't in your old data, so the start tries to create it. Set it to your existing admin email, or delete `MOULDCARE_ADMIN_EMAIL`, then save. |
 | The site shows an error page right after deploying | Wait until the status is **Live**; the first start takes a minute. |
+
+Running the old `mouldcare-demo` service as well? It is the first version of this app; see [RETIRE-DEMO.md](RETIRE-DEMO.md) to switch it off and stop paying for it.

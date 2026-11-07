@@ -1,7 +1,8 @@
 // Machine and signal set-up, under Settings and for the super user (administrator) only: add, edit and delete
 // machines and signals, with their parameters, sensor details, photos and documents. Everyone else sees a
 // read-only details card on each machine's page, with the photo and documents to download.
-import { icon, tile, heading } from '/icons.js';
+import { API } from './base.js';
+import { icon, tile, heading } from './icons.js';
 let ctx; // { api, esc, state, render }
 export const initSetup = c => { ctx = c; };
 const esc = v => ctx.esc(v);
@@ -16,7 +17,7 @@ const TYPE_ICON = { injection: 'machine', extrusion: 'machine', blow: 'machine',
 // ---- Pictures and downloads (the API needs the sign-in token, so files are fetched, not linked) ----
 const blobs = new Map();
 async function fileBlob(id) {
-  if (!blobs.has(id)) blobs.set(id, fetch(`/api/files/${id}`, { headers: { authorization: `Bearer ${ctx.state.token}` } }).then(r => { if (!r.ok) throw new Error('Could not load the file'); return r.blob(); }).catch(e => { blobs.delete(id); throw e; }));
+  if (!blobs.has(id)) blobs.set(id, fetch(`${API}/files/${id}`, { headers: { authorization: `Bearer ${ctx.state.token}` } }).then(r => { if (!r.ok) throw new Error('Could not load the file'); return r.blob(); }).catch(e => { blobs.delete(id); throw e; }));
   return blobs.get(id);
 }
 export function loadImages() {
@@ -198,7 +199,7 @@ export async function uploadForm(mid, kind, signalKey, label) {
       const f = fd.get('file'); if (!f?.size) throw new Error('Choose a file');
       if (f.size > c.limits[kind]) throw new Error(`The file is ${size(f.size)}; the limit is ${max} MB`);
       const q = new URLSearchParams({ kind, name: f.name, ...(signalKey ? { signal: signalKey } : {}), ...(fd.get('title') ? { title: fd.get('title') } : {}) });
-      const r = await fetch(`/api/machines/${mid}/files?${q}`, { method: 'POST', headers: { authorization: `Bearer ${ctx.state.token}`, 'content-type': f.type || 'application/octet-stream' }, body: f });
+      const r = await fetch(`${API}/machines/${mid}/files?${q}`, { method: 'POST', headers: { authorization: `Bearer ${ctx.state.token}`, 'content-type': f.type || 'application/octet-stream' }, body: f });
       const data = await r.json().catch(() => ({})); if (!r.ok) throw new Error(data.error || `Upload failed (${r.status})`);
     } });
 }

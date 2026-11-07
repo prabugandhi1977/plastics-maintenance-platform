@@ -22,7 +22,7 @@ Security notes for the clients:
 
 ## Machine monitoring app (`monitor/`)
 
-A separate application for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in, and its own Render service (`mouldcare-monitor` in `render.yaml`). See [monitor/README.md](monitor/README.md).
+A separate application (on Render it runs inside this service, at `/monitor`; see `docs/DEPLOY-RENDER.md`) for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in, and its own Render service (`mouldcare-monitor` in `render.yaml`). See [monitor/README.md](monitor/README.md).
 
 **Tickets from Monitor.** When someone approves a ticket draft in Monitor, it is sent here as a breakdown ticket. It shows as *Sent by MouldCare Monitor*, on the machine with the same asset tag.
 - Make a company integration key in MouldCare: `npm run integration:key -- "Acme Plastics" "MouldCare Monitor"`, or `POST /api/integration-keys`. The key is shown once and reaches only that company's machines.
