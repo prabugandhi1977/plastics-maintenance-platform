@@ -67,3 +67,5 @@ Your data is in `/data/mouldcare.sqlite` on the service's disk, and uploaded fil
 | Logs say `DATABASE_URL is required in production` | The web service is not linked to the database. Sync the Blueprint (step 1 above), or add `DATABASE_URL` in **Environment** using the database's *Internal Database URL*. |
 | After moving from SQLite, logs say `MOULDCARE_ADMIN_PASSWORD must have at least 12 characters` | `MOULDCARE_ADMIN_EMAIL` names an account that isn't in your old data, so the start tries to create it. Set it to your existing admin email, or delete `MOULDCARE_ADMIN_EMAIL`, then save. |
 | The site shows an error page right after deploying | Wait until the status is **Live**; the first start takes a minute. |
+
+Running the old `mouldcare-demo` service as well? It is the first version of this app; see [RETIRE-DEMO.md](RETIRE-DEMO.md) to switch it off and stop paying for it.
