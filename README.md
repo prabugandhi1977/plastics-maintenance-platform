@@ -110,7 +110,7 @@ The platform monitors production as well as maintaining machines:
 - **Asset tracking:** moulds, tools, gauges and trolleys located by zone from BLE beacons or RFID tags. Alerts for a guarded asset in a restricted or outside zone, a tag not heard for too long, and a low tag battery. Each asset has a 48-hour location history.
 - **Shifts:** set under *Companies, plants & users → Plants → Edit shifts*.
 
-Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
+Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. To test the whole chain the way real hardware would drive it (MQTT, OPC UA and Euromap 63 through a gateway, with faults and dirty data on demand), use the virtual plant in [simulator/](simulator/README.md). Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
 An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `npm run seed` runs. A database without the stage 1 demo products is left unchanged.
 
@@ -155,6 +155,8 @@ Every record has mandatory, industry-standard data (see *Mandatory master data* 
 9. **Machine data.** As admin, open **Equipment register → Coperion ZSK 58**. Its data is stale, with a critical alarm. Then open **Machine data (IoT)** for sync runs and the quarantined records.
 
 ## Deploy
+
+**Latest deployment (Render):** web workspace <https://plastics-maintenance-platform.onrender.com/> · field app <https://plastics-maintenance-platform.onrender.com/mobile/>
 
 The platform ships as a single Docker container: the API, the web workspace and the field app together. The database and uploads live on the `/data` volume.
 

@@ -1,0 +1,18 @@
+{
+  "name": "mouldcare-virtual-plant",
+  "private": true,
+  "type": "module",
+  "description": "Virtual injection-moulding plant (machines, energy meters, cameras, auxiliaries, ERP events) that talks MQTT, OPC UA (Euromap 77 style) and Euromap 63 style files through a gateway into the platform.",
+  "scripts": {
+    "start": "node src/cli.js run",
+    "provision": "node src/cli.js provision",
+    "gateway": "node src/cli.js gateway",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=22.13" },
+  "dependencies": {
+    "aedes": "0.51.3",
+    "mqtt": "5.10.1",
+    "node-opcua": "2.139.0"
+  }
+}

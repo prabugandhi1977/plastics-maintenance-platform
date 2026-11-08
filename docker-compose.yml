@@ -40,6 +40,31 @@ services:
     volumes:
       - platform-data:/data
     restart: unless-stopped
+
+  # Virtual plant for testing the platform end to end:  docker compose --profile sim up -d --build
+  # First create its machines and devices once:  cd simulator && npm run provision -- --password <admin password>
+  vplant:
+    profiles: ["sim"]
+    build: ./simulator
+    image: mouldcare-virtual-plant
+    depends_on:
+      platform:
+        condition: service_started
+    environment:
+      PLATFORM_URL: http://platform:3100
+      MOULDCARE_INTEGRATION_KEY: ${MOULDCARE_INTEGRATION_KEY:?Set MOULDCARE_INTEGRATION_KEY in .env}
+      VPLANT_MACHINES: ${VPLANT_MACHINES:-6}
+      VPLANT_SPEED: ${VPLANT_SPEED:-1}
+    command: ["run", "--gateway", "--spool", "/data/spool.json", "--scenario", "${VPLANT_SCENARIO:-normal-day}"]
+    ports:
+      - "4850:4850"
+      - "4840:4840"
+      - "1883:1883"
+    volumes:
+      - vplant-data:/data
+    restart: unless-stopped
+
 volumes:
+  vplant-data:
   db-data:
   platform-data:
