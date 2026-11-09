@@ -1,0 +1,632 @@
+<title>IMM Cycle Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: inputs rail on the left, machine view + results + checks + cycle build on the right; compare spans the width. */
+:root{
+  --bg:#e7ebee; --panel:#f6f8f9; --panel2:#ebeff2; --fg:#10181f; --muted:#55636e; --line:#cbd3d9;
+  --accent:#1456b8; --accent-fg:#ffffff; --accent-soft:#dbe6f6;
+  --ok:#14733a; --ok-bg:#d9efe0; --warn:#9a5200; --warn-bg:#fbe9cc; --risk:#b91f26; --risk-bg:#f8dadb;
+  --hot:#ee6418; --cool:#2d7d9c; --steel:#8a99a6; --steel-d:#5a6a76; --steel-l:#c0cad2; --link:#46535d;
+  --svg-bg:#dfe5ea; --bore:#2a333a;
+  --c-motion:#6b7c89; --c-nozzle:#98a7b3; --c-inject:#ee6418; --c-hold:#f4a266; --c-cool:#2d7d9c; --c-recover:#8cc0d6;
+  --f-disp:'Barlow Condensed','Arial Narrow',sans-serif; --f-body:'IBM Plex Sans',system-ui,sans-serif; --f-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1419; --panel:#161e25; --panel2:#1c262e; --fg:#e5ebef; --muted:#92a0ab; --line:#2a353e;
+  --accent:#5c9bff; --accent-fg:#06101f; --accent-soft:#1b2c47;
+  --ok:#52d887; --ok-bg:#12301f; --warn:#f2b44a; --warn-bg:#35270d; --risk:#ff7b7f; --risk-bg:#3a1618;
+  --hot:#ff7a2e; --cool:#4fb0d3; --steel:#6d7d8a; --steel-d:#4b5964; --steel-l:#93a2ae; --link:#aab6c0;
+  --svg-bg:#10181e; --bore:#0a0f13;
+  --c-motion:#5b6b77; --c-nozzle:#7d8d99; --c-inject:#ff7a2e; --c-hold:#c98550; --c-cool:#3d90b0; --c-recover:#5f9db8;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1419; --panel:#161e25; --panel2:#1c262e; --fg:#e5ebef; --muted:#92a0ab; --line:#2a353e;
+  --accent:#5c9bff; --accent-fg:#06101f; --accent-soft:#1b2c47;
+  --ok:#52d887; --ok-bg:#12301f; --warn:#f2b44a; --warn-bg:#35270d; --risk:#ff7b7f; --risk-bg:#3a1618;
+  --hot:#ff7a2e; --cool:#4fb0d3; --steel:#6d7d8a; --steel-d:#4b5964; --steel-l:#93a2ae; --link:#aab6c0;
+  --svg-bg:#10181e; --bore:#0a0f13;
+  --c-motion:#5b6b77; --c-nozzle:#7d8d99; --c-inject:#ff7a2e; --c-hold:#c98550; --c-cool:#3d90b0; --c-recover:#5f9db8;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1360px;margin:0 auto;padding-block:20px 48px}
+header{display:flex;flex-direction:column;gap:4px;margin-bottom:16px}
+h1{font:700 clamp(30px,5vw,44px)/1 var(--f-disp);letter-spacing:.01em;margin:0;text-transform:uppercase}
+header p{margin:0;color:var(--muted);max-width:78ch}
+h2{font:600 22px/1.1 var(--f-disp);letter-spacing:.04em;text-transform:uppercase;margin:0 0 12px}
+h3{font:600 14px/1.2 var(--f-disp);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}
+.layout{display:grid;gap:16px;grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"view" "res" "chk" "cyc" "inp" "cmp" "basis"}
+#sView{grid-area:view}#sRes{grid-area:res}#sChk{grid-area:chk}#sCyc{grid-area:cyc}#sInp{grid-area:inp}#sCmp{grid-area:cmp}#sBasis{grid-area:basis}
+@media(min-width:1040px){.layout{grid-template-columns:minmax(310px,390px) minmax(0,1fr);
+  grid-template-areas:"inp view" "inp res" "inp chk" "inp cyc" "cmp cmp" "basis basis";align-items:start}}
+/* inputs */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.grid1{display:grid;gap:10px}
+.f{display:flex;flex-direction:column;gap:3px;min-width:0}
+.f.wide{grid-column:1/-1}
+.f>label,.lab{font-size:12px;color:var(--muted);line-height:1.25}
+.inp{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:4px;background:var(--panel2);min-width:0}
+.inp:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.inp input,.inp select{flex:1;min-width:0;border:0;background:transparent;color:var(--fg);font:500 14px var(--f-mono);padding:7px 8px;outline:0;width:100%}
+.inp select{font-family:var(--f-body);font-weight:500}
+.inp input:disabled{color:var(--muted)}
+.inp .u{display:flex;align-items:center;padding:0 8px;color:var(--muted);font:12px var(--f-mono);border-left:1px solid var(--line);white-space:nowrap}
+.pair{display:flex;gap:6px;align-items:center}.pair .x{color:var(--muted)}
+.chk{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}
+.chk input{width:16px;height:16px;accent-color:var(--accent)}
+button{font:600 13px var(--f-body);border-radius:4px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.hint{font-size:12px;color:var(--muted);margin:6px 0 0}
+/* machine view */
+.mhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:8px}
+.mhead .cap{font:500 13px var(--f-mono);color:var(--muted)}
+.stage{background:var(--svg-bg);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.stage svg{display:block;width:100%;height:auto}
+.ctl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-top:10px}
+.ctl input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+.ctl .inp{width:92px}
+.now{font:500 13px var(--f-mono);white-space:nowrap}
+.now b{font-family:var(--f-disp);font-size:16px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+/* svg parts */
+.s-plat{fill:var(--steel);stroke:var(--steel-d)}.s-mould{fill:var(--steel-d);stroke:var(--link)}
+.s-tie{stroke:var(--steel-l);stroke-width:7}.s-link{stroke:var(--link);stroke-width:8;stroke-linecap:round;fill:none}
+.s-pin{fill:var(--steel-l);stroke:var(--link);stroke-width:2}.s-bed{fill:var(--steel-d)}
+.s-bore{fill:var(--bore)}.s-barrel{fill:var(--steel);stroke:var(--steel-d)}
+.s-hyd{fill:var(--accent)}.s-txt{fill:var(--muted);font:500 12px var(--f-mono);letter-spacing:.04em}
+/* results */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px}
+.tile{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:10px 12px;min-width:0}
+.tile .k{font-size:12px;color:var(--muted)}
+.tile .v{font:600 30px/1.1 var(--f-disp);letter-spacing:.01em;margin-top:2px;font-variant-numeric:tabular-nums}
+.tile .v small{font:500 12px var(--f-mono);color:var(--muted);margin-left:4px;letter-spacing:0}
+.tile .s{font:12px var(--f-mono);color:var(--muted)}
+/* checks */
+.sum{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pill{display:inline-flex;align-items:center;font:600 11px var(--f-body);letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.risk{background:var(--risk-bg);color:var(--risk)}
+.pill.n{background:var(--panel2);color:var(--muted)}
+.checks{list-style:none;margin:0;padding:0;display:grid;gap:0;border-top:1px solid var(--line)}
+.checks li{display:grid;grid-template-columns:74px minmax(0,1fr);gap:4px 12px;padding:9px 0;border-bottom:1px solid var(--line);align-items:start}
+.checks b{font-weight:600}.checks .d{color:var(--muted);font-size:13px}
+.checks .d em{font-style:normal;color:var(--fg)}
+/* cycle */
+.gantt{position:relative;margin:6px 0 0}
+.lane{display:flex;height:34px;border-radius:3px;overflow:hidden;background:var(--panel2)}
+.lane>div{display:flex;align-items:center;justify-content:center;font:500 11px var(--f-mono);color:#fff;overflow:hidden;white-space:nowrap;min-width:2px;border-right:1px solid var(--panel)}
+.lane2{position:relative;height:18px;margin-top:4px}
+.lane2>div{position:absolute;top:0;bottom:0;background:var(--c-recover);border-radius:3px;display:flex;align-items:center;padding-left:6px;font:500 11px var(--f-mono);color:var(--fg);overflow:hidden;white-space:nowrap}
+.needle{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg);pointer-events:none;left:0}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-disp);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+td.n,th.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.basis{color:var(--muted);font-size:12px;min-width:200px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;vertical-align:-1px}
+tr.tot td{font-weight:600;border-top:2px solid var(--line)}
+dl.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 24px;margin:0}
+dl.kv div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+dl.kv dt{color:var(--muted)}dl.kv dd{margin:0;font:500 13px var(--f-mono);text-align:right;font-variant-numeric:tabular-nums}
+/* compare */
+.cmpbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.cmpbar .inp{width:230px;max-width:100%}
+.cmp th.sc{vertical-align:bottom;min-width:150px}
+.cmp th.sc .nm{font:600 17px var(--f-disp);letter-spacing:.03em;color:var(--fg);text-transform:none;white-space:normal;display:block}
+.cmp th.sc .tag{font:500 11px var(--f-body);color:var(--accent);letter-spacing:.06em}
+.cmp th.sc .act{display:flex;gap:6px;margin-top:6px}
+.cmp th.sc button{padding:3px 8px;font-size:12px;font-weight:500}
+.cmp td.n small{display:block;font-size:11px}
+.good{color:var(--ok)}.bad{color:var(--risk)}.flat{color:var(--muted)}
+.empty{color:var(--muted);padding:14px;border:1px dashed var(--line);border-radius:4px}
+.basis{max-width:110ch;color:var(--muted);margin:0}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>IMM Cycle Simulator</h1>
+  <p>Toggle-clamp injection moulding machine from the IMM_Simulator Fusion model (compact 5-point toggle). Set the machine specification, then material, part and process settings to see cycle time, output, specific energy (SEC) and defect risk. Save scenarios and compare them side by side.</p>
+</header>
+
+<div class="layout">
+
+<section class="panel" id="sView">
+  <div class="mhead"><h2>Machine</h2><span class="cap" id="mCap">–</span></div>
+  <div class="stage"><svg id="mv" viewBox="0 0 1040 430" role="img" aria-label="Side view of a toggle-clamp injection moulding machine running one moulding cycle"></svg></div>
+  <div class="ctl">
+    <button id="bPlay" class="primary" type="button" style="min-width:76px">Pause</button>
+    <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Position in the cycle">
+    <div class="f" style="flex-direction:row;align-items:center;gap:8px"><label for="pbs" class="lab">Playback speed</label>
+      <div class="inp"><select id="pbs"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></div></div>
+    <span class="now" id="now">–</span>
+  </div>
+</section>
+
+<section class="panel" id="sRes">
+  <h2>Results for current settings</h2>
+  <div class="tiles" id="tiles"></div>
+</section>
+
+<section class="panel" id="sChk">
+  <h2>Defect risk checks</h2>
+  <div class="sum" id="chkSum"></div>
+  <ul class="checks" id="checks"></ul>
+</section>
+
+<section class="panel" id="sCyc">
+  <h2>How the cycle is built</h2>
+  <div class="gantt" id="gantt"><div class="lane" id="lane"></div><div class="lane2" id="lane2"></div><div class="needle" id="needle"></div></div>
+  <p class="hint">Bar widths are to scale. The light bar under the cooling block is screw recovery, which runs inside cooling time.</p>
+  <div class="scroll" style="margin-top:10px"><table id="phTbl"></table></div>
+  <h3>Derived values</h3>
+  <dl class="kv" id="kv"></dl>
+</section>
+
+<section class="panel" id="sInp">
+  <h2>Settings</h2>
+  <h3 style="margin-top:0">Material and part</h3>
+  <div class="grid2" id="gMat"></div>
+  <h3>Process</h3>
+  <div class="grid2" id="gProc"></div>
+  <h3>Machine specification</h3>
+  <div class="grid2" id="gMach"></div>
+  <h3>Clamping unit</h3>
+  <div class="grid2" id="gClamp"></div>
+  <h3>Injection unit</h3>
+  <div class="grid2" id="gInj"></div>
+  <h3>Power</h3>
+  <div class="grid2" id="gPow"></div>
+  <h3>Operation and cost</h3>
+  <div class="grid2" id="gOp"></div>
+  <p class="hint">Catalogue presets are typical values for toggle machines in each size, not a specific maker's data sheet. Replace them with your nameplate figures.</p>
+</section>
+
+<section class="panel" id="sCmp">
+  <h2>Compare scenarios</h2>
+  <p class="hint" style="margin:-4px 0 12px">Up to 5 scenarios. The first column is the baseline for the deltas.</p>
+  <div class="cmpbar">
+    <div class="inp"><input id="scName" type="text" placeholder="Scenario name" aria-label="Scenario name" style="font-family:var(--f-body)"></div>
+    <button id="bSave" class="primary" type="button">Save current settings</button>
+    <span class="hint" id="cmpMsg" style="margin:0" role="status"></span>
+  </div>
+  <div class="scroll" id="cmpWrap"></div>
+</section>
+
+<section class="panel" id="sBasis">
+  <h2>Model basis</h2>
+  <p class="basis">Cooling time from the one-dimensional plate equation t = s²/(π²α)·ln[(8/π²)(T<sub>melt</sub>−T<sub>mould</sub>)/(T<sub>eject</sub>−T<sub>mould</sub>)]; gate freeze uses the same equation at 60% of wall. The set cooling time counts from the end of hold, so the calculated minimum is reduced by hold time and half the fill time. Injection power = injection pressure × injection rate (1 kW = 10 000 bar·cm³/s); when the drive cannot deliver it, fill speed drops. Theoretical shot volume = screw area × injection stroke. Clamp force = projected area × cavity pressure (scaled with flow length / wall ratio) + 10% for runners; the shot also carries a 10% runner allowance. SEC follows the EUROMAP 60.1 idea of machine-only energy per kg of shot (no dryer, chiller or mould temperature unit), built from drive base load, motion energy, injection work and melt enthalpy. Material constants, drive efficiencies and flow-pressure factors are generic rules of thumb. Treat the numbers as estimates for comparing settings, then confirm on the machine with a metered SEC test.</p>
+</section>
+
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ss=t=>{t=clamp(t,0,1);return t*t*(3-2*t)};
+const fmt=(x,d=1)=>Number.isFinite(x)?x.toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}):'–';
+const RUNNER=0.10, HEATER_LOSS=0.10, SHEAR_SHARE=0.30, G=9.81;
+
+/* ---------- assumption tables (generic rules of thumb) ---------- */
+const MAT={
+  PP:  {rho:.74,cp:2.3,hf:95, alpha:.075,Te:90, melt:[200,260],mould:[20,60], pcav:350,p0:500,Tmid:230,res:600},
+  HDPE:{rho:.75,cp:2.6,hf:190,alpha:.090,Te:85, melt:[190,260],mould:[15,50], pcav:300,p0:450,Tmid:220,res:600},
+  ABS: {rho:.94,cp:2.3,hf:0,  alpha:.085,Te:85, melt:[210,270],mould:[40,80], pcav:400,p0:700,Tmid:240,res:420},
+  PA66:{rho:.97,cp:2.7,hf:100,alpha:.100,Te:140,melt:[270,300],mould:[60,100],pcav:450,p0:650,Tmid:285,res:300},
+  PC:  {rho:1.05,cp:2.0,hf:0, alpha:.110,Te:130,melt:[280,320],mould:[80,110],pcav:500,p0:900,Tmid:300,res:360},
+  POM: {rho:1.15,cp:2.5,hf:150,alpha:.090,Te:120,melt:[190,230],mould:[60,120],pcav:450,p0:600,Tmid:210,res:240}
+};
+const DRV={
+  conv:{name:'Conventional hydraulic',base:.22,etaM:.50,etaI:.38,etaH:.45,etaR:.50},
+  servo:{name:'Servo-hydraulic',base:.05,etaM:.72,etaI:.65,etaH:.70,etaR:.72},
+  elec:{name:'All-electric',base:.03,etaM:.88,etaI:.85,etaH:.85,etaR:.88}
+};
+const PRESETS=[
+ {t:50, stroke:280,tbH:360,tbV:360,mhMin:120,mhMax:350,ejS:80, ejF:25, D:28,LD:22,injS:110,pMax:2200,vMax:150,rpmMax:250,motor:11,heater:5},
+ {t:80, stroke:320,tbH:410,tbV:410,mhMin:150,mhMax:400,ejS:90, ejF:30, D:32,LD:22,injS:120,pMax:2200,vMax:160,rpmMax:250,motor:15,heater:6.5},
+ {t:120,stroke:370,tbH:470,tbV:470,mhMin:150,mhMax:450,ejS:100,ejF:35, D:36,LD:22,injS:140,pMax:2100,vMax:170,rpmMax:220,motor:22,heater:8},
+ {t:180,stroke:430,tbH:560,tbV:560,mhMin:180,mhMax:500,ejS:120,ejF:45, D:40,LD:22,injS:160,pMax:2000,vMax:180,rpmMax:200,motor:30,heater:10},
+ {t:250,stroke:520,tbH:580,tbV:580,mhMin:200,mhMax:550,ejS:140,ejF:60, D:45,LD:22,injS:180,pMax:2000,vMax:200,rpmMax:200,motor:37,heater:12},
+ {t:350,stroke:600,tbH:700,tbV:700,mhMin:250,mhMax:650,ejS:150,ejF:70, D:55,LD:22,injS:220,pMax:1900,vMax:190,rpmMax:180,motor:45,heater:16},
+ {t:500,stroke:700,tbH:810,tbV:810,mhMin:300,mhMax:750,ejS:180,ejF:90, D:65,LD:22,injS:260,pMax:1900,vMax:180,rpmMax:160,motor:55,heater:22},
+ {t:800,stroke:850,tbH:1000,tbV:1000,mhMin:350,mhMax:900,ejS:220,ejF:120,D:80,LD:22,injS:300,pMax:1800,vMax:170,rpmMax:140,motor:75,heater:32},
+ {t:1000,stroke:950,tbH:1100,tbV:1100,mhMin:400,mhMax:1000,ejS:250,ejF:150,D:90,LD:22,injS:340,pMax:1800,vMax:170,rpmMax:130,motor:90,heater:40}
+];
+const SPECIDS=['clamp','stroke','tbH','tbV','mhMin','mhMax','ejS','ejF','D','LD','injS','pMax','vMax','rpmMax','motor','heater'];
+
+/* ---------- input form ---------- */
+function F(id,label,unit,def,min,max,step,wide){
+  return '<div class="f'+(wide?' wide':'')+'"><label for="'+id+'">'+label+'</label><div class="inp"><input id="'+id+'" type="number" inputmode="decimal" value="'+def+'" min="'+min+'" max="'+max+'" step="'+step+'">'+(unit?'<span class="u">'+unit+'</span>':'')+'</div></div>';
+}
+function SEL(id,label,opts,wide){
+  return '<div class="f'+(wide?' wide':'')+'"><label for="'+id+'">'+label+'</label><div class="inp"><select id="'+id+'">'+opts.map(o=>'<option value="'+o[0]+'">'+o[1]+'</option>').join('')+'</select></div></div>';
+}
+function PAIR(a,b,label,unit,da,db){
+  return '<div class="f wide"><label>'+label+'</label><div class="pair"><div class="inp" style="flex:1"><input id="'+a+'" type="number" inputmode="decimal" value="'+da+'" step="5" min="1" aria-label="'+label+' first value"></div><span class="x">'+(a==='mhMin'?'–':'×')+'</span><div class="inp" style="flex:1"><input id="'+b+'" type="number" inputmode="decimal" value="'+db+'" step="5" min="1" aria-label="'+label+' second value"><span class="u">'+unit+'</span></div></div></div>';
+}
+$('gMat').innerHTML=
+  SEL('mat','Material',Object.keys(MAT).map(k=>[k,k]),true)+
+  F('wall','Wall thickness','mm',2,0.3,20,0.1)+F('wt','Part weight','g',40,0.1,50000,1)+
+  F('area','Projected area per cavity','cm²',220,1,20000,10)+F('flow','Flow length (gate to last fill)','mm',150,5,3000,5)+
+  F('cav','Cavities','',2,1,128,1);
+$('gProc').innerHTML=
+  F('Tm','Melt temperature','°C',230,100,450,1)+F('Tw','Mould temperature','°C',40,5,200,1)+
+  F('vSet','Injection speed (set)','mm/s',80,5,500,5)+F('holdP','Hold pressure','bar',500,0,3000,10)+
+  F('holdT','Hold time','s',2.5,0,60,0.1)+F('cool','Cooling time','s',3,0,600,0.5)+
+  '<div class="f wide"><label class="chk"><input id="auto" type="checkbox" checked> Auto: set to the calculated minimum</label></div>'+
+  F('rpm','Screw speed','rpm',140,5,500,5)+F('bp','Back pressure','bar',60,0,400,5);
+$('gMach').innerHTML=
+  SEL('drive','Drive',Object.keys(DRV).map(k=>[k,DRV[k].name]),true)+
+  SEL('preset','Machine size (catalogue preset)',PRESETS.map((p,i)=>[i,p.t+' t'] ).concat([['custom','Custom']]),true);
+$('gClamp').innerHTML=
+  F('clamp','Clamp force','t',250,10,5000,10)+F('stroke','Opening stroke','mm',520,50,3000,10)+
+  PAIR('tbH','tbV','Tie-bar distance (H×V)','mm',580,580)+
+  PAIR('mhMin','mhMax','Mould height min–max','mm',200,550)+
+  F('ejS','Ejector stroke','mm',140,5,600,5)+F('ejF','Ejector force','kN',60,1,1000,5);
+$('gInj').innerHTML=
+  F('D','Screw diameter','mm',45,10,200,1)+F('LD','Screw L/D',': 1',22,10,35,1)+
+  F('injS','Injection stroke','mm',180,20,1000,5)+F('pMax','Max injection pressure','bar',2000,500,3500,50)+
+  F('vMax','Max injection speed','mm/s',200,20,600,5)+F('rpmMax','Max screw speed','rpm',200,20,600,5);
+$('gPow').innerHTML=F('motor','Pump / drive motor','kW',37,1,1000,1)+F('heater','Barrel heater','kW',12,0.5,200,0.5);
+$('gOp').innerHTML=
+  F('cspd','Clamp speed','mm/s',600,50,2000,10)+F('tariff','Tariff','₹/kWh',8,0,100,0.1)+F('hours','Hours / year','h',6000,100,8760,100)+
+  '<div class="f wide" style="align-self:end"><label class="chk"><input id="sprue" type="checkbox"> Sprue break (carriage retracts each shot)</label></div>';
+
+const NUMIDS=['wall','wt','area','flow','cav','Tm','Tw','vSet','holdP','holdT','cool','rpm','bp',...SPECIDS,'cspd','tariff','hours'];
+const DEFAULTS={};
+function applyPreset(i){const p=PRESETS[i];$('clamp').value=p.t;SPECIDS.slice(1).forEach(k=>{if(k in p)$(k).value=p[k]});}
+function readInputs(){
+  const i={mat:$('mat').value,drive:$('drive').value,auto:$('auto').checked,sprue:$('sprue').checked};
+  NUMIDS.forEach(k=>{let v=parseFloat($(k).value);if(!Number.isFinite(v))v=DEFAULTS[k];i[k]=v});
+  i.cav=Math.max(1,Math.round(i.cav));
+  return i;
+}
+function writeInputs(i){
+  $('mat').value=i.mat;$('drive').value=i.drive;$('auto').checked=!!i.auto;$('sprue').checked=!!i.sprue;
+  NUMIDS.forEach(k=>{if(k in i)$(k).value=i[k]});
+  $('preset').value=i.preset!==undefined?i.preset:'custom';
+}
+applyPreset(4);$('preset').value=4;
+NUMIDS.forEach(k=>{DEFAULTS[k]=parseFloat($(k).value)});
+
+/* ---------- the model ---------- */
+function sim(i){
+  const m=MAT[i.mat],d=DRV[i.drive],M=i.motor;
+  const mass=i.wt*i.cav*(1+RUNNER)/1000;           // kg of shot
+  const shotVol=mass*1000/m.rho;                    // cm3
+  const area=Math.PI/4*Math.pow(i.D/10,2);          // screw area cm2
+  const cap=area*i.injS/10;                         // theoretical shot volume cm3
+  const util=shotVol/cap;
+  // cooling (1-D plate)
+  const argF=Math.max(i.Tm-i.Tw,0.1)*8/Math.PI/Math.PI/Math.max(m.Te-i.Tw,0.1);
+  const plate=sm=>Math.max(0.3,sm*sm/(Math.PI*Math.PI*m.alpha)*Math.log(Math.max(argF,1.001)));
+  const tooHotMould=i.Tw>=m.Te-1;
+  const tCalc=tooHotMould?60:plate(i.wall), tGate=tooHotMould?30:plate(0.6*i.wall);
+  // fill: pressure needed, then limit speed by max speed and pump power
+  const Lr=i.flow/i.wall;
+  const pBase=m.p0*Math.pow(Lr/100,0.8)*Math.exp(-0.012*(i.Tm-m.Tmid));
+  const pReqAt=v=>pBase*(0.7+0.3*v/80);
+  const pAvail=M*0.85;
+  let v=Math.min(i.vSet,i.vMax),throttle='';
+  for(let k=0;k<4;k++){
+    const pp=Math.max(Math.min(pReqAt(v),i.pMax),1);
+    const vp=pAvail*10000/pp/(area*0.1);
+    if(vp<v)v=vp;
+  }
+  if(v<Math.min(i.vSet,i.vMax)-0.5)throttle='power';
+  const pReq=pReqAt(v), pEff=Math.min(pReq,i.pMax);
+  const fillT=Math.max(0.15,shotVol/(area*v*0.1));
+  // plasticising
+  const rpmE=Math.min(i.rpm,i.rpmMax);
+  const qPl=1.6e-4*i.D*i.D*rpmE*(1-0.0005*i.bp);
+  const tRec=Math.max(0.3,shotVol/qPl);
+  const surfV=Math.PI*i.D*rpmE/60/1000;
+  // set cooling
+  const coolAuto=Math.max(1,tCalc-i.holdT-0.5*fillT);
+  const cool=i.auto?coolAuto:i.cool;
+  const tCoolPh=Math.max(cool,tRec);
+  // moves
+  const tClose=i.stroke/i.cspd+0.8, tOpen=i.stroke/i.cspd+0.4;
+  const tNoz=i.sprue?0.6:0, tEj=2*i.ejS/300+0.3;
+  const phases=[
+    {k:'close',name:'Mould close',t:tClose,col:'var(--c-motion)'},
+    {k:'nozF',name:'Nozzle forward',t:tNoz,col:'var(--c-nozzle)'},
+    {k:'inject',name:'Injection (fill)',t:fillT,col:'var(--c-inject)'},
+    {k:'hold',name:'Holding pressure',t:i.holdT,col:'var(--c-hold)'},
+    {k:'cool',name:'Cooling + screw recovery',t:tCoolPh,col:'var(--c-cool)'},
+    {k:'nozB',name:'Nozzle back',t:tNoz,col:'var(--c-nozzle)'},
+    {k:'open',name:'Mould open',t:tOpen,col:'var(--c-motion)'},
+    {k:'eject',name:'Ejection',t:tEj,col:'var(--c-motion)'}
+  ].filter(p=>p.t>0);
+  let tt=0;phases.forEach(p=>{p.t0=tt;tt+=p.t;p.t1=tt});
+  const cycle=tt;
+  // energy (kJ) per phase: drive base load + motion / efficiency
+  const baseKW=d.base*M;
+  const util_={close:.30,nozF:.10,nozB:.10,open:.26,eject:.10};
+  const injWork=pEff*shotVol/10000;                       // kJ
+  const holdMech=0.10*M*clamp(i.holdP/i.pMax,0,1);
+  const recMech=0.22*M*(rpmE/i.rpmMax)*(0.8+0.2*i.bp/100);
+  phases.forEach(p=>{
+    let e=baseKW*p.t;
+    if(util_[p.k])e+=M*util_[p.k]*p.t/d.etaM;
+    else if(p.k==='inject')e+=injWork/d.etaI;
+    else if(p.k==='hold')e+=holdMech*p.t/d.etaH;
+    else if(p.k==='cool')e+=recMech*tRec/d.etaR;
+    p.kJ=e;
+  });
+  const qMelt=mass*(m.cp*(i.Tm-25)+m.hf);                 // kJ melt enthalpy
+  const heatKJ=qMelt*(1-SHEAR_SHARE)/0.9+i.heater*HEATER_LOSS*cycle;
+  const totKJ=phases.reduce((a,p)=>a+p.kJ,0)+heatKJ;
+  const sec=totKJ/3600/mass, avgKW=totKJ/cycle;
+  const cost=avgKW*i.hours*i.tariff;
+  // clamp
+  const pCav=m.pcav*(0.5+Lr/200);
+  const needKN=i.area*i.cav*pCav/100*1.1, needT=needKN/G, clampUtil=needT/i.clamp;
+  const resid=3*cap/shotVol*cycle;
+  const tHoldEff=i.holdT+0.5*fillT+cool;                  // time from fill to end of set cooling
+  const coolRatio=tHoldEff/tCalc;
+
+  /* defect checks: 0 ok, 1 watch, 2 risk */
+  const C=[];const add=(s,t,dd,fix)=>C.push({s,t,d:dd,fix});
+  const pr=pReq/i.pMax;
+  add(pr>1?2:pr>.85?1:0,'Short shot (fill pressure)','Needs about '+fmt(pReq,0)+' bar to fill, machine limit '+fmt(i.pMax,0)+' bar ('+fmt(pr*100,0)+'%).',pr>.85?'Thicker wall, shorter flow length, hotter melt, or a machine with more pressure.':'');
+  const thr=throttle==='power'||i.vSet>i.vMax;
+  add(thr?1:0,'Injection speed delivered',thr?('Set '+fmt(i.vSet,0)+' mm/s, delivered '+fmt(v,0)+' mm/s'+(throttle==='power'?' because pump power limits flow at this pressure.':' because it exceeds the machine maximum.')):('Delivering the set '+fmt(v,0)+' mm/s. Fill takes '+fmt(fillT,2)+' s.'),thr?'Lower the set speed or use a larger motor.':'');
+  add(fillT<0.3?1:fillT>0.5*tCalc?2:0,'Burn marks / flow lines','Fill time '+fmt(fillT,2)+' s against '+fmt(tCalc,1)+' s total cooling.',fillT<0.3?'Very fast fill can trap air (diesel effect): check venting or slow the last part of the fill.':fillT>0.5*tCalc?'Melt freezes before the cavity fills: raise speed or melt temperature.':'');
+  add(util>1?2:(util>.85||util<.2)?1:0,'Shot size vs barrel','Shot '+fmt(shotVol,0)+' cm³ is '+fmt(util*100,0)+'% of the '+fmt(cap,0)+' cm³ barrel capacity.',util>1?'The shot does not fit: use a larger screw or stroke.':util>.85?'Little margin for a consistent shot.':util<.2?'Small shot in a large barrel gives long melt residence.':'');
+  add(resid>m.res?2:resid>.7*m.res?1:0,'Material degradation (residence)','Melt stays about '+fmt(resid,0)+' s in the barrel; '+i.mat+' guideline '+m.res+' s.',resid>.7*m.res?'Use a smaller screw or shorten the cycle.':'');
+  add(clampUtil>1?2:clampUtil>.9?1:0,'Flash (clamp force)','Needs about '+fmt(needT,0)+' t of '+fmt(i.clamp,0)+' t available ('+fmt(clampUtil*100,0)+'%).',clampUtil>.9?'Bigger machine, smaller projected area, or lower cavity pressure.':'');
+  const gateNeed=tGate-0.5*fillT;
+  add(i.holdT<0.6*gateNeed?2:(i.holdT<gateNeed||i.wall>4)?1:0,'Sink marks / voids','Hold '+fmt(i.holdT,1)+' s against gate freeze at about '+fmt(tGate,1)+' s'+(i.wall>4?'; wall '+fmt(i.wall,1)+' mm is thick.':'.'),i.holdT<gateNeed?'Hold at least until the gate freezes.':i.wall>4?'Core out thick sections.':'');
+  add(i.holdP>0.7*i.pMax?1:i.holdP<0.4*pEff?1:0,'Packing pressure','Hold '+fmt(i.holdP,0)+' bar against fill pressure '+fmt(pEff,0)+' bar.',i.holdP>0.7*i.pMax?'High hold pressure risks flash and sticking.':i.holdP<0.4*pEff?'Low hold pressure risks sink marks and weak weld lines.':'');
+  add(tooHotMould?2:coolRatio<.8?2:coolRatio<1?1:0,'Warpage / ejector marks','Part reaches ejection temperature at about '+fmt(tCalc,1)+' s; fill to eject is '+fmt(tHoldEff,1)+' s.',coolRatio<1||tooHotMould?'Increase cooling time or lower the mould temperature.':'');
+  const mOut=i.Tw<m.mould[0]||i.Tw>m.mould[1];
+  add(mOut?1:0,'Mould temperature','Mould '+fmt(i.Tw,0)+' °C, '+i.mat+' range '+m.mould[0]+'–'+m.mould[1]+' °C.',mOut?'Out-of-range mould temperature hurts surface finish and shrinkage.':'');
+  const mHi=i.Tm>m.melt[1],mLo=i.Tm<m.melt[0];
+  add(mHi?2:mLo?1:0,'Melt temperature','Melt '+fmt(i.Tm,0)+' °C, '+i.mat+' range '+m.melt[0]+'–'+m.melt[1]+' °C.',mHi?'Degradation and burn streaks: lower the melt temperature.':mLo?'Short shots and weld lines: raise the melt temperature.':'');
+  const recLim=tRec>cool+0.05;
+  add(recLim?1:surfV>0.35?1:0,'Plasticising','Screw recovery '+fmt(tRec,1)+' s against cooling '+fmt(cool,1)+' s; screw surface speed '+fmt(surfV,2)+' m/s.',recLim?'Recovery is setting the cycle time: raise screw speed or use a larger screw.':surfV>.35?'High screw speed overheats the melt by shear.':'');
+
+  return {m,d,mass,shotVol,cap,util,tCalc,tGate,pReq,pEff,v,fillT,tRec,qPl,coolAuto,cool,tCoolPh,phases,cycle,heatKJ,totKJ,
+    sec,avgKW,cost,pCav,needT,clampUtil,resid,coolRatio,checks:C,injWork,surfV,
+    parts:i.cav*3600/cycle,kgh:mass*3600/cycle,
+    nRisk:C.filter(c=>c.s===2).length,nWatch:C.filter(c=>c.s===1).length};
+}
+
+/* ---------- machine view ---------- */
+const AX=90,L=145,YC=210,YPT=172,YPB=248,CYT=182,CYB=238,XMP0=AX+2*L;
+let GEO={},E={},R=null,I=null;
+function buildSvg(){
+  const spx=clamp(110+(I.stroke-250)/700*60,100,175);
+  const bh=clamp(24+I.D*0.9,34,86), scS=clamp(20+I.injS/I.D*10,30,70);
+  const bt=YC-bh/2, bb=YC+bh/2;
+  // crosshead link length from the extreme positions
+  let lc=0;
+  [0,1].forEach(o=>{const t=togg(o,spx,1e6);lc=Math.max(lc,Math.abs(t.Qy-CYT))});
+  GEO={spx,bh,scS,lc:lc*1.08+4,carr:45};
+  const hb=[640,700,760,820].map(x=>'<rect class="heat" x="'+x+'" y="'+(bt-4)+'" width="36" height="'+(bh+8)+'" rx="2" fill="var(--hot)" opacity=".5"/>').join('');
+  $('mv').innerHTML=
+  '<defs><pattern id="flt" width="14" height="60" patternUnits="userSpaceOnUse"><path d="M0 60L14 0" stroke="var(--steel-l)" stroke-width="3" fill="none"/></pattern></defs>'+
+  '<rect x="0" y="400" width="1040" height="30" class="s-bed"/>'+
+  '<text x="70" y="422" class="s-txt" fill="var(--steel-l)" style="fill:var(--steel-l)">TOGGLE CLAMP</text><text x="640" y="422" class="s-txt" style="fill:var(--steel-l)">INJECTION UNIT</text>'+
+  '<line x1="62" y1="60" x2="600" y2="60" class="s-tie"/><line x1="62" y1="360" x2="600" y2="360" class="s-tie"/>'+
+  '<rect x="610" y="394" width="400" height="8" fill="var(--steel-l)"/>'+
+  // clamp cylinder, rod
+  '<rect x="16" y="188" width="46" height="44" rx="3" class="s-hyd"/><rect id="rod" x="56" y="206" width="100" height="8" fill="var(--steel-l)"/>'+
+  '<rect x="62" y="25" width="28" height="370" class="s-plat"/>'+
+  '<rect x="530" y="25" width="40" height="370" class="s-plat"/><rect x="475" y="90" width="55" height="240" class="s-mould"/>'+
+  '<line id="sprue" x1="475" y1="'+YC+'" x2="572" y2="'+YC+'" stroke="var(--hot)" stroke-width="9" opacity="0"/>'+
+  // injection unit group
+  '<g id="inj">'+
+    '<rect x="640" y="'+(bb)+'" width="70" height="'+(394-bb)+'" fill="var(--steel-d)"/><rect x="790" y="'+(bb)+'" width="90" height="'+(394-bb)+'" fill="var(--steel-d)"/>'+
+    '<polygon points="800,'+(bt-62)+' 860,'+(bt-62)+' 850,'+bt+' 810,'+bt+'" fill="var(--steel)" stroke="var(--steel-d)"/>'+
+    '<polygon points="570,'+(YC-5)+' 604,'+(YC-bh*.28)+' 604,'+(YC+bh*.28)+' 570,'+(YC+5)+'" fill="var(--steel-d)"/>'+
+    '<rect x="600" y="'+bt+'" width="280" height="'+bh+'" class="s-barrel" rx="3"/>'+
+    '<rect x="604" y="'+(bt+5)+'" width="272" height="'+(bh-10)+'" class="s-bore"/>'+
+    '<rect id="melt" x="604" y="'+(bt+5)+'" width="4" height="'+(bh-10)+'" fill="var(--hot)" opacity=".9"/>'+
+    '<g id="scr"><rect x="608" y="'+(bt+9)+'" width="272" height="'+(bh-18)+'" fill="url(#flt)" id="fltR" stroke="var(--steel-l)" stroke-width="1.5"/>'+
+      '<rect x="878" y="'+(YC-6)+'" width="20" height="12" fill="var(--steel-l)"/></g>'+
+    hb+
+    '<rect x="896" y="'+(YC-30)+'" width="64" height="60" rx="3" class="s-hyd"/><text x="905" y="'+(YC+4)+'" class="s-txt" style="fill:var(--accent-fg)">DRIVE</text>'+
+  '</g>'+
+  // moving group
+  '<g id="mov"><rect x="'+XMP0+'" y="25" width="40" height="370" class="s-plat"/><rect x="'+(XMP0+40)+'" y="90" width="55" height="240" class="s-mould"/>'+
+    '<rect x="'+(XMP0+77)+'" y="176" width="18" height="68" fill="var(--bore)"/>'+
+    '<rect id="mpart" x="'+(XMP0+77)+'" y="'+(YC-34)+'" width="18" height="68" fill="var(--hot)" opacity="0"/>'+
+    '<rect id="ej1" x="'+(XMP0+60)+'" y="188" width="18" height="6" rx="2" fill="var(--steel-l)"/><rect id="ej2" x="'+(XMP0+60)+'" y="226" width="18" height="6" rx="2" fill="var(--steel-l)"/>'+
+  '</g>'+
+  // toggle
+  '<g id="tg"><polyline id="t1" class="s-link" points=""/><polyline id="t2" class="s-link" points=""/><line id="c1" class="s-link" style="stroke-width:6"/><line id="c2" class="s-link" style="stroke-width:6"/>'+
+   ['pA1','pK1','pB1','pQ1','pC1','pA2','pK2','pB2','pQ2','pC2'].map(n=>'<circle id="'+n+'" r="5.5" class="s-pin"/>').join('')+
+   '<rect id="xh" x="0" y="'+(CYT-10)+'" width="14" height="'+(CYB-CYT+20)+'" rx="2" class="s-hyd"/></g>';
+  ['inj','melt','scr','fltR','mov','mpart','ej1','ej2','sprue','rod','t1','t2','c1','c2','xh','pA1','pK1','pB1','pQ1','pC1','pA2','pK2','pB2','pQ2','pC2'].forEach(n=>E[n]=$(n)||document.getElementById(n));
+  E.heats=[].slice.call(document.querySelectorAll('#mv .heat'));
+  $('mCap').textContent=I.clamp+' t · Ø'+I.D+' mm screw · '+DRV[I.drive].name+(I.sprue?' · sprue break':'');
+}
+function togg(o,spx,lc){
+  const d=2*L-spx*o, xB=AX+d, xK=AX+d/2, h=Math.sqrt(Math.max(L*L-d*d/4,0));
+  const Kt=YPT-h,Kb=YPB+h;
+  const Qt={x:(xK+xB)/2,y:(Kt+YPT)/2}, Qb={x:(xK+xB)/2,y:(Kb+YPB)/2};
+  const dxt=Math.sqrt(Math.max(lc*lc-(Qt.y-CYT)*(Qt.y-CYT),0)), dxb=Math.sqrt(Math.max(lc*lc-(Qb.y-CYB)*(Qb.y-CYB),0));
+  return {xB,xK,Kt,Kb,Qx:Qt.x,Qy:Qt.y,Qb,xcT:Qt.x-dxt,xcB:Qb.x-dxb};
+}
+function stateAt(t){
+  const P=R.phases,by=k=>P.find(p=>p.k===k);
+  const pc=by('close'),po=by('open'),pi=by('inject'),ph=by('hold'),pk=by('cool'),pe=by('eject'),pn1=by('nozF'),pn2=by('nozB');
+  const fr=(p,t)=>p?clamp((t-p.t0)/p.t,0,1):0;
+  let o=1; if(t>=pc.t1)o=0; else o=1-ss(fr(pc,t)); if(t>=po.t0)o=ss(fr(po,t));
+  let c=0; if(I.sprue){c=1;if(t>=pn1.t1)c=0;else c=1-ss(fr(pn1,t)); if(t>=pn2.t0)c=ss(fr(pn2,t));}
+  const f=pi?fr(pi,t):0;
+  // screw position: 1 = back (shot ready), 0 = forward
+  let s=1,rot=false,recStart=pk.t0;
+  if(t>=pi.t0&&t<pi.t1)s=1-0.96*ss(fr(pi,t));
+  else if(t>=pi.t1&&t<pk.t0)s=0.04;
+  else if(t>=pk.t0){const r=clamp((t-pk.t0)/R.tRec,0,1);s=lerp(0.04,1,r);rot=t<pk.t0+R.tRec;}
+  const tempFrac=clamp((t-pi.t0)/(pk.t1-pi.t0),0,1);
+  const filled=t>=pi.t0&&t<pe.t0+pe.t*0.5, ej=t>=pe.t0?ss(fr(pe,t)*2):0;
+  const fall=t>=pe.t0+pe.t*0.5?ss((t-pe.t0-pe.t*0.5)/(pe.t*0.5)):0;
+  const cur=P.find(p=>t>=p.t0&&t<p.t1)||P[P.length-1];
+  return {o,c,f,s,rot,recT:t-recStart,tempFrac,filled,ej,fall,cur,inj:t>=pi.t0&&t<ph.t1+(ph.t?0:0)};
+}
+const HOT=[240,110,30],COLD=[152,172,190];
+const mix=(a,b,t)=>'rgb('+a.map((x,k)=>Math.round(lerp(x,b[k],t))).join(',')+')';
+function draw(t){
+  if(!R||!E.inj)return;
+  const st=stateAt(t),tg=togg(st.o,GEO.spx,GEO.lc);
+  E.mov.setAttribute('transform','translate('+(tg.xB-XMP0)+' 0)');
+  const pts=(a,b,c)=>a.x+','+a.y+' '+b.x+','+b.y+' '+c.x+','+c.y;
+  const A1={x:AX,y:YPT},A2={x:AX,y:YPB},B1={x:tg.xB,y:YPT},B2={x:tg.xB,y:YPB},K1={x:tg.xK,y:tg.Kt},K2={x:tg.xK,y:tg.Kb};
+  const Q1={x:tg.Qx,y:tg.Qy},Q2=tg.Qb,C1={x:tg.xcT,y:CYT},C2={x:tg.xcB,y:CYB};
+  E.t1.setAttribute('points',pts(A1,K1,B1));E.t2.setAttribute('points',pts(A2,K2,B2));
+  [['c1',Q1,C1],['c2',Q2,C2]].forEach(([n,a,b])=>{E[n].setAttribute('x1',a.x);E[n].setAttribute('y1',a.y);E[n].setAttribute('x2',b.x);E[n].setAttribute('y2',b.y)});
+  [['pA1',A1],['pK1',K1],['pB1',B1],['pQ1',Q1],['pC1',C1],['pA2',A2],['pK2',K2],['pB2',B2],['pQ2',Q2],['pC2',C2]].forEach(([n,p])=>{E[n].setAttribute('cx',p.x);E[n].setAttribute('cy',p.y)});
+  const xc=(tg.xcT+tg.xcB)/2;E.xh.setAttribute('x',xc-7);E.rod.setAttribute('width',Math.max(xc-56,4));
+  E.inj.setAttribute('transform','translate('+(st.c*GEO.carr)+' 0)');
+  const sx=st.s*GEO.scS;E.scr.setAttribute('transform','translate('+sx+' 0)');
+  E.melt.setAttribute('width',Math.max(4,4+sx+4));
+  const rotOff=st.rot?(st.recT*I.rpm/60*14*3)%14:0;
+  document.getElementById('flt').setAttribute('patternTransform','translate('+rotOff+' 0)');
+  const heat=0.45+0.12*Math.sin(t*3);E.heats.forEach(h=>h.setAttribute('opacity',heat.toFixed(2)));
+  // melt in the cavity
+  const col=mix(HOT,COLD,Math.pow(st.tempFrac,0.8));
+  const pin=R.phases.find(p=>p.k==='inject');const showPart=st.filled;const fillH=t<pin.t0?0:68*(t<pin.t1?st.f:1);
+  E.mpart.setAttribute('height',Math.max(fillH,0));E.mpart.setAttribute('y',YC-fillH/2);
+  E.mpart.setAttribute('fill',col);
+  const falling=st.fall>0;
+  E.mpart.setAttribute('opacity',showPart||falling?(falling?1-st.fall:1):0);
+  E.mpart.setAttribute('transform',showPart||falling?'translate('+(st.ej*22)+' '+(st.fall*110)+')':'');
+  E.ej1.setAttribute('width',18+st.ej*22);E.ej2.setAttribute('width',18+st.ej*22);
+  const sp=(st.cur.k==='inject'||st.cur.k==='hold')&&!I.sprue?1:(st.cur.k==='inject'||st.cur.k==='hold')?1:0;
+  E.sprue.setAttribute('opacity',sp?0.9:0);
+  // transport text + gantt needle
+  $('now').innerHTML='t = '+fmt(t,1)+' / '+fmt(R.cycle,1)+' s &nbsp;<b>'+st.cur.name+'</b>';
+  $('needle').style.left=(t/R.cycle*100)+'%';
+  if(!scrubbing)$('scrub').value=Math.round(t/R.cycle*1000);
+}
+
+/* ---------- results, checks, cycle, compare ---------- */
+function statusPill(s){return '<span class="pill '+['ok','warn','risk'][s]+'">'+['OK','Watch','Risk'][s]+'</span>'}
+function render(){
+  I=readInputs();R=sim(I);
+  if(I.auto){$('cool').value=R.coolAuto.toFixed(1)}$('cool').disabled=I.auto;
+  buildSvg();
+  const tile=(k,v,u,s)=>'<div class="tile"><div class="k">'+k+'</div><div class="v">'+v+(u?'<small>'+u+'</small>':'')+'</div><div class="s">'+(s||'&nbsp;')+'</div></div>';
+  $('tiles').innerHTML=
+    tile('Cycle time',fmt(R.cycle,1),'s',fmt(I.cav)+' cavit'+(I.cav>1?'ies':'y')+', '+fmt(R.mass*1000,0)+' g shot')+
+    tile('Output (parts / hour)',fmt(R.parts,0),'',fmt(R.kgh,1)+' kg/h')+
+    tile('SEC, machine only (kWh / kg)',fmt(R.sec,3),'',DRV[I.drive].name)+
+    tile('Clamp force needed',fmt(R.needT,0),'t','of '+fmt(I.clamp,0)+' t · '+fmt(R.clampUtil*100,0)+'%')+
+    tile('Average power draw',fmt(R.avgKW,1),'kW',fmt(R.totKJ/3.6,0)+' Wh per cycle')+
+    tile('Energy cost per year','₹'+fmt(R.cost,0),'',fmt(I.hours,0)+' h at ₹'+fmt(I.tariff,1)+'/kWh');
+  $('chkSum').innerHTML=(R.nRisk?'<span class="pill risk">'+R.nRisk+' risk'+(R.nRisk>1?'s':'')+'</span>':'')+(R.nWatch?'<span class="pill warn">'+R.nWatch+' to watch</span>':'')+
+    '<span class="pill ok">'+R.checks.filter(c=>c.s===0).length+' OK</span>';
+  const order=R.checks.slice().sort((a,b)=>b.s-a.s);
+  $('checks').innerHTML=order.map(c=>'<li><span>'+statusPill(c.s)+'</span><div><b>'+c.t+'</b><div class="d">'+c.d+(c.fix?' <em>'+c.fix+'</em>':'')+'</div></div></li>').join('');
+  // gantt
+  $('lane').innerHTML=R.phases.map(p=>{const w=p.t/R.cycle*100;return '<div style="width:'+w+'%;background:'+p.col+'" title="'+p.name+' '+fmt(p.t,2)+' s">'+(w>7?fmt(p.t,1)+' s':'')+'</div>'}).join('');
+  const pk=R.phases.find(p=>p.k==='cool');
+  $('lane2').innerHTML='<div style="left:'+pk.t0/R.cycle*100+'%;width:'+Math.min(R.tRec,pk.t)/R.cycle*100+'%" title="Screw recovery '+fmt(R.tRec,2)+' s">'+(R.tRec/R.cycle>.08?'recovery '+fmt(R.tRec,1)+' s':'')+'</div>';
+  const note={close:'Opening stroke ÷ clamp speed, plus ramps and mould protection',nozF:'Only with sprue break: 0.6 s',inject:'Shot volume ÷ (screw area × speed), speed limited by pump power',
+    hold:'Your hold time, at hold pressure',cool:'Longer of set cooling and screw recovery; recovery runs inside cooling',nozB:'Only with sprue break: 0.6 s',open:'Opening stroke ÷ clamp speed, plus ramp',eject:'2 × ejector stroke ÷ 300 mm/s + 0.3 s'};
+  const rows=R.phases.map(p=>'<tr><td><span class="sw" style="background:'+p.col+'"></span>'+p.name+'</td><td class="n">'+fmt(p.t,2)+'</td><td class="n">'+fmt(p.t/R.cycle*100,0)+'%</td><td class="n">'+fmt(p.kJ/3.6,1)+'</td><td class="basis">'+note[p.k]+'</td></tr>').join('');
+  $('phTbl').innerHTML='<thead><tr><th>Phase</th><th class="n">Time (s)</th><th class="n">Share</th><th class="n">Energy (Wh)</th><th>How it is calculated</th></tr></thead><tbody>'+rows+
+    '<tr><td><span class="sw" style="background:var(--hot)"></span>Barrel heating</td><td class="n">–</td><td class="n">–</td><td class="n">'+fmt(R.heatKJ/3.6,1)+'</td><td class="basis">Melt enthalpy (70% from bands, 30% from screw shear) plus barrel losses; not a time slice</td></tr>'+
+    '<tr class="tot"><td>Cycle total</td><td class="n">'+fmt(R.cycle,2)+'</td><td class="n">100%</td><td class="n">'+fmt(R.totKJ/3.6,1)+'</td><td></td></tr></tbody>';
+  const kv=[['Required cooling, fill to eject',fmt(R.tCalc,1)+' s'],['Gate freeze time',fmt(R.tGate,1)+' s'],['Set cooling after hold',fmt(R.cool,1)+' s'+(I.auto?' (auto)':'')],
+    ['Fill time',fmt(R.fillT,2)+' s'],['Screw recovery time',fmt(R.tRec,1)+' s'],['Injection speed delivered',fmt(R.v,0)+' mm/s'],
+    ['Shot volume',fmt(R.shotVol,0)+' cm³'],['Barrel capacity',fmt(R.cap,0)+' cm³'],['Shot utilisation',fmt(R.util*100,0)+'%'],
+    ['Fill pressure needed',fmt(R.pReq,0)+' bar'],['Cavity pressure',fmt(R.pCav,0)+' bar'],['Injection work',fmt(R.injWork,1)+' kJ'],
+    ['Melt residence in barrel',fmt(R.resid,0)+' s'],['Screw surface speed',fmt(R.surfV,2)+' m/s'],['Plasticising rate',fmt(R.qPl,0)+' cm³/s']];
+  $('kv').innerHTML=kv.map(r=>'<div><dt>'+r[0]+'</dt><dd>'+r[1]+'</dd></div>').join('');
+  if(animT>R.cycle)animT=0;
+  draw(animT);
+  renderCompare();save();
+}
+
+/* ---------- scenarios ---------- */
+const KEY='imm-cycle-sim-v1';
+let scen=[];
+function seed(){
+  const base=readInputs();
+  const a=Object.assign({},base,{drive:'conv'}),b=Object.assign({},base,{drive:'elec'});
+  return [{name:'Example: conventional',inp:a},{name:'Example: all-electric',inp:b}];
+}
+function store(){try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){return null}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify({inp:Object.assign({},I,{preset:$('preset').value}),scen:scen}))}catch(e){}}
+function renderCompare(){
+  const w=$('cmpWrap');
+  if(!scen.length){w.innerHTML='<div class="empty">No scenarios yet. Adjust the settings and choose Save current settings to compare them here.</div>';return}
+  const res=scen.map(s=>({s,r:sim(s.inp)}));
+  const base=res[0].r;
+  const delta=(v,b,lower,d,unit)=>{if(res[0].r===base&&v===b)return '';const df=v-b;if(Math.abs(df)<Math.pow(10,-d)/2)return '<small class="flat">same</small>';
+    const pct=b?df/b*100:0;const good=lower?df<0:df>0;return '<small class="'+(good?'good':'bad')+'">'+(df>0?'+':'')+fmt(df,d)+(unit||'')+' ('+(pct>0?'+':'')+fmt(pct,0)+'%)</small>'};
+  const row=(label,fn)=>'<tr><th scope="row">'+label+'</th>'+res.map((x,k)=>'<td class="n">'+fn(x.r,x.s,k)+'</td>').join('')+'</tr>';
+  const rowT=(label,fn)=>'<tr><th scope="row">'+label+'</th>'+res.map((x)=>'<td>'+fn(x.r,x.s)+'</td>').join('')+'</tr>';
+  w.innerHTML='<table class="cmp"><thead><tr><th></th>'+res.map((x,k)=>'<th class="sc"><span class="tag">'+(k===0?'BASELINE':'SCENARIO '+(k+1))+'</span><span class="nm">'+esc(x.s.name)+'</span><span class="act"><button type="button" data-load="'+k+'">Load</button><button type="button" data-del="'+k+'">Remove</button></span></th>').join('')+'</tr></thead><tbody>'+
+    rowT('Drive',(r,s)=>DRV[s.inp.drive].name)+rowT('Material, wall',(r,s)=>s.inp.mat+', '+fmt(s.inp.wall,1)+' mm')+
+    rowT('Machine',(r,s)=>fmt(s.inp.clamp,0)+' t, Ø'+fmt(s.inp.D,0)+' mm')+
+    row('Cycle time (s)',(r,s,k)=>fmt(r.cycle,1)+(k?delta(r.cycle,base.cycle,true,1,' s'):''))+
+    row('Output (parts / h)',(r,s,k)=>fmt(r.parts,0)+(k?delta(r.parts,base.parts,false,0):''))+
+    row('SEC (kWh / kg)',(r,s,k)=>fmt(r.sec,3)+(k?delta(r.sec,base.sec,true,3):''))+
+    row('Average power (kW)',(r,s,k)=>fmt(r.avgKW,1)+(k?delta(r.avgKW,base.avgKW,true,1,' kW'):''))+
+    row('Clamp needed (t)',(r,s,k)=>fmt(r.needT,0)+(k?delta(r.needT,base.needT,true,0):''))+
+    row('Energy cost / year (₹)',(r,s,k)=>fmt(r.cost,0)+(k?delta(r.cost,base.cost,true,0):''))+
+    rowT('Defect checks',(r)=>(r.nRisk?'<span class="pill risk">'+r.nRisk+' risk</span> ':'')+(r.nWatch?'<span class="pill warn">'+r.nWatch+' watch</span> ':'')+(!r.nRisk&&!r.nWatch?'<span class="pill ok">All OK</span>':''))+
+    '</tbody></table>';
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+$('cmpWrap').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.load!==undefined){writeInputs(Object.assign({preset:'custom'},scen[+b.dataset.load].inp));render();$('cmpMsg').textContent='Loaded "'+scen[+b.dataset.load].name+'" into the settings.'}
+  if(b.dataset.del!==undefined){scen.splice(+b.dataset.del,1);$('cmpMsg').textContent='Scenario removed.';renderCompare();save()}
+});
+$('bSave').addEventListener('click',()=>{
+  if(scen.length>=5){$('cmpMsg').textContent='Five scenarios is the limit. Remove one first.';return}
+  const nm=$('scName').value.trim()||('Scenario '+(scen.length+1));
+  scen.push({name:nm,inp:Object.assign({},readInputs())});$('scName').value='';
+  $('cmpMsg').textContent='Saved "'+nm+'".';renderCompare();save();
+});
+
+/* ---------- wiring ---------- */
+let animT=0,playing=true,scrubbing=false,last=0;
+document.querySelectorAll('#sInp input,#sInp select').forEach(el=>{
+  el.addEventListener('input',()=>{
+    if(el.id==='preset'){if(el.value!=='custom')applyPreset(+el.value)}
+    else if(SPECIDS.indexOf(el.id)>=0)$('preset').value='custom';
+    render();
+  });
+  el.addEventListener('change',()=>{
+    if(el.id==='mat'){const m=MAT[el.value];$('Tm').value=m.Tmid;$('Tw').value=Math.round((m.mould[0]+m.mould[1])/2);render()}
+  });
+});
+$('bPlay').addEventListener('click',()=>{playing=!playing;$('bPlay').textContent=playing?'Pause':'Play'});
+$('scrub').addEventListener('input',e=>{scrubbing=true;animT=e.target.value/1000*R.cycle;draw(animT)});
+['change','pointerup','keyup','blur'].forEach(ev=>$('scrub').addEventListener(ev,()=>{scrubbing=false}));
+function tick(ts){
+  const dt=Math.min((ts-last)/1000,0.1);last=ts;
+  if(playing&&!scrubbing&&R){animT+=dt*parseFloat($('pbs').value);if(animT>=R.cycle)animT-=R.cycle;draw(animT)}
+  requestAnimationFrame(tick);
+}
+const saved=store();
+if(saved&&saved.inp){try{writeInputs(saved.inp)}catch(e){}}
+scen=(saved&&Array.isArray(saved.scen)&&saved.scen.length)?saved.scen.filter(s=>s&&s.inp&&MAT[s.inp.mat]&&DRV[s.inp.drive]).slice(0,5):[];
+if(!(saved&&Array.isArray(saved.scen)))scen=seed();
+if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches){playing=false;$('bPlay').textContent='Play'}
+render();
+if(!playing){animT=0;}
+else {
+  // open the first frame mid-cycle so the still image shows the screw and mould working
+  animT=R.phases.find(p=>p.k==='inject').t0+R.fillT*0.6;draw(animT);
+}
+requestAnimationFrame(tick);
+})();
+</script>

@@ -1,0 +1,13 @@
+{
+    "autodeskProduct": "Fusion",
+    "type": "script",
+    "id": "c80a0796-2457-4a5f-96cd-0a2ee00e0c05",
+    "author": "Muthumanigandan",
+    "description": {
+        "": "Injection moulding machine 3D cycle, energy/SEC, defect and maintenance simulator"
+    },
+    "version": "3.0.0",
+    "runOnStartup": false,
+    "supportedOS": "windows|mac",
+    "editEnabled": true
+}
