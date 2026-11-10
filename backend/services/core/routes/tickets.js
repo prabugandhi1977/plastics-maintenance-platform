@@ -9,6 +9,7 @@ import { coverageFor, responseTarget } from './contracts.js';
 import { HttpError, bad, choice, date, deny, integer, missing, required } from '../../../common/validate.js';
 import { MACHINE_STATES, codes } from '../../../common/catalog.js';
 import { resolveScan, scanFor, scanPolicy } from '../../../common/scan.js';
+import { gapsFor } from '../../training/competency.js';
 import { notifyTicketAssigned, notifyTicketCompleted } from '../../../common/whatsapp.js';
 import { ticketStock } from '../stock.js';
 
@@ -48,10 +49,12 @@ export async function ticketDetail(u,key) {
 export async function candidatesFor(t) {
   const plant=await byId('plants',t.plant_id), asset=await byId('equipment',t.equipment_id);
   const load=await all("SELECT assigned_user_id u,assigned_provider_id p,count(*) n FROM tickets WHERE status NOT IN ('open','completed') GROUP BY 1,2");
+  // Training the machine type requires: missing or expired training stops an engineer where the requirement blocks, and is a warning where it only flags.
+  const engineers=await all("SELECT id,name,active,service_areas,skills FROM users WHERE role='engineer'"), gaps=await gapsFor(engineers.map(e=>e.id),asset.machine_type);
   const reasons=(ok,okLabel,areas,skills)=>[...(ok?[]:[okLabel]),...(JSON.parse(areas).includes(plant.service_area)?[]:[`does not cover ${plant.service_area}`]),...(JSON.parse(skills).includes(asset.machine_type)?[]:[`no ${asset.machine_type} skill`])];
   return [
-    ...(await all("SELECT id,name,active,service_areas,skills FROM users WHERE role='engineer'")).map(e=>({type:'engineer',id:e.id,name:e.name,openWork:load.filter(x=>x.u===e.id).reduce((n,x)=>n+x.n,0),reasons:reasons(e.active,'inactive',e.service_areas,e.skills)})),
-    ...(await all('SELECT id,name,approved,service_areas,skills FROM providers')).map(p=>({type:'provider',id:p.id,name:p.name,openWork:load.filter(x=>x.p===p.id).reduce((n,x)=>n+x.n,0),reasons:reasons(p.approved,'not approved',p.service_areas,p.skills)}))
+    ...engineers.map(e=>({type:'engineer',id:e.id,name:e.name,openWork:load.filter(x=>x.u===e.id).reduce((n,x)=>n+x.n,0),reasons:[...reasons(e.active,'inactive',e.service_areas,e.skills),...gaps.get(e.id).blocking],warnings:gaps.get(e.id).warnings})),
+    ...(await all('SELECT id,name,approved,service_areas,skills FROM providers')).map(p=>({type:'provider',id:p.id,name:p.name,openWork:load.filter(x=>x.p===p.id).reduce((n,x)=>n+x.n,0),reasons:reasons(p.approved,'not approved',p.service_areas,p.skills),warnings:[]}))
   ].map(c=>({...c,eligible:!c.reasons.length})).sort((a,b)=>b.eligible-a.eligible||a.openWork-b.openWork||a.name.localeCompare(b.name));
 }
 
@@ -145,9 +148,10 @@ export function register(r) {
     if (!target) bad(`Unknown ${type}`);
     if (!target.eligible) bad(`${type==='engineer'?'Engineer':'Provider'} is not eligible: ${target.reasons.join(', ')}`);
     await run('UPDATE tickets SET assigned_user_id=?,assigned_provider_id=?,status=? WHERE id=?',type==='engineer'?target.id:null,type==='provider'?target.id:null,'assigned',t.id);
-    await ticketEvent(t.id,u,'assigned',`Assigned to ${target.name}`); await audit(u,'ticket.assign','ticket',t.id,t.company_id,{assigneeType:type,assigneeId:target.id});
+    const warn=target.warnings||[];
+    await ticketEvent(t.id,u,'assigned',`Assigned to ${target.name}${warn.length?`. Training warning: ${warn.join('; ')}`:''}`); await audit(u,'ticket.assign','ticket',t.id,t.company_id,{assigneeType:type,assigneeId:target.id,...(warn.length?{trainingWarnings:warn}:{})});
     await notifyTicketAssigned(t.id);
-    return await ticketDetail(u,t.id);
+    return warn.length?{...await ticketDetail(u,t.id),warnings:warn}:await ticketDetail(u,t.id);
   });
   r.post('/tickets/:id/status',async ({u,body,params})=>await serviceAction(u,await getTicket(u,params.id),body),{offline:true});
   r.post('/tickets/:id/checklist',async ({u,body,params})=>{

@@ -10,7 +10,7 @@ import { createAdapter } from '../adapters/index.js';
 import { HttpError, bad, choice, deny, instant, integer, missing, required } from '../../../common/validate.js';
 
 const canManageDevices=(u,companyId)=>isDispatch(u)||(u.role==='customer_admin'&&u.company_id===companyId);
-function requireIntegrationKey(req) {
+export function requireIntegrationKey(req) {
   const expected=process.env.MOULDCARE_INTEGRATION_KEY, actual=req.headers['x-integration-key'];
   if (!expected || typeof actual!=='string' || Buffer.byteLength(expected)!==Buffer.byteLength(actual) || !timingSafeEqual(Buffer.from(expected),Buffer.from(actual))) throw new HttpError(401,'Integration key required');
 }
