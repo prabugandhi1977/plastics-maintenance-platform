@@ -28,11 +28,16 @@ X-Integration-Key: <MOULDCARE_INTEGRATION_KEY>
 - The answer lists one outcome per entry, so one bad row never holds back the others. Sending a completion again is harmless.
 - The integration key is the server-wide one, the same as for machine data. Keep it secret and send the call from the LMS's server side only.
 
-There is no screen for this yet. Requirements and manual records are made through the API (see `API.md`). Until the screens exist, a dispatcher can check standing with `GET /competencies/matrix`.
+## Screens
+
+**Administration → Training & competencies** (platform administrators, dispatchers, service provider staff and engineers):
+
+- **Standing:** who holds each training, as valid, expiring (within 30 days), expired or missing, with a filter by machine type. Dispatchers see every technician, a provider administrator sees their own engineers, and an engineer or provider engineer sees themselves.
+- **Requirements:** the list of requirements, how to connect the learning system, and (for the platform administrator and dispatchers) **Add requirement**, **Edit** and **Record completion**.
+- **Assigning a ticket:** the assign dialog lists a training warning for any engineer who can still be assigned, and lists the training that makes an engineer ineligible under "Not eligible". The warning is also written to the ticket's history.
 
 ## Not built yet
 
-- Screens for requirements, the standing matrix and the assignment warning.
 - Alerts before a certificate expires.
 - Checking providers by their engineers' training.
 - Courses linked from a ticket or checklist.

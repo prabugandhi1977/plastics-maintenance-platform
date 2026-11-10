@@ -642,6 +642,24 @@ Requirements say which training a technician needs before taking work on a machi
 
 Assignment: `GET /tickets/:id/candidates` adds `warnings` to each candidate, and training that blocks is listed in `reasons` (so `eligible` is false). `POST /tickets/:id/assign` answers 400 for a blocked engineer, and for a warned one it succeeds with `warnings` in the reply, in the ticket's history and in the audit log.
 
+## Work procedures
+
+Step-by-step procedures for work orders, with the execution data they produce. See [docs/PROCEDURES.md](docs/PROCEDURES.md).
+
+| Route | Who | What |
+| --- | --- | --- |
+| `GET /procedures?machineType=&status=` | dispatch, engineers, provider staff | The procedures (all versions), each with `stepCount`. |
+| `POST /procedures` | platform admin, dispatcher | `{code, title, machineTypes:[...], autoAttach?, steps:[...]}`. A step is `{title, instruction?, safety?, spec?, parts?:[{partNumber,quantity}], measurement?:{name,unit?,min?,max?}, requiresPhoto?, mandatory? (default true), expectedMinutes?}`. A code that exists gets its next version as a new draft. |
+| `GET /procedures/:id` | as above | One procedure with its steps. |
+| `PATCH /procedures/:id` | dispatch | A draft only: `title`, `machineTypes`, `autoAttach`, `steps` (replaces them all). |
+| `POST /procedures/:id/publish` | dispatch | Makes a draft active (it needs steps and machine types) and retires the previous active version of the code. |
+| `POST /procedures/:id/retire` | dispatch | Retires an active version. |
+| `POST /tickets/:id/procedures` | the assigned engineer or provider, dispatch | `{procedureId}`: attaches a published procedure for the machine's type. The steps are copied. Attaching the same code twice returns the existing run (200, not 201). |
+| `PATCH` or `POST /procedure-steps/:id` | as above | `{status:'done'|'skipped'|'pending', measurementValue?, photoId?, note?, deviation?}`. Returns the run. The ticket must be accepted, in progress or escalated. |
+| `GET /procedures/by-code/:code/analytics?version=` | dispatch | Per step: runs, done, skipped, out of range, deviations, rates, and the average minutes from the previous step against the expected minutes. |
+
+Tickets: `GET /tickets/:id` now includes `procedures` (each run with its steps and what was recorded). Accepting a job attaches the active procedures that are marked `autoAttach` for the machine's type. A ticket cannot be completed while a mandatory step of an attached procedure is still pending (400 with the steps listed).
+
 ## IoT integration interface
 
 Machine data enters through one pipeline, whichever way it arrives:
