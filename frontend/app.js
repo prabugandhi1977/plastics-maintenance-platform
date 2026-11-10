@@ -10,6 +10,7 @@ import { createOps } from './ops.js';
 import { createTrace } from './trace.js';
 import { createStock } from './stock.js';
 import { createTraining } from './training.js';
+import { createProcedures } from './procedures.js';
 import { createAndon } from './andon-desk.js';
 import { createAuditDesk } from './audit-desk.js';
 import { openHelp, helpLabel } from './help.js';
@@ -491,6 +492,7 @@ function ticketDetail(){
     ${tk.status==='completed'?`<div class="panel"><h2>${_t('ws.closeOutIso14224')}</h2>${kv([[_t('ws.failureMode'),esc(tk.failure_mode?humanise(tk.failure_mode):'— not recorded —')],[_t('ws.rootCause'),esc(tk.root_cause?humanise(tk.root_cause):'— not recorded —')],[_t('ws.actionTaken'),esc(tk.action_taken?humanise(tk.action_taken):'— not recorded —')],[_t('ws.completed'),when(tk.completed_at,zone)],[_t('ws.closed'),viaText(tk.closed_via,tk.closed_scan_at)]])}</div>`:''}
     ${tk.scan_override_reason?`<div class="notice warn" role="status">${_t('ws.scanOverride',{value:esc(tk.scan_override_reason).replaceAll('\n','<br>')})}</div>`:''}
     <div class="panel"><h2>${t('section.checklist')}</h2>${tk.checklist.length?`<p class="muted">${_t('ws.ofDone',{length:tk.checklist.filter(c=>c.done).length,length2:tk.checklist.length})}</p>${tk.checklist.map(c=>`<div class="check ${c.done?'done':''}"><span>${c.done?'☑':'☐'} ${esc(c.item)} <span class="muted">${esc(c.note)}</span></span>${fieldWorker()&&tk.status!=='completed'?btn(c.done?t('action.undo'):t('action.done'),c.done?'undo':'done','secondary small',c.id):''}</div>`).join('')}`:`<p class="muted">${_t('ws.theStandardChecklistForThis')}</p>`}</div>
+    ${procedures.panel(tk,zone)}
     <div class="panel"><h2>${t('section.work')}</h2>${tk.workLogs.length?tk.workLogs.map(w=>`<p>${esc(w.description)} <span class="muted">${formatDuration(w.minutes)} · ${esc(w.user_name)}${w.parts_used?' · '+esc(w.parts_used):''}</span></p>`).join(''):`<p class="muted">${t('msg.noRecords')}</p>`}${tk.parts.length?`<h3>${t('nav.parts')}</h3>${tk.parts.map(p=>`<p>${esc(p.item)} <span class="muted">${esc(p.part_number)}</span> × ${p.quantity} ${esc(p.unit||'')} ${pill('status',p.status)}</p>`).join('')}`:''}${stock.ticketPanel(tk)}</div>
     <div class="panel"><h2>${t('section.evidence')}</h2>${files(tk.attachments)||`<p class="muted">${t('msg.noRecords')}</p>`}<p>${signoff}</p></div></div>
   <div><div class="panel"><h2>${_t('ws.responseAndCoverage')}</h2>${target}${cov}</div><div class="panel"><h2>${t('section.activity')}</h2>${tk.events.map(e=>`<p class="mini">${pill('status',e.event_type)} · ${esc(e.actor_name)}<br>${when(e.created_at,zone)}<br>${esc(e.detail)}</p>`).join('')}</div></div></div>`;
@@ -719,6 +721,7 @@ async function action(name,id){
   if(vision.ACTIONS.includes(name))return vision.action(name,id);
   if(stock.ACTIONS.includes(name))return stock.action(name,id);
   if(training.ACTIONS.includes(name))return training.action(name,id);
+  if(procedures.ACTIONS.includes(name))return procedures.action(name,id);
   if(name==='ticket'||name==='equipment')return loadDetail(name,id).then(v=>{state.detail={type:name,value:v};render();window.scrollTo(0,0)}).catch(fail);
   if(name==='done'||name==='undo')return api('/checklist/'+id,'PATCH',{done:name==='done'}).then(()=>refresh()).catch(fail);
   if(name==='visitDone')return save('/visits/'+id,'PATCH',{status:'completed'},_t('ws.visitCompleted')).catch(fail);
@@ -806,6 +809,7 @@ const trace=createTrace({state,api,render,fail,when,header,factoryManager,admin:
 const vision=createVision({state,api,render,fail,when,header,is,customer:()=>customer(),admin:()=>admin(),raiseTicket:(equipmentId,prefill)=>ticketForm(equipmentId,null,prefill)});
 const stock=createStock({state,api,render,fail,when,assetName,header,is,refresh,importDialog});
 const training=createTraining({state,api,render,fail,header,is,refresh});
+const procedures=createProcedures({state,api,fail,refresh,fieldWorker,when,fileBase64});
 const audits=createAuditDesk({state,api,render,fail,header,is});
 const andon=createAndon({state,api,render,fail,when,header,RANGES,factoryManager,admin,action});
 const ops=createOps({state,api,save,render,fail,when,assetName,header,RANGES,pctText,since,factoryManager,admin,is,customer,t,refresh,action});

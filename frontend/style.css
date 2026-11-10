@@ -350,3 +350,11 @@ html.dark .btn-link.secondary{background:#23393f;color:#d6e8e9}
 .timer{font-variant-numeric:tabular-nums;font-size:16px} tr.row-alert .timer{color:var(--bad)}
 .station-code{font-size:15px;letter-spacing:.08em;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
 html.dark .fp .notice.danger{background:#3f2320;color:#f0b4ab}
+
+/* Procedures on a ticket: step-by-step view */
+.proc-run{margin:0 0 18px} .proc-run h3{margin:0}
+.proc-step{border:1px solid var(--line);border-left:4px solid var(--line-2);border-radius:8px;padding:12px 14px;margin:10px 0;background:var(--surface)}
+.proc-step.done{border-left-color:var(--good)} .proc-step.skipped{border-left-color:var(--muted);opacity:.85}
+.proc-step p{margin:6px 0} .proc-safety{margin:8px 0}
+.proc-record{border-top:1px dashed var(--line);margin-top:8px;padding-top:6px} .proc-record p{margin:3px 0}
+.proc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}

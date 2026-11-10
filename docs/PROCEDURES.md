@@ -24,8 +24,19 @@ The ticket shows each run with who did each step, the values, the photos, the de
 
 `GET /procedures/by-code/:code/analytics` shows per step how often it was done, skipped, out of range or noted with a deviation, and its average time against the expected time. Steps with a high deviation or out-of-range rate, or that always run over the expected time, are where the procedure or the training needs attention. Step times are from the previous step, so a break between steps counts.
 
+## The technician's view
+
+On a ticket's page a **Procedures** panel shows each attached procedure with its steps. **Add procedure** (for the assigned engineer or provider, and dispatch) lists the published procedures for the machine's type. For each step the panel shows the safety callout, instruction, specification, parts, the measurement and limits expected, and the expected time. Once the job is accepted:
+
+- **Record** opens the step: enter the measured value, add the photo if one is required, and add a note or a deviation. A value outside the limits is refused until a deviation note is written.
+- **Skip** (only for steps that are not mandatory) asks why.
+- **Undo** reopens a step and clears what was recorded.
+
+Under each step the panel shows what was recorded: the value and whether it was in range, the photo, the note, the deviation, who did it, when, and how long it took. Customers and dispatchers who can see the ticket see the same record. The panel shows how many required steps are done.
+
 ## Not built yet
 
-- Screens: a procedure editor and the step-by-step view for technicians. Until then everything is through the API (see `API.md`).
-- The field app (offline) does not show procedures yet. The step route accepts offline replay like the other field actions, but the app does not call it.
-- Procedures are the same for every customer. Procedures per company, links from a procedure to the training it needs, and linking a step's parts to stock are not done.
+- A procedure editor. Procedures are written through the API (see `API.md`).
+- The offline field app does not show procedures. The web workspace needs a connection to record a step.
+- German texts and a help-page entry.
+- Procedures per company, linking a procedure to the training it needs, and linking a step's parts to stock.
