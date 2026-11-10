@@ -24,6 +24,16 @@ The ticket shows each run with who did each step, the values, the photos, the de
 
 `GET /procedures/by-code/:code/analytics` shows per step how often it was done, skipped, out of range or noted with a deviation, and its average time against the expected time. Steps with a high deviation or out-of-range rate, or that always run over the expected time, are where the procedure or the training needs attention. Step times are from the previous step, so a break between steps counts.
 
+## Writing procedures: Administration → Procedures
+
+Platform administrators and dispatchers write procedures on this page (engineers and customers do not see it).
+
+- **The list** shows every version of every procedure with its machine types, number of steps, whether it is auto-attached, and its state (draft, published or retired). From a row: **Edit** (a draft) or **Open** (a published or retired version, read-only), **Publish**, **Retire**, **New version** and **Analytics**.
+- **New procedure** opens the editor: a code (stable and short, for example `IMM-TIEBAR`), a title, the machine types it is for, and whether it is attached automatically when a technician accepts a job on one of those machine types. Then the steps. Each step has what to do, an optional instruction, safety callout, specification and expected time, parts (one per line: part number, then quantity), an optional measurement (name, unit, lower and upper limit), whether a photo is required, and whether the step is mandatory. Steps can be moved up and down and removed.
+- **Save draft** keeps your work. **Save and publish** makes it active; it needs at least one step and at least one machine type. Publishing replaces (retires) the previously published version of the same code. Work orders that already use the old version keep it.
+- **A published version cannot be changed.** **New version** copies its steps into a new draft (version 2, 3, …) to edit and publish.
+- **Analytics** shows, per step and version, how many runs there were, how often the step was done, skipped, out of range or noted with a deviation, and the average time against the expected time.
+
 ## The technician's view
 
 On a ticket's page a **Procedures** panel shows each attached procedure with its steps. **Add procedure** (for the assigned engineer or provider, and dispatch) lists the published procedures for the machine's type. For each step the panel shows the safety callout, instruction, specification, parts, the measurement and limits expected, and the expected time. Once the job is accepted:
@@ -36,7 +46,6 @@ Under each step the panel shows what was recorded: the value and whether it was 
 
 ## Not built yet
 
-- A procedure editor. Procedures are written through the API (see `API.md`).
 - The offline field app does not show procedures. The web workspace needs a connection to record a step.
 - German texts and a help-page entry.
 - Procedures per company, linking a procedure to the training it needs, and linking a step's parts to stock.

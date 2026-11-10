@@ -358,3 +358,6 @@ html.dark .fp .notice.danger{background:#3f2320;color:#f0b4ab}
 .proc-step p{margin:6px 0} .proc-safety{margin:8px 0}
 .proc-record{border-top:1px dashed var(--line);margin-top:8px;padding-top:6px} .proc-record p{margin:3px 0}
 .proc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+
+/* Procedure editor */
+.pe-step{margin:14px 0} .pe-tools{display:flex;gap:6px}
