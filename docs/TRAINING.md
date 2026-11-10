@@ -1,0 +1,38 @@
+# Training and competencies
+
+MouldCare does not run courses. A learning management system (LMS) owns the courses, and MouldCare keeps the result that matters for maintenance work: who has completed which training, until when, and what that means when a ticket is assigned.
+
+## The rules
+
+- A **requirement** (competency) has a code, a name, the machine types it applies to, an optional validity in months, and an enforcement of **flag** or **block**. The code is what the LMS sends as the course code.
+- A completion counts until its expiry: the LMS's own `expiresAt` if it sends one, otherwise the completion date plus the requirement's validity. No validity and no `expiresAt` means it never expires. A newer completion replaces an older one.
+- When a ticket is assigned to an **in-house engineer**, the requirements for the machine's type are checked:
+  - **Missing or expired, enforcement block:** the engineer is not eligible, and the reason is shown (for example "Hydraulic safety expired on 2026-03-01"). The server refuses the assignment.
+  - **Missing or expired, enforcement flag:** the engineer can be assigned, with a warning.
+  - **Expiring within 30 days:** a warning, whatever the enforcement.
+  - Warnings are shown to the dispatcher, written into the ticket's history and the audit log, and returned by the assign call.
+- Service providers are assigned as a whole and are not checked yet. Their engineers' completions are recorded and visible to the provider administrator.
+
+## Connect an LMS
+
+Any LMS that can call a web address when a learner completes a course will do, directly, through its automation features, or through a tool such as Zapier or Make. The call is:
+
+```
+POST https://<your service>/api/integrations/lms/completions
+X-Integration-Key: <MOULDCARE_INTEGRATION_KEY>
+{"completions":[{"email":"alex@example.com","courseCode":"HYD-SAFE","completedAt":"2026-11-10T09:30:00Z","passed":true,"externalId":"lms-attempt-81234"}]}
+```
+
+- `email` matches an active engineer or provider engineer in MouldCare. Create the people in both places with the same email.
+- `courseCode` must exist as a requirement. Create it first (`POST /competencies`).
+- The answer lists one outcome per entry, so one bad row never holds back the others. Sending a completion again is harmless.
+- The integration key is the server-wide one, the same as for machine data. Keep it secret and send the call from the LMS's server side only.
+
+There is no screen for this yet. Requirements and manual records are made through the API (see `API.md`). Until the screens exist, a dispatcher can check standing with `GET /competencies/matrix`.
+
+## Not built yet
+
+- Screens for requirements, the standing matrix and the assignment warning.
+- Alerts before a certificate expires.
+- Checking providers by their engineers' training.
+- Courses linked from a ticket or checklist.

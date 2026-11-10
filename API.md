@@ -627,6 +627,21 @@ A mould is equipment of type `mould`. A scope is the mould plus `equipmentId` (m
 | `GET` | `/moulds/:id/process-advice?equipmentId&productId` | Last 20 advice records |
 | `POST` | `/process-advice/:id/outcome` | `{outcome: helped\|did_not_help\|not_tried, note?}`; the asker or a manager |
 
+## Training and competencies
+
+Requirements say which training a technician needs before taking work on a machine type. Completions come from a learning management system (LMS) or are recorded by hand. Assignment uses them: see [docs/TRAINING.md](docs/TRAINING.md) for the rules and how to connect an LMS.
+
+| Route | Who | What |
+| --- | --- | --- |
+| `GET /competencies` | dispatch, provider staff, engineers | The requirements. |
+| `POST /competencies` | platform admin, dispatcher | `{code, name, machineTypes:[...], validityMonths|null, enforcement:'flag'|'block', active?}`. `code` is stored in capitals and is what the LMS sends as `courseCode`. |
+| `PATCH /competencies/:id` | platform admin, dispatcher | Any of the same fields. |
+| `GET /competencies/matrix?machineType=` | dispatch (everyone), provider admin (own engineers), engineer or provider engineer (self) | `{competencies, people:[{userId, name, email, role, providerId, standing:{CODE:{status, completedAt, expiresAt, source}}}]}`. `status` is `valid`, `expiring` (within 30 days), `expired` or `missing`. |
+| `POST /competencies/records` | platform admin, dispatcher | A completion by hand: `{userId, code, completedAt, expiresAt?, note?}`. The same completion twice answers 400. |
+| `POST /integrations/lms/completions` | the LMS, with `X-Integration-Key: <MOULDCARE_INTEGRATION_KEY>` | `{completions:[{email, courseCode, completedAt, passed?, score?, expiresAt?, externalId?}]}`, 1 to 200. Always 200 with one outcome per entry: `recorded`, `duplicate`, `not_passed`, `unknown_user`, `unknown_course` or `rejected` (with `reason`). Sending the same completion again changes nothing. |
+
+Assignment: `GET /tickets/:id/candidates` adds `warnings` to each candidate, and training that blocks is listed in `reasons` (so `eligible` is false). `POST /tickets/:id/assign` answers 400 for a blocked engineer, and for a warned one it succeeds with `warnings` in the reply, in the ticket's history and in the audit log.
+
 ## IoT integration interface
 
 Machine data enters through one pipeline, whichever way it arrives:

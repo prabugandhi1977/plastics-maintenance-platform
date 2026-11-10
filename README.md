@@ -20,6 +20,10 @@ Security notes for the clients:
 - The field app keeps its token in session storage. Cached work and queued actions stay on the device until they are synced or the user signs out.
 - Use managed devices and HTTPS for field rollout.
 
+## Training and competencies
+
+MouldCare does not run courses: a learning management system (LMS) does, and sends each completion here. Requirements say which training an engineer needs for a machine type; a missing or expired certificate stops (block) or warns about (flag) an assignment, and an expiring one warns. See [docs/TRAINING.md](docs/TRAINING.md) and *Training and competencies* in `API.md`.
+
 ## Machine monitoring app (`monitor/`)
 
 A separate application (on Render it runs inside this service, at `/monitor`; see `docs/DEPLOY-RENDER.md`) for machine and condition monitoring with machine learning and an AI assistant: each machine's own learned normal, degrading trends with the time left before a limit, unusual signal patterns, explanations, ticket drafts, health reports and a chat about the machines. It has its own server (port 3300), database and sign-in, and its own Render service (`mouldcare-monitor` in `render.yaml`). See [monitor/README.md](monitor/README.md).

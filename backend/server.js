@@ -21,11 +21,12 @@ import { vision, checkNodes, pruneMedia } from './services/vision/index.js';
 import { assistant } from './services/assistant/index.js';
 import { energyAudit, rollupRaw } from './services/energy-audit/index.js';
 import { processFingerprint, scanFingerprints } from './services/process/index.js';
+import { competencies } from './services/training/index.js';
 import { sendQueuedWhatsapp } from './common/whatsapp.js';
 import { monitorProxy } from './common/monitor-proxy.js';
 
 export const router=createRouter();
-for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,processFingerprint,assistant,vision,energyAudit]) area.register(router);
+for (const area of [auth,org,equipment,iot,intake,contracts,tickets,parts,pm,stock,evidence,dashboard,settings,bulk,factory,factoryOps,operator,traceability,processFingerprint,competencies,assistant,vision,energyAudit]) area.register(router);
 
 const STATIC_HEADERS={'x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-frame-options':'DENY','permissions-policy':'camera=(self), geolocation=(), microphone=()',
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"};
