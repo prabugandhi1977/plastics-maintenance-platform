@@ -10,6 +10,7 @@ import { HttpError, bad, choice, date, deny, integer, missing, required } from '
 import { MACHINE_STATES, codes } from '../../../common/catalog.js';
 import { resolveScan, scanFor, scanPolicy } from '../../../common/scan.js';
 import { gapsFor } from '../../training/competency.js';
+import { autoAttach, openMandatory, runsOf } from '../../procedures/procedures.js';
 import { notifyTicketAssigned, notifyTicketCompleted } from '../../../common/whatsapp.js';
 import { ticketStock } from '../stock.js';
 
@@ -36,6 +37,7 @@ export async function ticketDetail(u,key) {
     coverage,...await responseTarget(t,coverage),
     events:await all('SELECT e.*,u.name actor_name FROM ticket_events e JOIN users u ON u.id=e.actor_id WHERE e.ticket_id=? ORDER BY e.created_at',key),
     checklist:await all('SELECT * FROM checklist_entries WHERE ticket_id=? ORDER BY seq',key),
+    procedures:await runsOf(key),
     workLogs:await all('SELECT w.*,u.name user_name FROM work_logs w JOIN users u ON u.id=w.user_id WHERE w.ticket_id=? ORDER BY w.created_at',key),
     parts:await all('SELECT * FROM parts_requests WHERE ticket_id=?',key),
     // Parts taken from stock for this job (issues less returns) and their cost; seen by everyone who can see the ticket.
@@ -81,6 +83,7 @@ async function serviceAction(u,t,body) {
   let closeLink=null, closeOut={failure_mode:t.failure_mode,root_cause:t.root_cause,action_taken:t.action_taken}, downtime=body.downtimeMinutes==null||body.downtimeMinutes===''?t.downtime_minutes:integer(Number(body.downtimeMinutes),'downtimeMinutes',0,525600);
   if (status==='completed') {
     if (!await one('SELECT 1 FROM work_logs WHERE ticket_id=?',t.id)) bad('A work log is required before completion');
+    const openSteps=await openMandatory(t.id); if (openSteps.length) bad(`Complete the procedure steps first: ${openSteps.slice(0,5).join('; ')}${openSteps.length>5?` and ${openSteps.length-5} more`:''}`);
     const gaps=[...(!body.failureMode?['failure mode']:[]),...(!body.rootCause?['root cause']:[]),...(!body.actionTaken?['action taken']:[])];
     if (gaps.length) bad(`To complete a breakdown, record the ${gaps.join(', ')}`);
     closeOut={failure_mode:choice(body.failureMode,'failureMode',await codes('failure_modes')),root_cause:choice(body.rootCause,'rootCause',await codes('root_causes')),action_taken:choice(body.actionTaken,'actionTaken',await codes('actions'))};
@@ -95,7 +98,7 @@ async function serviceAction(u,t,body) {
     await run('UPDATE tickets SET closed_via=?,closed_scan_at=?,scan_override_reason=? WHERE id=?',closeLink.via,['qr','rfid'].includes(closeLink.via)?stamp:null,reason,t.id);
     await ticketEvent(t.id,u,'scan',SCAN_LABEL[closeLink.via]?`Closed at the machine: ${SCAN_LABEL[closeLink.via]}`:closeLink.via==='override'?`Closed without a scan: ${closeLink.reason}`:'Closed without a scan (scan optional)',stamp);
   }
-  if (status==='accepted') await applyChecklistTemplate(u,t);
+  if (status==='accepted') { await applyChecklistTemplate(u,t); await autoAttach(u,t); }
   await ticketEvent(t.id,u,status,note(body),stamp); await audit(u,'ticket.status','ticket',t.id,t.company_id,{status});
   if (status==='completed') await notifyTicketCompleted(t.id,u.id);
   return await ticketDetail(u,t.id);
