@@ -197,7 +197,7 @@ The platform monitors production as well as maintaining machines:
 - **Shifts:** set under *Companies, plants & users → Plants → Edit shifts*.
 - **WhatsApp:** alerts and ticket updates on WhatsApp for people who opt in; see *WhatsApp notifications* below.
 
-Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
+Until real machines are connected, set `FACTORY_SIMULATOR=true` (local demos only) for realistic machine data. It covers camera results, safety-camera detections and tag sightings too. To test the whole chain the way real hardware would drive it (MQTT, OPC UA and Euromap 63 through a gateway, with faults and dirty data on demand), use the virtual plant in [simulator/](simulator/README.md). Real PLC, camera, wearable and BLE/RFID gateways send the same data to `POST /api/integrations/factory/events`; see *Smart factory* in `API.md`.
 
 An existing demo database gets the stage 3–4 demo data (zones, tagged assets, lots, batches, safety history) the next time `npm run seed` runs. A database without the stage 1 demo products is left unchanged.
 
@@ -323,6 +323,8 @@ Messages go through Meta's WhatsApp Business Cloud API. Messages a business star
 Until the three required settings are set, WhatsApp messages wait in the outbox as `not configured` and nothing is sent. Details are in `API.md` under *WhatsApp*.
 
 ## Deploy
+
+**Latest deployment (Render):** web workspace <https://plastics-maintenance-platform.onrender.com/> · field app <https://plastics-maintenance-platform.onrender.com/mobile/>
 
 The platform ships as a single Docker container: the API, the web workspace and the field app together. The database and uploads live on the `/data` volume.
 
