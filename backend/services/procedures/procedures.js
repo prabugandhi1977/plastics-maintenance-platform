@@ -4,6 +4,7 @@ import { id, now, one, all, run } from '../../common/db.js';
 import { audit, byId, ticketEvent } from '../../common/access.js';
 import { array, bad, integer, required } from '../../common/validate.js';
 import { MACHINE_TYPES } from '../../common/catalog.js';
+import { storeFile } from '../../common/files.js';
 
 export const J=(v,d)=>{ try { return JSON.parse(v); } catch { return d; } };
 const MAX_STEP_SECONDS=8*3600;
@@ -69,7 +70,7 @@ export async function runsOf(ticketId) {
 }
 
 // Record a step: {status:'done'|'skipped'|'pending', measurementValue?, photoId?, note?, deviation?}. A measured step needs its value; a value
-// outside the limits needs a deviation note; a step that requires a photo needs one from this ticket; a mandatory step cannot be skipped.
+// outside the limits needs a deviation note; a step that requires a photo needs one (sent with the step, or from this ticket); a mandatory step cannot be skipped.
 export async function recordStep(u,ticket,row,body) {
   const def=J(row.def,{}), status=body.status; if (!['done','skipped','pending'].includes(status)) bad('status must be one of: done, skipped, pending');
   const note=text(body.note,'note',1000), deviation=text(body.deviation,'deviation',500);
@@ -82,10 +83,17 @@ export async function recordStep(u,ticket,row,body) {
       const m=def.measurement; inRange=(m.min==null||value>=m.min)&&(m.max==null||value<=m.max)?1:0;
       if (!inRange&&!deviation) bad(`${def.measurement.name} ${value}${m.unit?' '+m.unit:''} is outside ${m.min??'…'} to ${m.max??'…'}: record a deviation note`);
     }
+    // The photo is either already on this ticket (photoId) or sent with the step as {filename,mime,base64}, so that a step recorded
+    // without a connection is one queued action that carries its own photo.
     if (def.requiresPhoto) {
-      const a=typeof body.photoId==='string'?await one("SELECT id FROM attachments WHERE id=? AND entity_type='ticket' AND entity_id=? AND kind='photo'",body.photoId,ticket.id):null;
-      if (!a) bad('This step needs a photo: upload it to this ticket first and send its photoId');
-      photoId=a.id;
+      if (body.photo!=null) {
+        if (typeof body.photo!=='object'||Array.isArray(body.photo)) bad('photo must be {filename, mime, base64}');
+        photoId=(await storeFile(u,{companyId:ticket.company_id,entityType:'ticket',entityId:ticket.id,kind:'photo',filename:body.photo.filename,mime:body.photo.mime,base64:body.photo.base64})).id;
+      } else {
+        const a=typeof body.photoId==='string'?await one("SELECT id FROM attachments WHERE id=? AND entity_type='ticket' AND entity_id=? AND kind='photo'",body.photoId,ticket.id):null;
+        if (!a) bad('This step needs a photo: send it with the step as photo, or upload it to this ticket and send its photoId');
+        photoId=a.id;
+      }
     }
     const run0=await one('SELECT * FROM ticket_procedures WHERE id=?',row.ticket_procedure_id);
     const last=await one("SELECT max(completed_at) t FROM ticket_procedure_steps WHERE ticket_procedure_id=? AND id<>? AND completed_at IS NOT NULL",row.ticket_procedure_id,row.id);

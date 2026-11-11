@@ -18,3 +18,7 @@ label.inline{display:flex;gap:8px;align-items:center;margin:-4px 0 14px}label.in
 label.pick{display:flex;gap:10px;align-items:flex-start;font-size:15px;color:inherit;border:1px solid #dde9e9;border-radius:10px;padding:10px 12px;margin:0 0 8px;background:#f8fbfb}label.pick input{width:auto;margin:3px 0 0;flex:none}#sp-results{margin:4px 0 12px}
 
 .andon-card{border-left:6px solid #c62f2f}.andon-card.quality{border-left-color:#d29a00}.andon-card.material{border-left-color:#2a78d6}.andon-card.supervisor{border-left-color:#7b4fc9}.andon-card.safety{border-left-color:#f5c400;background:#fffbe6}.andon-card.open{background:#fff6f4}.andon-card .actions{display:flex;gap:8px;flex-wrap:wrap}.andon-card .actions button{flex:1}.badge.critical{background:#f9e7e2;color:#a34531}
+
+/* Procedures */
+.pstep{border:1px solid #dde9e9;border-left:4px solid #c7d3d5;border-radius:10px;padding:10px 12px;margin:10px 0;background:#fff}.pstep.done{border-left-color:#1b6547}.pstep.skipped{opacity:.85}.pstep p{margin:6px 0}.pstep-safety{background:#fff0d7;color:#8d5a00;margin:8px 0}
+.overdue{color:#a34531}
