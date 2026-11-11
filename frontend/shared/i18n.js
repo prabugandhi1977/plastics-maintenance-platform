@@ -3362,6 +3362,11 @@ const en={
   "pe.overExpected":"over",
   "pe.noRuns":"No work order has used this procedure yet.",
   "pe.analyticsNote":"Step times are counted from the previous step (the first step from when the procedure was attached), so a break between steps counts. Steps that often go out of range, carry a deviation or run over the expected time are where the procedure or the training needs a look.",
+  "prc.enterValue":"Enter the {value}.",
+  "prc.valueOutside":"{name} {value} is outside {limits}: write a deviation note.",
+  "prc.photoNeeded":"This step needs a photo.",
+  "prc.finishStepsFirst":"Complete the procedure steps first: {value}",
+  "prc.needsConnection":"Adding a procedure needs a connection. Steps already on this job can be recorded without one.",
 };
 const de={
   'app.tagline':'Service-Arbeitsplatz für die Kunststoffverarbeitung','nav.menu':'Menü','app.brandLine':'Instandhaltung · Fertigung · Qualität','theme.light':'Hell','theme.dark':'Dunkel','theme.auto':'Auto','theme.label':'Farbschema','label.viewingAs':'Ansicht als','env.demo':'Demodaten','env.demoHelp':'Diese Kopie enthält die Demo-Firmen und -Konten. Keine echten Daten eingeben.','env.live':'Live-System','env.liveHelp':'Die echten Daten Ihrer Firma.','app.field':'Mobiler Arbeitsplatz für Techniker',

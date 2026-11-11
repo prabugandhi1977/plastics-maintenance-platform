@@ -88,6 +88,9 @@ test('steps are recorded with their measurement, photo and deviation; the run co
   const other=await newTicket(), foreign=(await call('/attachments','POST',{entityType:'ticket',entityId:other,kind:'photo',filename:'x.png',mime:'image/png',base64:PNG},tokens.acme)).data.id;
   assert.equal((await step(s3.id,{status:'done',photoId:foreign})).status,400,'a photo from another ticket does not count');
   const photo=(await call('/attachments','POST',{entityType:'ticket',entityId:t,kind:'photo',filename:'platen.png',mime:'image/png',base64:PNG},tokens.engineer)).data.id;
+  assert.equal((await step(s3.id,{status:'done',photo:'text'})).status,400,'photo must be an object');
+  assert.equal((await step(s3.id,{status:'done',photo:{filename:'x.png',mime:'image/png',base64:'not base64!'}})).status,400);
+  assert.equal((await one("SELECT count(*)::int n FROM attachments WHERE entity_id=? AND kind='photo'",t)).n,1,'a refused photo is not stored');
   assert.equal((await step(s4.id,{status:'skipped'})).status,400,'a skipped step says why');
   assert.equal((await step(s4.id,{status:'skipped',note:'Guard already clean'})).status,200);
   let r=await step(s3.id,{status:'done',photoId:photo}); assert.equal(r.status,200); assert.equal(r.data.steps[2].photoId,photo);
@@ -125,4 +128,16 @@ test('analytics: how often each step is done, skipped, out of range or noted, an
   const guard=v2.find(s=>s.title==='Wipe down the guard'); assert.equal(guard.skipped,1); assert.equal(guard.skipRate,0.5);
   assert.ok(torque.averageMinutes==null||typeof torque.averageMinutes==='number'); assert.equal(typeof a.averageRunMinutes==='number'||a.averageRunMinutes===null,true);
   const only3=(await call('/procedures/by-code/IMM-TIEBAR/analytics?version=3','GET',null,tokens.dispatch)).data; assert.equal(only3.runs,1);
+});
+
+test('a step can carry its own photo, so one queued offline action is enough, and a replay changes nothing',async()=>{
+  const t=await newTicket(); await toEngineer(t); await accept(t);
+  const run1=(await call(`/tickets/${t}/procedures`,'POST',{procedureId:(await call('/procedures?status=active','GET',null,tokens.dispatch)).data.find(p=>p.code==='IMM-TIEBAR').id},tokens.engineer)).data;
+  const s3=run1.steps[2], action=crypto.randomUUID(), body={status:'done',photo:{filename:'platen.png',mime:'image/png',base64:PNG}};
+  const first=await call(`/procedure-steps/${s3.id}`,'POST',body,tokens.engineer,{'x-client-action-id':action});
+  assert.equal(first.status,200); const photoId=first.data.steps[2].photoId; assert.ok(photoId);
+  const att=await one('SELECT entity_type,entity_id,kind,mime FROM attachments WHERE id=?',photoId); assert.deepEqual([att.entity_type,att.entity_id,att.kind,att.mime],['ticket',t,'photo','image/png']);
+  const again=await call(`/procedure-steps/${s3.id}`,'POST',body,tokens.engineer,{'x-client-action-id':action});
+  assert.equal(again.status,200); assert.equal(again.data.steps[2].photoId,photoId);
+  assert.equal((await one("SELECT count(*)::int n FROM attachments WHERE entity_id=? AND kind='photo'",t)).n,1,'the replay did not store a second photo');
 });

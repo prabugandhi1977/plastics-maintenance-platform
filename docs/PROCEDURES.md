@@ -44,8 +44,18 @@ On a ticket's page a **Procedures** panel shows each attached procedure with its
 
 Under each step the panel shows what was recorded: the value and whether it was in range, the photo, the note, the deviation, who did it, when, and how long it took. Customers and dispatchers who can see the ticket see the same record. The panel shows how many required steps are done.
 
+## In the field app (offline)
+
+The field app (`/mobile/`) shows a ticket's procedures and lets the technician record steps with or without a connection.
+
+- The procedures come with the ticket when it is opened online, so they are cached with it. Open the job while you have a connection, accept it, then open it again if a procedure was attached automatically, and the steps are on the device.
+- **Record**, **Skip** and **Undo** work offline. Each is one queued action, shown on the device straight away as "Saved on this device" and sent in order when the connection returns. A step that needs a photo carries the photo inside the same action.
+- The rules are checked on the device first (a value outside the limits needs a deviation note, a required photo, a skip needs a reason), because the server refuses an action that breaks them and a refused action stops the queue. An error shows inside the form and keeps what was typed.
+- A job cannot be completed in the app while a mandatory step is open.
+- **Add procedure** needs a connection: attaching creates the steps on the server, and the steps' ids are needed to record them. If the job is accepted offline, procedures that attach on accept appear after the next sync.
+
 ## Not built yet
 
-- The offline field app does not show procedures. The web workspace needs a connection to record a step.
+- Adding a procedure to a job offline (it needs a connection).
 - German texts and a help-page entry.
 - Procedures per company, linking a procedure to the training it needs, and linking a step's parts to stock.
